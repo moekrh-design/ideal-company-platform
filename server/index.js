@@ -2805,8 +2805,28 @@ const server = http.createServer(async (req, res) => {
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
-      const student = school.students.find((item) => Number(item.id) === studentId);
+
+      // دعم structure students: البحث في school.students أولاً ثم في structure.classrooms
+      const classroomId = body.classroomId ? Number(body.classroomId) : null;
+      let student = school.students.find((item) => Number(item.id) === studentId);
+      let structureStudent = null;
+      let classroomRef = null;
+      if (!student && classroomId && school.structure?.classrooms) {
+        classroomRef = school.structure.classrooms.find((c) => Number(c.id) === classroomId);
+        if (classroomRef?.students) {
+          structureStudent = classroomRef.students.find((item) => Number(item.id) === studentId);
+          student = structureStudent;
+        }
+      }
+      // إذا لم يُعثر عليه بعد، ابحث في جميع فصول structure
+      if (!student && school.structure?.classrooms) {
+        for (const cls of school.structure.classrooms) {
+          const found = cls.students?.find((item) => Number(item.id) === studentId);
+          if (found) { structureStudent = found; classroomRef = cls; student = found; break; }
+        }
+      }
       if (!student) return sendJson(res, 404, { ok: false, message: 'الطالب غير موجود.' });
+
       const signature = Array.isArray(body.signature) ? body.signature : [];
       // تخزين الصورة مباشرة كـ data URL في قاعدة البيانات (دائم على Railway)
       // بدلاً من الـ filesystem الذي يُمسح عند كل إعادة نشر
@@ -2828,9 +2848,16 @@ const server = http.createServer(async (req, res) => {
       student.faceReady = Boolean(signature.length || imageUrl);
       student.faceSignature = signature;
       student.facePhoto = imageUrl || '';
-      const saved = await await saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       const updatedSchool = saved.schools.find((item) => Number(item.id) === schoolId);
-      const updatedStudent = updatedSchool?.students?.find((item) => Number(item.id) === studentId) || null;
+      // إرجاع الطالب المحدَّث سواء كان في students أو structure.classrooms
+      let updatedStudent = updatedSchool?.students?.find((item) => Number(item.id) === studentId) || null;
+      if (!updatedStudent && updatedSchool?.structure?.classrooms) {
+        for (const cls of updatedSchool.structure.classrooms) {
+          const found = cls.students?.find((item) => Number(item.id) === studentId);
+          if (found) { updatedStudent = found; break; }
+        }
+      }
       return sendJson(res, 200, { ok: true, student: updatedStudent, state: sanitizeStateForClient(saved) });
     }
 

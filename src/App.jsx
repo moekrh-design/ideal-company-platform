@@ -10387,15 +10387,24 @@ export default function App() {
     pushNotification("تميّز سلوكي", `تمت إضافة نقاط سلوك للطالب ${student.name}.`);
   };
 
+  const resolveStudentForFace = (studentId) => {
+    // دعم structure students (id مثل "structure-1-5") وكذلك school students
+    const unifiedAll = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true });
+    const unified = unifiedAll.find((item) => String(item.id) === String(studentId));
+    if (unified) return unified;
+    return selectedSchool.students.find((item) => String(item.id) === String(studentId)) || null;
+  };
+
   const handleEnrollFace = async (studentId, file) => {
-    const student = selectedSchool.students.find((item) => item.id === studentId);
+    const student = resolveStudentForFace(studentId);
     if (!student) return;
+    const realId = student.rawId || student.id;
     const template = await buildFaceTemplateFromFile(file);
     try {
-      const response = await apiRequest(`/api/schools/${selectedSchool.id}/students/${studentId}/face`, {
+      const response = await apiRequest(`/api/schools/${selectedSchool.id}/students/${realId}/face`, {
         method: 'POST',
         token: getSessionToken(),
-        body: { imageData: template.photo, signature: template.signature },
+        body: { imageData: template.photo, signature: template.signature, classroomId: student.classroomId || null },
       });
       applyServerStatePayload(response.state || {}, loadUiState());
       pushNotification("تسجيل بصمة الوجه", `تم حفظ صورة الوجه للطالب ${student.name} في التخزين المركزي.`);
@@ -10405,14 +10414,15 @@ export default function App() {
   };
 
   const handleEnrollFaceDataUrl = async (studentId, dataUrl) => {
-    const student = selectedSchool.students.find((item) => item.id === studentId);
+    const student = resolveStudentForFace(studentId);
     if (!student) return;
+    const realId = student.rawId || student.id;
     const template = await buildFaceTemplateFromDataUrl(dataUrl);
     try {
-      const response = await apiRequest(`/api/schools/${selectedSchool.id}/students/${studentId}/face`, {
+      const response = await apiRequest(`/api/schools/${selectedSchool.id}/students/${realId}/face`, {
         method: 'POST',
         token: getSessionToken(),
-        body: { imageData: template.photo, signature: template.signature },
+        body: { imageData: template.photo, signature: template.signature, classroomId: student.classroomId || null },
       });
       applyServerStatePayload(response.state || {}, loadUiState());
       pushNotification("تسجيل بصمة الوجه", `تم التقاط صورة مباشرة وحفظها للطالب ${student.name}.`);
@@ -10422,14 +10432,24 @@ export default function App() {
   };
 
   const handleClearFace = (studentId) => {
-    const student = selectedSchool.students.find((item) => item.id === studentId);
+    const student = resolveStudentForFace(studentId);
     if (!student) return;
+    const realId = student.rawId || student.id;
+    const cid = student.classroomId ? Number(student.classroomId) : null;
     setSchools((prev) => prev.map((school) => {
       if (school.id !== selectedSchool.id) return school;
-      return {
-        ...school,
-        students: school.students.map((item) => item.id !== studentId ? item : { ...item, faceReady: false, facePhoto: "", faceSignature: [] }),
-      };
+      const updatedStudents = school.students.map((item) => Number(item.id) !== Number(realId) ? item : { ...item, faceReady: false, facePhoto: "", faceSignature: [] });
+      const updatedStructure = school.structure?.classrooms ? {
+        ...school.structure,
+        classrooms: school.structure.classrooms.map((cls) => {
+          if (cid && Number(cls.id) !== cid) return cls;
+          return {
+            ...cls,
+            students: (cls.students || []).map((item) => Number(item.id) !== Number(realId) ? item : { ...item, faceReady: false, facePhoto: "", faceSignature: [] }),
+          };
+        }),
+      } : school.structure;
+      return { ...school, students: updatedStudents, structure: updatedStructure };
     }));
     pushNotification("حذف بصمة الوجه", `تم مسح بصمة الوجه المحفوظة للطالب ${student.name}.`);
   };
