@@ -2100,6 +2100,7 @@ function QrCodeVisual({ value, size = 172, className = "", imageClassName = "" }
 
 function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetectBarcode, onDetectFace, variant = "default", autoStart = false, hideDeviceSelect = false, videoHeightClass = "h-56" }) {
   const videoRef = useRef(null);
+  const canvasOverlayRef = useRef(null);
   const streamRef = useRef(null);
   const timerRef = useRef(null);
   const readyTimerRef = useRef(null);
@@ -2113,6 +2114,72 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
   const [showGreenFrame, setShowGreenFrame] = useState(false);
+  // detectionHint: { type: 'face'|'barcode', box: {x,y,w,h}|null } | null
+  const [detectionHint, setDetectionHint] = useState(null);
+  const detectionHintTimerRef = useRef(null);
+
+  // رسم إطار الكشف على canvas overlay
+  const drawDetectionBox = useCallback((type, box) => {
+    const canvas = canvasOverlayRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+    const vw = video.videoWidth || video.clientWidth;
+    const vh = video.videoHeight || video.clientHeight;
+    const cw = canvas.clientWidth;
+    const ch = canvas.clientHeight;
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, cw, ch);
+    if (!box) return;
+    // تحويل إحداثيات الفيديو إلى إحداثيات canvas
+    const scaleX = cw / (vw || cw);
+    const scaleY = ch / (vh || ch);
+    const x = box.x * scaleX;
+    const y = box.y * scaleY;
+    const w = box.width * scaleX;
+    const h = box.height * scaleY;
+    const color = type === 'face' ? '#10b981' : '#3b82f6';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12;
+    // رسم زوايا الإطار بدلاً من مستطيل كامل (أجمل بصرياً)
+    const corner = Math.min(w, h) * 0.22;
+    ctx.beginPath();
+    // زاوية علوية يسرى
+    ctx.moveTo(x + corner, y); ctx.lineTo(x, y); ctx.lineTo(x, y + corner);
+    // زاوية علوية يمنى
+    ctx.moveTo(x + w - corner, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + corner);
+    // زاوية سفلية يسرى
+    ctx.moveTo(x, y + h - corner); ctx.lineTo(x, y + h); ctx.lineTo(x + corner, y + h);
+    // زاوية سفلية يمنى
+    ctx.moveTo(x + w - corner, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - corner);
+    ctx.stroke();
+    // نقطة مركزية
+    ctx.fillStyle = color;
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.arc(x + w / 2, y + h / 2, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }, []);
+
+  const clearDetectionBox = useCallback(() => {
+    const canvas = canvasOverlayRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setDetectionHint(null);
+  }, []);
+
+  const showDetectionHint = useCallback((type, box) => {
+    setDetectionHint({ type, box });
+    drawDetectionBox(type, box);
+    if (detectionHintTimerRef.current) window.clearTimeout(detectionHintTimerRef.current);
+    detectionHintTimerRef.current = window.setTimeout(() => {
+      clearDetectionBox();
+    }, 1200);
+  }, [drawDetectionBox, clearDetectionBox]);
 
   const clearReadyWatcher = useCallback(() => {
     if (readyTimerRef.current) {
@@ -2296,7 +2363,6 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     if (!(active && ["barcode", "mixed"].includes(mode) && onDetectBarcode && videoRef.current)) return undefined;
     let cancelled = false;
     let processing = false;
-
     const tick = async () => {
       if (cancelled || !videoRef.current || processing) return;
       if (!(videoRef.current.videoWidth && videoRef.current.videoHeight)) {
@@ -2305,6 +2371,20 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       }
       processing = true;
       try {
+        // محاولة كشف موضع الباركود أولاً لإظهار مؤشر بصري
+        if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+          try {
+            const barcodeDetector = new window.BarcodeDetector({ formats: ['qr_code', 'code_39', 'code_128'] });
+            const codes = await barcodeDetector.detect(videoRef.current);
+            if (codes && codes.length > 0) {
+              const code = codes[0];
+              const box = code.boundingBox;
+              if (box) showDetectionHint('barcode', box);
+            }
+          } catch {
+            // ignore - سيتم الكشف في الخطوة التالية
+          }
+        }
         const value = await detectBarcodeValueFromSource(videoRef.current);
         if (value) {
           flashSuccessFrame(`تمت قراءة QR مباشرة: ${value}`);
@@ -2319,7 +2399,6 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       }
       timerRef.current = window.setTimeout(tick, 350);
     };
-
     timerRef.current = window.setTimeout(tick, 500);
     return () => {
       cancelled = true;
@@ -2328,7 +2407,7 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
         timerRef.current = null;
       }
     };
-  }, [active, flashSuccessFrame, mode, onDetectBarcode, stopCamera]);
+  }, [active, flashSuccessFrame, mode, onDetectBarcode, showDetectionHint, stopCamera]);
 
   useEffect(() => {
     if (!(active && ["face", "mixed"].includes(mode) && onDetectFace && videoRef.current)) return undefined;
@@ -2343,7 +2422,42 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       }
       processing = true;
       try {
-        const dataUrl = captureDataUrlFromVideo(videoRef.current, 0.88);
+        // الخطوة 1: كشف الوجه أولاً قبل إرسال الصورة للمطابقة
+        const video = videoRef.current;
+        let faceBox = null;
+        let faceDetected = false;
+
+        // محاولة استخدام FaceDetector API المدمج في المتصفح
+        if (typeof window !== 'undefined' && 'FaceDetector' in window) {
+          try {
+            const detector = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
+            const faces = await detector.detect(video);
+            if (faces && faces.length > 0) {
+              faceDetected = true;
+              faceBox = faces[0].boundingBox;
+            }
+          } catch {
+            // FaceDetector غير مدعوم - نرسل الصورة مباشرة
+            faceDetected = true;
+          }
+        } else {
+          // إذا لم يتوفر FaceDetector نرسل الصورة مباشرة
+          faceDetected = true;
+        }
+
+        if (!faceDetected) {
+          // لا يوجد وجه - ننتظر ونحاول مجدداً
+          timerRef.current = window.setTimeout(tick, 600);
+          return;
+        }
+
+        // الخطوة 2: إظهار مؤشر بصري عند اكتشاف الوجه
+        if (faceBox) {
+          showDetectionHint('face', faceBox);
+        }
+
+        // الخطوة 3: إرسال الصورة للمطابقة
+        const dataUrl = captureDataUrlFromVideo(video, 0.88);
         if (dataUrl) {
           const result = await onDetectFace(dataUrl);
           if (result) {
@@ -2358,10 +2472,10 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       } finally {
         processing = false;
       }
-      timerRef.current = window.setTimeout(tick, mode === "mixed" ? 1500 : 1200);
+      timerRef.current = window.setTimeout(tick, mode === "mixed" ? 1200 : 900);
     };
 
-    timerRef.current = window.setTimeout(tick, 900);
+    timerRef.current = window.setTimeout(tick, 800);
     return () => {
       cancelled = true;
       if (timerRef.current) {
@@ -2369,7 +2483,7 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
         timerRef.current = null;
       }
     };
-  }, [active, flashSuccessFrame, mode, onDetectFace, stopCamera]);
+  }, [active, flashSuccessFrame, mode, onDetectFace, showDetectionHint, stopCamera]);
 
   useEffect(() => {
     if (!autoStart || hasAutoStartedRef.current) return undefined;
@@ -2431,10 +2545,12 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       ) : null}
       <div className={cx("relative mt-4 overflow-hidden rounded-2xl bg-slate-900", variant === "gate" ? "border border-white/10 shadow-2xl" : "") }>
         {active ? <video ref={videoRef} className={cx(videoHeightClass, "w-full object-cover")} muted playsInline autoPlay onCanPlay={() => { if (videoRef.current?.videoWidth && videoRef.current?.videoHeight) { setCameraReady(true); clearReadyWatcher(); } }} /> : <div className={cx("flex items-center justify-center px-5 text-center text-sm text-white/80", videoHeightClass)}>افتح الكاميرا من هنا لالتقاط الوجه أو قراءة QR مباشرة من اللابتوب أو الآيباد أو الجوال.</div>}
-        <div className="pointer-events-none absolute inset-0">
+        {/* Canvas overlay لرسم إطار الكشف حول الوجه أو الباركود */}
+        {active ? <canvas ref={canvasOverlayRef} className="pointer-events-none absolute inset-0 h-full w-full" style={{ zIndex: 10 }} /> : null}
+        <div className="pointer-events-none absolute inset-0" style={{ zIndex: 20 }}>
           <div className={cx("absolute inset-4 rounded-[28px] border-4 transition-all duration-200", showGreenFrame ? "border-emerald-400 shadow-[0_0_0_4px_rgba(16,185,129,0.18),0_0_35px_rgba(16,185,129,0.35)]" : cameraReady ? "border-white/70" : "border-amber-300/80 animate-pulse")} />
           <div className="absolute inset-x-0 top-4 flex justify-center">
-            <div className={cx("rounded-full px-4 py-2 text-xs font-black shadow-lg", showGreenFrame ? "bg-emerald-500 text-white" : cameraReady ? "bg-slate-900/70 text-white" : "bg-amber-400 text-slate-900")}>{showGreenFrame ? "تمت القراءة" : cameraReady ? (mode === "barcode" ? "وجّه QR داخل الإطار" : mode === "face" ? "وجّه الوجه داخل الإطار" : "وجّه QR أو الوجه داخل الإطار") : "جارٍ تهيئة الكاميرا"}</div>
+            <div className={cx("rounded-full px-4 py-2 text-xs font-black shadow-lg transition-all duration-200", showGreenFrame ? "bg-emerald-500 text-white" : detectionHint?.type === 'face' ? "bg-emerald-700/90 text-white" : detectionHint?.type === 'barcode' ? "bg-blue-600/90 text-white" : cameraReady ? "bg-slate-900/70 text-white" : "bg-amber-400 text-slate-900")}>{showGreenFrame ? "تمت القراءة" : detectionHint?.type === 'face' ? "وجه مكتشف - جارٍ المطابقة..." : detectionHint?.type === 'barcode' ? "باركود مكتشف - جارٍ القراءة..." : cameraReady ? (mode === "barcode" ? "وجّه QR داخل الإطار" : mode === "face" ? "وجّه الوجه داخل الإطار" : "وجّه QR أو الوجه داخل الإطار") : "جارٍ تهيئة الكاميرا"}</div>
           </div>
           {!cameraReady && active ? <div className="absolute inset-0 flex items-center justify-center bg-slate-950/35"><div className="rounded-3xl bg-slate-950/75 px-5 py-4 text-center text-sm font-bold text-white ring-1 ring-white/10">إذا بقيت الشاشة سوداء فبدّل مصدر الكاميرا أو اضغط إعادة التشغيل.</div></div> : null}
         </div>
