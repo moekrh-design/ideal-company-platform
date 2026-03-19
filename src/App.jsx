@@ -2175,24 +2175,43 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     const video = videoRef.current;
     if (!video) return false;
     if (!stream || !stream.active) return false;
+    // Reset first to avoid stale srcObject on iOS
+    video.pause?.();
+    video.srcObject = null;
+    video.load?.();
     video.muted = true;
     video.autoplay = true;
     video.playsInline = true;
-    video.setAttribute("muted", "true");
-    video.setAttribute("autoplay", "true");
-    video.setAttribute("playsinline", "true");
-    video.setAttribute("webkit-playsinline", "true");
+    video.setAttribute("muted", "");
+    video.setAttribute("autoplay", "");
+    video.setAttribute("playsinline", "");
+    video.setAttribute("webkit-playsinline", "");
+    // Small delay to let iOS release previous stream
+    await new Promise((resolve) => window.setTimeout(resolve, 80));
     video.srcObject = stream;
     await new Promise((resolve) => {
-      const finalize = () => resolve(true);
+      const finalize = () => { video.onloadedmetadata = null; resolve(true); };
       video.onloadedmetadata = finalize;
-      window.setTimeout(finalize, 800);
+      // iOS sometimes fires canplay instead of loadedmetadata
+      video.oncanplay = finalize;
+      window.setTimeout(finalize, 1200);
     });
+    video.oncanplay = null;
     try {
-      await video.play();
-    } catch {
-      // ignore autoplay race; video usually starts once user tapped start
+      const playPromise = video.play();
+      if (playPromise !== undefined) await playPromise;
+    } catch (err) {
+      // NotAllowedError on autoStart without user gesture - show play button
+      if (err && err.name === 'NotAllowedError') {
+        setError('اضغط على زر تشغيل الكاميرا لبدء البث.');
+      }
     }
+    // Extra play attempt after short delay for iOS Safari
+    window.setTimeout(async () => {
+      if (videoRef.current && videoRef.current.paused && videoRef.current.srcObject) {
+        try { await videoRef.current.play(); } catch { /* ignore */ }
+      }
+    }, 400);
     return Boolean(video.videoWidth || video.readyState >= 2);
   }, []);
 
@@ -2248,9 +2267,15 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     window.setTimeout(() => {
       const video = videoRef.current;
       if (streamRef.current && !(video?.videoWidth && video?.videoHeight)) {
-        setError("الكاميرا فُتحت لكن لم يصل بث الصورة. جرّب إعادة التشغيل أو بدّل مصدر الكاميرا.");
+        // Try one more play() before showing error (iOS may need extra nudge)
+        video?.play?.().catch(() => {});
+        window.setTimeout(() => {
+          if (streamRef.current && !(videoRef.current?.videoWidth && videoRef.current?.videoHeight)) {
+            setError("الكاميرا فُتحت لكن لم يصل بث الصورة. جرّب إعادة التشغيل أو بدّل مصدر الكاميرا.");
+          }
+        }, 1500);
       }
-    }, 2500);
+    }, 4000);
     loadDevices();
   }, [applyStreamToVideo, clearReadyWatcher, devices, loadDevices, mode, selectedDeviceId, stopCamera]);
 
@@ -7283,6 +7308,11 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
     setLastExecution(null);
     setStatusMessage('جاهز لتنفيذ متتابع. امسح الطالب التالي مباشرة.');
     setIdentifyMethod('barcode');
+    setScanSessionKey((value) => value + 1);
+  };
+  const continueOnSameStudent = () => {
+    setLastExecution(null);
+    setStatusMessage('جاهز لتنفيذ إجراء آخر على نفس الطالب.');
     setScanSessionKey((value) => value + 1);
   };
 
