@@ -2456,13 +2456,17 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
           showDetectionHint('face', faceBox);
         }
 
-        // الخطوة 3: إرسال الصورة للمطابقة
+        // الخطوة 3: إرسال الصورة للمطابقة أو الحفظ
         const dataUrl = captureDataUrlFromVideo(video, 0.88);
         if (dataUrl) {
           const result = await onDetectFace(dataUrl);
           if (result) {
             const name = typeof result === "object" ? result.name : "الطالب";
-            flashSuccessFrame(`تمت المطابقة المباشرة للوجه${name ? `: ${name}` : ""}`);
+            const isEnroll = typeof result === "object" && result.enrolled;
+            const msg = isEnroll
+              ? `تم حفظ بصمة الوجه${name ? ` لـ: ${name}` : ""}`
+              : `تمت المطابقة المباشرة للوجه${name ? `: ${name}` : ""}`;
+            flashSuccessFrame(msg);
             window.setTimeout(() => stopCamera(), 1900);
             return;
           }
@@ -5370,10 +5374,14 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
   };
 
   const handleFaceCameraCapture = async (dataUrl) => {
-    if (!featuredStudent) return;
+    if (!featuredStudent) return null;
     setFaceBusy(true);
     try {
       await onEnrollFaceDataUrl(featuredStudent.id, dataUrl);
+      // إرجاع اسم الطالب لإيقاف الكاميرا وعرض رسالة نجاح
+      return { name: featuredStudent.name, enrolled: true };
+    } catch {
+      return null;
     } finally {
       setFaceBusy(false);
     }
@@ -5610,7 +5618,7 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
                       </label>
                       <button onClick={() => onClearFace(featuredStudent.id)} className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">حذف البصمة</button>
                     </div>
-                    <LiveCameraPanel mode="face" title="التقاط مباشر" description="يمكن أخذ صورة مباشرة من الكاميرا وربطها بالطالب المحدد." onCapture={handleFaceCameraCapture} />
+                    <LiveCameraPanel mode="face" title="التقاط مباشر" description="يمكن أخذ صورة مباشرة من الكاميرا وربطها بالطالب المحدد. الكاميرا تكشف الوجه تلقائياً وتحفظ الصورة فور اكتشافه." onCapture={handleFaceCameraCapture} onDetectFace={handleFaceCameraCapture} />
                     {faceBusy ? <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">جارٍ حفظ البصمة...</div> : null}
                   </div>
                 ) : null}

@@ -2808,7 +2808,23 @@ const server = http.createServer(async (req, res) => {
       const student = school.students.find((item) => Number(item.id) === studentId);
       if (!student) return sendJson(res, 404, { ok: false, message: 'الطالب غير موجود.' });
       const signature = Array.isArray(body.signature) ? body.signature : [];
-      const imageUrl = body.imageData ? await writeDataUrlToUploads(FACE_UPLOADS_DIR, [String(schoolId), String(studentId)], `face-${Date.now()}`, body.imageData) : student.facePhoto;
+      // تخزين الصورة مباشرة كـ data URL في قاعدة البيانات (دائم على Railway)
+      // بدلاً من الـ filesystem الذي يُمسح عند كل إعادة نشر
+      let imageUrl = student.facePhoto;
+      if (body.imageData) {
+        const dataUrl = String(body.imageData);
+        if (dataUrl.startsWith('data:')) {
+          // حفظ الصورة كـ data URL مباشرة في قاعدة البيانات
+          imageUrl = dataUrl;
+        } else {
+          // محاولة الحفظ في الـ filesystem كـ fallback
+          try {
+            imageUrl = await writeDataUrlToUploads(FACE_UPLOADS_DIR, [String(schoolId), String(studentId)], `face-${Date.now()}`, body.imageData);
+          } catch {
+            imageUrl = student.facePhoto;
+          }
+        }
+      }
       student.faceReady = Boolean(signature.length || imageUrl);
       student.faceSignature = signature;
       student.facePhoto = imageUrl || '';
