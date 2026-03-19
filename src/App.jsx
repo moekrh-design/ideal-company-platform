@@ -3193,7 +3193,14 @@ function PublicGatePage({ token }) {
       } catch {}
     };
     socket.onerror = () => { if (!payload) console.warn('WebSocket gate stream unavailable'); };
-    return () => socket.close();
+    // polling كل 15 ثانية لضمان تحديث الإحصائيات حتى لو انقطع WebSocket
+    const pollInterval = window.setInterval(async () => {
+      try {
+        const res = await apiRequest(`/api/public/gate/${token}/live`);
+        if (res?.live) setPayload((prev) => prev ? ({ ...prev, live: res.live }) : prev);
+      } catch {}
+    }, 15000);
+    return () => { socket.close(); window.clearInterval(pollInterval); };
   }, [loadGate, token]);
 
   const students = payload?.students || [];
@@ -3220,7 +3227,8 @@ function PublicGatePage({ token }) {
     setBusy(true);
     try {
       const response = await apiRequest(`/api/public/gate/${token}/scan`, { method: 'POST', body: { barcode, method } });
-      setPayload((prev) => ({ ...prev, live: response.live }));
+      // تحديث live فقط إذا كان موجوداً في الرد
+      if (response.live) setPayload((prev) => ({ ...prev, live: response.live }));
       setMessage(`${response.student?.name || ''} • ${response.message}`);
       setManualQuery('');
     } catch (err) {

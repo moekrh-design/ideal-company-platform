@@ -2931,6 +2931,14 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, school: { id: match.school.id, name: match.school.name, city: match.school.city, attendanceSource: attendanceSource.label }, gate: match.gate, live, students });
     }
 
+    const publicGateLiveMatch = reqUrl.pathname.match(/^\/api\/public\/gate\/([^/]+)\/live$/);
+    if (publicGateLiveMatch && req.method === 'GET') {
+      const state = getSharedState();
+      const match = findGateConfigByToken(state, publicGateLiveMatch[1]);
+      if (!match) return sendJson(res, 404, { ok: false, message: 'رابط البوابة غير صالح.' });
+      const live = summarizeSchoolLivePayload(state, match.school.id);
+      return sendJson(res, 200, { ok: true, live });
+    }
     const publicGateScanMatch = reqUrl.pathname.match(/^\/api\/public\/gate\/([^/]+)\/scan$/);
     if (publicGateScanMatch && req.method === 'POST') {
       const state = getSharedState();
