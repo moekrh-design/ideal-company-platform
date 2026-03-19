@@ -2119,6 +2119,8 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
   const readyTimerRef = useRef(null);
   const successTimerRef = useRef(null);
   const hasAutoStartedRef = useRef(false);
+  const autoRestartRef = useRef(autoRestart);
+  const startCameraRef = useRef(null);
   const [active, setActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -2361,6 +2363,13 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
         clearReadyWatcher();
       }
     }, 200);
+    // بعد 2.5 ثانية نعتبر الكاميرا جاهزة حتى لو لم يُكتشف videoWidth (بعض الأجهزة)
+    window.setTimeout(() => {
+      if (streamRef.current) {
+        setCameraReady(true);
+        clearReadyWatcher();
+      }
+    }, 2500);
     window.setTimeout(() => {
       const video = videoRef.current;
       if (streamRef.current && !(video?.videoWidth && video?.videoHeight)) {
@@ -2368,13 +2377,17 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
         video?.play?.().catch(() => {});
         window.setTimeout(() => {
           if (streamRef.current && !(videoRef.current?.videoWidth && videoRef.current?.videoHeight)) {
-            setError("الكاميرا فُتحت لكن لم يصل بث الصورة. جرّب إعادة التشغيل أو بدّل مصدر الكاميرا.");
+            // لا نعرض خطأ بعد الآن لأننا اعتبرناها جاهزة بعد 2.5ث
           }
         }, 1500);
       }
     }, 4000);
     loadDevices();
   }, [applyStreamToVideo, clearReadyWatcher, devices, facingMode, loadDevices, mode, selectedDeviceId, stopCamera]);
+
+  // تحديث refs عند تغيير props
+  useEffect(() => { autoRestartRef.current = autoRestart; }, [autoRestart]);
+  useEffect(() => { startCameraRef.current = startCamera; }, [startCamera]);
 
   useEffect(() => () => stopCamera(), [stopCamera]);
 
@@ -2415,9 +2428,9 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
         if (value) {
           flashSuccessFrame(`تمت قراءة QR مباشرة: ${value}`);
           window.setTimeout(() => onDetectBarcode(value), 220);
-          if (autoRestart) {
+          if (autoRestartRef.current) {
             // إعادة تشغيل الكاميرا تلقائياً بعد ثانيتين للطالب التالي
-            window.setTimeout(() => { if (streamRef.current) startCamera(); }, 2200);
+            window.setTimeout(() => { startCameraRef.current?.(); }, 2200);
           } else {
             window.setTimeout(() => stopCamera(), 1900);
           }
@@ -2498,9 +2511,9 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
               ? `تم حفظ بصمة الوجه${name ? ` لـ: ${name}` : ""}`
               : `تمت المطابقة المباشرة للوجه${name ? `: ${name}` : ""}`;
             flashSuccessFrame(msg);
-            if (autoRestart) {
+            if (autoRestartRef.current) {
               // إعادة تشغيل الكاميرا تلقائياً بعد ثانيتين للطالب التالي
-              window.setTimeout(() => { if (streamRef.current) startCamera(); }, 2200);
+              window.setTimeout(() => { startCameraRef.current?.(); }, 2200);
             } else {
               window.setTimeout(() => stopCamera(), 1900);
             }
@@ -5438,13 +5451,20 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
   };
 
   const handleFaceCameraCapture = async (dataUrl) => {
-    if (!featuredStudent) return null;
+    if (!featuredStudent) {
+      window.alert('اختر طالباً أولاً قبل تسجيل البصمة.');
+      return null;
+    }
     setFaceBusy(true);
     try {
-      await onEnrollFaceDataUrl(featuredStudent.id, dataUrl);
-      // إرجاع اسم الطالب لإيقاف الكاميرا وعرض رسالة نجاح
-      return { name: featuredStudent.name, enrolled: true };
-    } catch {
+      const ok = await onEnrollFaceDataUrl(featuredStudent.id, dataUrl);
+      if (ok) {
+        // إرجاع اسم الطالب لإيقاف الكاميرا وعرض رسالة نجاح
+        return { name: featuredStudent.name, enrolled: true };
+      }
+      return null;
+    } catch (err) {
+      window.alert(err?.message || 'تعذر تسجيل بصمة الوجه.');
       return null;
     } finally {
       setFaceBusy(false);
@@ -10414,7 +10434,14 @@ export default function App() {
     // دعم structure students (id مثل "structure-1-5") وكذلك school students
     const unifiedAll = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true });
     const unified = unifiedAll.find((item) => String(item.id) === String(studentId));
-    if (unified) return unified;
+    if (unified) {
+      // ضمان rawId دائماً رقم صحيح - إذا كان id مركب مثل "structure-1-5" نستخرج الرقم الأخير
+      if (!unified.rawId && String(unified.id).startsWith('structure-')) {
+        const parts = String(unified.id).split('-');
+        unified.rawId = parts[parts.length - 1];
+      }
+      return unified;
+    }
     return selectedSchool.students.find((item) => String(item.id) === String(studentId)) || null;
   };
 
@@ -10438,20 +10465,17 @@ export default function App() {
 
   const handleEnrollFaceDataUrl = async (studentId, dataUrl) => {
     const student = resolveStudentForFace(studentId);
-    if (!student) return;
+    if (!student) throw new Error('لم يتم العثور على الطالب - تأكد من اختيار طالب أولاً.');
     const realId = student.rawId || student.id;
     const template = await buildFaceTemplateFromDataUrl(dataUrl);
-    try {
-      const response = await apiRequest(`/api/schools/${selectedSchool.id}/students/${realId}/face`, {
-        method: 'POST',
-        token: getSessionToken(),
-        body: { imageData: template.photo, signature: template.signature, classroomId: student.classroomId || null },
-      });
-      applyServerStatePayload(response.state || {}, loadUiState());
-      pushNotification("تسجيل بصمة الوجه", `تم التقاط صورة مباشرة وحفظها للطالب ${student.name}.`);
-    } catch (error) {
-      window.alert(error?.message || 'تعذر حفظ بصمة الوجه على الخادم.');
-    }
+    const response = await apiRequest(`/api/schools/${selectedSchool.id}/students/${realId}/face`, {
+      method: 'POST',
+      token: getSessionToken(),
+      body: { imageData: template.photo, signature: template.signature, classroomId: student.classroomId || null },
+    });
+    applyServerStatePayload(response.state || {}, loadUiState());
+    pushNotification("تسجيل بصمة الوجه", `تم التقاط صورة مباشرة وحفظها للطالب ${student.name}.`);
+    return true;
   };
 
   const handleClearFace = (studentId) => {
