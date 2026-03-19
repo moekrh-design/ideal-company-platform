@@ -322,6 +322,19 @@ export function hydrateSchools(schools) {
       attendanceRate: safeNumber(student.attendanceRate, 100),
       points: safeNumber(student.points),
     })),
+    // معالجة structure.classrooms.students لضمان حفظ facePhoto و faceReady
+    structure: school.structure ? {
+      ...school.structure,
+      classrooms: Array.isArray(school.structure.classrooms) ? school.structure.classrooms.map((classroom) => ({
+        ...classroom,
+        students: Array.isArray(classroom.students) ? classroom.students.map((student) => ({
+          ...student,
+          faceReady: Boolean(student.faceReady || student.facePhoto),
+          facePhoto: student.facePhoto || "",
+          faceSignature: Array.isArray(student.faceSignature) ? student.faceSignature : [],
+        })) : [],
+      })) : [],
+    } : school.structure,
   }));
 }
 

@@ -1030,6 +1030,19 @@ function hydrateSchools(schools) {
       attendanceRate: safeNumber(student.attendanceRate, 100),
       points: safeNumber(student.points),
     })),
+    // معالجة structure.classrooms.students لحفظ facePhoto و faceReady بشكل صحيح
+    structure: school.structure ? {
+      ...school.structure,
+      classrooms: Array.isArray(school.structure.classrooms) ? school.structure.classrooms.map((classroom) => ({
+        ...classroom,
+        students: Array.isArray(classroom.students) ? classroom.students.map((student) => ({
+          ...student,
+          faceReady: Boolean(student.faceReady || student.facePhoto),
+          facePhoto: student.facePhoto || "",
+          faceSignature: Array.isArray(student.faceSignature) ? student.faceSignature : [],
+        })) : [],
+      })) : [],
+    } : school.structure,
   }));
 }
 
@@ -2098,7 +2111,7 @@ function QrCodeVisual({ value, size = 172, className = "", imageClassName = "" }
   return <img src={src} alt={`QR ${value}`} className={cx("rounded-2xl bg-white object-contain", className, imageClassName)} style={{ width: size, height: size }} />;
 }
 
-function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetectBarcode, onDetectFace, variant = "default", autoStart = false, hideDeviceSelect = false, videoHeightClass = "h-56" }) {
+function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetectBarcode, onDetectFace, variant = "default", autoStart = false, autoRestart = false, hideDeviceSelect = false, videoHeightClass = "h-56" }) {
   const videoRef = useRef(null);
   const canvasOverlayRef = useRef(null);
   const streamRef = useRef(null);
@@ -2402,7 +2415,12 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
         if (value) {
           flashSuccessFrame(`تمت قراءة QR مباشرة: ${value}`);
           window.setTimeout(() => onDetectBarcode(value), 220);
-          window.setTimeout(() => stopCamera(), 1900);
+          if (autoRestart) {
+            // إعادة تشغيل الكاميرا تلقائياً بعد ثانيتين للطالب التالي
+            window.setTimeout(() => { if (streamRef.current) startCamera(); }, 2200);
+          } else {
+            window.setTimeout(() => stopCamera(), 1900);
+          }
           return;
         }
       } catch {
@@ -2480,7 +2498,12 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
               ? `تم حفظ بصمة الوجه${name ? ` لـ: ${name}` : ""}`
               : `تمت المطابقة المباشرة للوجه${name ? `: ${name}` : ""}`;
             flashSuccessFrame(msg);
-            window.setTimeout(() => stopCamera(), 1900);
+            if (autoRestart) {
+              // إعادة تشغيل الكاميرا تلقائياً بعد ثانيتين للطالب التالي
+              window.setTimeout(() => { if (streamRef.current) startCamera(); }, 2200);
+            } else {
+              window.setTimeout(() => stopCamera(), 1900);
+            }
             return;
           }
         }
@@ -3245,7 +3268,7 @@ function PublicGatePage({ token }) {
           <StatCard title="الخصومات اليوم" value={summaryView?.violationsToday || 0} subtitle="من سجل الإجراءات" icon={ClipboardCheck} />
         </div>
         <div className="rounded-[2rem] border border-white/10 bg-white/5 p-4 shadow-2xl backdrop-blur md:p-6">
-          <LiveCameraPanel mode={mode === 'qr' ? 'barcode' : mode === 'face' ? 'face' : 'mixed'} variant="gate" autoStart hideDeviceSelect videoHeightClass="h-[48vh] md:h-[58vh]" title={`مرحبًا بكم في ${payload.school?.name || 'المدرسة'}`} description={`${payload.gate?.name || 'البوابة'} • وجّه QR أو الوجه أمام الكاميرا وسيتم التعرف تلقائيًا.`} onDetectBarcode={(value) => submitScan(value, 'QR')} onDetectFace={resolveFaceDataUrl} onCapture={resolveFaceDataUrl} />
+          <LiveCameraPanel mode={mode === 'qr' ? 'barcode' : mode === 'face' ? 'face' : 'mixed'} variant="gate" autoStart autoRestart hideDeviceSelect videoHeightClass="h-[48vh] md:h-[58vh]" title={`مرحبًا بكم في ${payload.school?.name || 'المدرسة'}`} description={`${payload.gate?.name || 'البوابة'} • وجّه QR أو الوجه أمام الكاميرا وسيتم التعرف تلقائياً بدون تدخل يدوي.`} onDetectBarcode={(value) => submitScan(value, 'QR')} onDetectFace={resolveFaceDataUrl} onCapture={resolveFaceDataUrl} />
         </div>
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <div className="rounded-3xl bg-white p-5 text-slate-900 ring-1 ring-slate-200">
