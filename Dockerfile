@@ -7,8 +7,8 @@ COPY server/ ./server/
 COPY dist/ ./dist/
 COPY package.json ./
 
-# Install only nodemailer (the only external server dependency)
-RUN npm install nodemailer --no-save
+# Install server dependencies (pg for PostgreSQL, nodemailer for email)
+RUN npm install pg nodemailer --no-save
 
 ENV PORT=4000
 ENV NODE_ENV=production
