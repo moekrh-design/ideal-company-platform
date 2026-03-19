@@ -2138,6 +2138,7 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     return mode === 'barcode' || mode === 'mixed' ? 'environment' : 'user';
   });
   const [hasBothCameras, setHasBothCameras] = useState(false);
+  const [devicesLoaded, setDevicesLoaded] = useState(false);
 
   // رسم إطار الكشف على canvas overlay
   const drawDetectionBox = useCallback((type, box) => {
@@ -2244,19 +2245,23 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
   }, [clearReadyWatcher]);
 
   const loadDevices = useCallback(async () => {
-    if (!(navigator.mediaDevices?.enumerateDevices)) return;
+    if (!(navigator.mediaDevices?.enumerateDevices)) {
+      setDevicesLoaded(true);
+      return;
+    }
     try {
       const list = await navigator.mediaDevices.enumerateDevices();
       const cameras = list.filter((item) => item.kind === "videoinput");
       setDevices(cameras);
       if (!selectedDeviceId && cameras[0]?.deviceId) setSelectedDeviceId(cameras[0].deviceId);
     // اكتشاف ما إذا كان الجهاز يحتوي على كاميرتين (أمامية وخلفية)
-    // نتحقق من وجود كاميرتين عبر التحقق من facingMode أو عدد الكاميرات
     const hasEnv = cameras.some(c => c.label?.toLowerCase().includes('back') || c.label?.toLowerCase().includes('rear') || c.label?.toLowerCase().includes('خلف'));
     const hasUser = cameras.some(c => c.label?.toLowerCase().includes('front') || c.label?.toLowerCase().includes('face') || c.label?.toLowerCase().includes('أمام'));
     setHasBothCameras(cameras.length >= 2 || (hasEnv && hasUser));
     } catch {
       // ignore
+    } finally {
+      setDevicesLoaded(true);
     }
   }, [selectedDeviceId]);
 
@@ -2539,15 +2544,15 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
   }, [active, flashSuccessFrame, mode, onDetectFace, showDetectionHint, stopCamera]);
 
   useEffect(() => {
-    if (!autoStart || hasAutoStartedRef.current) return undefined;
+    // ننتظر حتى تنتهي loadDevices أولاً حتى تكون startCamera محدثة بالأجهزة الصحيحة
+    if (!autoStart || !devicesLoaded || hasAutoStartedRef.current) return undefined;
     hasAutoStartedRef.current = true;
-    // نستخدم startCameraRef.current لتجنب stale closures ومشاكل re-render
     const id = window.setTimeout(() => {
       if (!streamRef.current) startCameraRef.current?.();
-    }, 300);
+    }, 200);
     return () => window.clearTimeout(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart]);
+  }, [autoStart, devicesLoaded]);
 
   const captureFrame = async () => {
     if (!videoRef.current || !active) return;
