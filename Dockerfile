@@ -2,15 +2,26 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Cache bust to force rebuild: 2026-03-19-v2
-ARG CACHE_BUST=2026-03-19-v2
+# Cache bust: 2026-03-19-v5-full-rebuild
+ARG CACHE_BUST=2026-03-19-v5
 
-# Copy only what's needed for the server
+# Copy full source for build
+COPY package.json package-lock.json* ./
+COPY src/ ./src/
+COPY public/ ./public/
+COPY index.html ./
+COPY vite.config.js* ./
+COPY tailwind.config.js* ./
+COPY postcss.config.js* ./
 COPY server/ ./server/
-COPY dist/ ./dist/
-COPY package.json ./
 
-# Install server dependencies (pg for PostgreSQL, nodemailer for email)
+# Install ALL dependencies (including devDeps for build)
+RUN npm install
+
+# Build the frontend
+RUN npm run build
+
+# Install only production server deps
 RUN npm install pg nodemailer --no-save
 
 ENV PORT=4000
