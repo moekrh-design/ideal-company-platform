@@ -2117,6 +2117,12 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
   // detectionHint: { type: 'face'|'barcode', box: {x,y,w,h}|null } | null
   const [detectionHint, setDetectionHint] = useState(null);
   const detectionHintTimerRef = useRef(null);
+  // تبديل الكاميرا الأمامية/الخلفية
+  const [facingMode, setFacingMode] = useState(() => {
+    // الوضع الافتراضي: خلفية للباركود والمختلط، أمامية للوجه
+    return mode === 'barcode' || mode === 'mixed' ? 'environment' : 'user';
+  });
+  const [hasBothCameras, setHasBothCameras] = useState(false);
 
   // رسم إطار الكشف على canvas overlay
   const drawDetectionBox = useCallback((type, box) => {
@@ -2229,6 +2235,11 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       const cameras = list.filter((item) => item.kind === "videoinput");
       setDevices(cameras);
       if (!selectedDeviceId && cameras[0]?.deviceId) setSelectedDeviceId(cameras[0].deviceId);
+    // اكتشاف ما إذا كان الجهاز يحتوي على كاميرتين (أمامية وخلفية)
+    // نتحقق من وجود كاميرتين عبر التحقق من facingMode أو عدد الكاميرات
+    const hasEnv = cameras.some(c => c.label?.toLowerCase().includes('back') || c.label?.toLowerCase().includes('rear') || c.label?.toLowerCase().includes('خلف'));
+    const hasUser = cameras.some(c => c.label?.toLowerCase().includes('front') || c.label?.toLowerCase().includes('face') || c.label?.toLowerCase().includes('أمام'));
+    setHasBothCameras(cameras.length >= 2 || (hasEnv && hasUser));
     } catch {
       // ignore
     }
@@ -2296,9 +2307,11 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     setCameraReady(false);
     setShowGreenFrame(false);
     setMessage(mode === "barcode" ? "وجّه QR الطالب نحو الكاميرا وستجري القراءة مباشرة دون الحاجة إلى تصوير." : mode === "mixed" ? "وجّه QR أو الوجه داخل الإطار وسيتم التعرف تلقائيًا." : "وجّه الوجه داخل الإطار وستجري المطابقة المباشرة تلقائيًا.");
-    const preferredFacing = mode === "barcode" ? "environment" : mode === "mixed" ? "environment" : "user";
+    const preferredFacing = facingMode;
     const attempts = [];
     if (selectedDeviceId) attempts.push({ video: { deviceId: { exact: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    // محاولة باستخدام facingMode المحدد
+    attempts.push({ video: { facingMode: { exact: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     attempts.push({ video: { facingMode: { ideal: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     attempts.push({ video: true, audio: false });
 
@@ -2348,7 +2361,7 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       }
     }, 4000);
     loadDevices();
-  }, [applyStreamToVideo, clearReadyWatcher, devices, loadDevices, mode, selectedDeviceId, stopCamera]);
+  }, [applyStreamToVideo, clearReadyWatcher, devices, facingMode, loadDevices, mode, selectedDeviceId, stopCamera]);
 
   useEffect(() => () => stopCamera(), [stopCamera]);
 
@@ -2545,6 +2558,34 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
               <option key={device.deviceId || index} value={device.deviceId}>{device.label || `كاميرا ${index + 1}`}</option>
             ))}
           </Select>
+        </div>
+      ) : null}
+      {/* زر تبديل الكاميرا الأمامية/الخلفية - يظهر على الجوال/الآيباد دائماً أو عند وجود كاميرتين */}
+      {(hasBothCameras || devices.length >= 2 || /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) ? (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            onClick={() => {
+              const newFacing = facingMode === 'user' ? 'environment' : 'user';
+              setFacingMode(newFacing);
+              setSelectedDeviceId('');
+              if (active) {
+                stopCamera();
+                window.setTimeout(() => startCamera(), 300);
+              }
+            }}
+            className="flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-2.5 text-sm font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200 active:scale-95 transition-all"
+            title="تبديل بين الكاميرا الأمامية والخلفية"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 7h-3a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+              <circle cx="12" cy="13" r="3"/>
+              <path d="M9 2h6"/>
+            </svg>
+            {facingMode === 'user' ? 'تحويل للكاميرا الخلفية' : 'تحويل للكاميرا الأمامية'}
+          </button>
+          <span className="rounded-xl bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
+            {facingMode === 'user' ? 'أمامية 🤳' : 'خلفية 📷'}
+          </span>
         </div>
       ) : null}
       <div className={cx("relative mt-4 overflow-hidden rounded-2xl bg-slate-900", variant === "gate" ? "border border-white/10 shadow-2xl" : "") }>
