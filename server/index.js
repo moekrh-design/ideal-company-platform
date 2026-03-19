@@ -72,6 +72,8 @@ await ensureStateMigrations();
 await cleanupExpiredSessions();
 await cleanupExpiredAuthOtps();
 await cleanupExpiredAuthLockouts();
+// تهيئة cache الـ state قبل أي شيء
+await refreshStateCache();
 await ensureDailyBackups('startup');
 
 async function initializeDatabase() {
@@ -2973,5 +2975,5 @@ server.on('upgrade', (req, socket) => {
 
 server.listen(PORT, () => {
   console.log(`ideal-company-platform server running on http://localhost:${PORT}`);
-  console.log(`sqlite db: ${DB_PATH}`);
+  console.log(`database: PostgreSQL (Neon)`);  // PostgreSQL
 });
