@@ -1,6 +1,7 @@
 [build]
 builder = "nixpacks"
 buildCommand = "npm install && npm run build"
+# cache-bust: 2026-03-19-v6
 
 [deploy]
 startCommand = "node server/index.js"
