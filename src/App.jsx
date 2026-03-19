@@ -2249,17 +2249,17 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       return;
     }
     streamRef.current = stream;
-    const applied = await applyStreamToVideo(stream);
-    if (!applied && !videoRef.current?.videoWidth) {
-      // stream may still be starting; continue and let the readyWatcher detect it
-    }
     const firstTrack = stream.getVideoTracks?.()[0];
     const currentLabel = firstTrack?.label || "";
     if (currentLabel && devices.length) {
       const matching = devices.find((item) => item.label === currentLabel);
       if (matching?.deviceId) setSelectedDeviceId(matching.deviceId);
     }
+    // Set active FIRST so the <video> element is rendered in DOM before we assign srcObject
     setActive(true);
+    // Wait one frame for React to render the video element
+    await new Promise((resolve) => window.requestAnimationFrame(() => window.setTimeout(resolve, 50)));
+    await applyStreamToVideo(stream);
     clearReadyWatcher();
     readyTimerRef.current = window.setInterval(() => {
       const video = videoRef.current;
@@ -7354,6 +7354,21 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
     if (!file) return;
     setFaceFile(file);
     setFacePreview(await fileToDataUrl(file));
+    event.target.value = "";
+  };
+  const handleProgramEvidenceFiles = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+    const newFiles = [...programEvidenceFiles, ...files];
+    setProgramEvidenceFiles(newFiles);
+    const newPreviews = await Promise.all(
+      files.map(async (file) => ({
+        id: `${file.name}-${file.size}-${Date.now()}`,
+        name: file.name,
+        url: await fileToDataUrl(file),
+      }))
+    );
+    setProgramEvidencePreviews((prev) => [...prev, ...newPreviews]);
     event.target.value = "";
   };
 
