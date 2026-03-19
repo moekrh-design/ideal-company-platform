@@ -2132,7 +2132,9 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [devices, setDevices] = useState([]);
+  const devicesRef = useRef([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
+  const selectedDeviceIdRef = useRef("");
   const [cameraReady, setCameraReady] = useState(false);
   const [showGreenFrame, setShowGreenFrame] = useState(false);
   // detectionHint: { type: 'face'|'barcode', box: {x,y,w,h}|null } | null
@@ -2259,7 +2261,11 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       const list = await navigator.mediaDevices.enumerateDevices();
       const cameras = list.filter((item) => item.kind === "videoinput");
       setDevices(cameras);
-      if (!selectedDeviceId && cameras[0]?.deviceId) setSelectedDeviceId(cameras[0].deviceId);
+      devicesRef.current = cameras;
+      if (!selectedDeviceIdRef.current && cameras[0]?.deviceId) {
+        setSelectedDeviceId(cameras[0].deviceId);
+        selectedDeviceIdRef.current = cameras[0].deviceId;
+      }
     // اكتشاف ما إذا كان الجهاز يحتوي على كاميرتين (أمامية وخلفية)
     const hasEnv = cameras.some(c => c.label?.toLowerCase().includes('back') || c.label?.toLowerCase().includes('rear') || c.label?.toLowerCase().includes('خلف'));
     const hasUser = cameras.some(c => c.label?.toLowerCase().includes('front') || c.label?.toLowerCase().includes('face') || c.label?.toLowerCase().includes('أمام'));
@@ -2269,11 +2275,13 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     } finally {
       setDevicesLoaded(true);
     }
-  }, [selectedDeviceId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     loadDevices();
-  }, [loadDevices]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const applyStreamToVideo = useCallback(async (stream) => {
     const video = videoRef.current;
@@ -2335,7 +2343,8 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     setMessage(mode === "barcode" ? "وجّه QR الطالب نحو الكاميرا وستجري القراءة مباشرة دون الحاجة إلى تصوير." : mode === "mixed" ? "وجّه QR أو الوجه داخل الإطار وسيتم التعرف تلقائيًا." : "وجّه الوجه داخل الإطار وستجري المطابقة المباشرة تلقائيًا.");
     const preferredFacing = facingMode;
     const attempts = [];
-    if (selectedDeviceId) attempts.push({ video: { deviceId: { exact: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    const currentDeviceId = selectedDeviceIdRef.current || selectedDeviceId;
+    if (currentDeviceId) attempts.push({ video: { deviceId: { exact: currentDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     // محاولة باستخدام facingMode المحدد
     attempts.push({ video: { facingMode: { exact: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     attempts.push({ video: { facingMode: { ideal: preferredFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
@@ -2357,9 +2366,13 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     streamRef.current = stream;
     const firstTrack = stream.getVideoTracks?.()[0];
     const currentLabel = firstTrack?.label || "";
-    if (currentLabel && devices.length) {
-      const matching = devices.find((item) => item.label === currentLabel);
-      if (matching?.deviceId) setSelectedDeviceId(matching.deviceId);
+    const currentDevices = devicesRef.current.length ? devicesRef.current : devices;
+    if (currentLabel && currentDevices.length) {
+      const matching = currentDevices.find((item) => item.label === currentLabel);
+      if (matching?.deviceId) {
+        setSelectedDeviceId(matching.deviceId);
+        selectedDeviceIdRef.current = matching.deviceId;
+      }
     }
     // Set active FIRST so the <video> element is rendered in DOM before we assign srcObject
     setActive(true);
@@ -2394,7 +2407,8 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       }
     }, 4000);
     loadDevices();
-  }, [applyStreamToVideo, clearReadyWatcher, devices, facingMode, loadDevices, mode, selectedDeviceId, stopCamera]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyStreamToVideo, clearReadyWatcher, facingMode, loadDevices, mode, stopCamera]);
 
   // تحديث refs عند تغيير props
   useEffect(() => { autoRestartRef.current = autoRestart; }, [autoRestart]);
@@ -2439,9 +2453,14 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
         if (value) {
           flashSuccessFrame(`تمت قراءة QR مباشرة: ${value}`);
           window.setTimeout(() => onDetectBarcode(value), 220);
+          // الكاميرا تبقى مفتوحة دائماً في وضع البوابة - فقط نوقف القراءة مؤقتاً
           if (autoRestartRef.current) {
-            // إعادة تشغيل الكاميرا تلقائياً بعد ثانيتين للطالب التالي
-            window.setTimeout(() => { startCameraRef.current?.(); }, 2200);
+            // cooldown ثانيتين ثم نستمر في القراءة للطالب التالي
+            processing = true;
+            timerRef.current = window.setTimeout(() => {
+              processing = false;
+              if (!cancelled) timerRef.current = window.setTimeout(tick, 350);
+            }, 2200);
           } else {
             window.setTimeout(() => stopCamera(), 1900);
           }
@@ -2522,9 +2541,14 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
               ? `تم حفظ بصمة الوجه${name ? ` لـ: ${name}` : ""}`
               : `تمت المطابقة المباشرة للوجه${name ? `: ${name}` : ""}`;
             flashSuccessFrame(msg);
+            // الكاميرا تبقى مفتوحة دائماً في وضع البوابة
             if (autoRestartRef.current) {
-              // إعادة تشغيل الكاميرا تلقائياً بعد ثانيتين للطالب التالي
-              window.setTimeout(() => { startCameraRef.current?.(); }, 2200);
+              // cooldown ثانيتين ثم نستمر في القراءة للطالب التالي
+              processing = true;
+              timerRef.current = window.setTimeout(() => {
+                processing = false;
+                if (!cancelled) timerRef.current = window.setTimeout(tick, 800);
+              }, 2200);
             } else {
               window.setTimeout(() => stopCamera(), 1900);
             }
@@ -2602,7 +2626,7 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       </div>
       {!hideDeviceSelect && devices.length > 1 ? (
         <div className="mt-4">
-          <Select label="مصدر الكاميرا" value={selectedDeviceId} onChange={(e) => setSelectedDeviceId(e.target.value)}>
+          <Select label="مصدر الكاميرا" value={selectedDeviceId} onChange={(e) => { setSelectedDeviceId(e.target.value); selectedDeviceIdRef.current = e.target.value; }}>
             {devices.map((device, index) => (
               <option key={device.deviceId || index} value={device.deviceId}>{device.label || `كاميرا ${index + 1}`}</option>
             ))}
@@ -3175,6 +3199,7 @@ function PublicGatePage({ token }) {
   const [faceFile, setFaceFile] = useState(null);
   const [facePreview, setFacePreview] = useState("");
   const [message, setMessage] = useState("");
+  const [lastScanResult, setLastScanResult] = useState(null); // { student, message, ok, ts }
 
   const loadGate = useCallback(async () => {
     try {
@@ -3233,15 +3258,20 @@ function PublicGatePage({ token }) {
     setBusy(true);
     try {
       const response = await apiRequest(`/api/public/gate/${token}/scan`, { method: 'POST', body: { barcode, method } });
-      // تحديث live فقط إذا كان موجوداً في الرد
+      // تحديث live فوراً من الرد
       if (response.live) setPayload((prev) => ({ ...prev, live: response.live }));
-      setMessage(`${response.student?.name || ''} • ${response.message}`);
+      // تحديث lastScanResult لعرض اسم الطالب
+      if (response.student) setLastScanResult({ student: response.student, message: response.message, ok: true, ts: Date.now() });
       setManualQuery('');
     } catch (err) {
       // حتى عند الخطأ (مثل المسح المكرر)، نحاول تحديث الإحصائيات
       const errData = err?.data || err?.response;
       if (errData?.live) setPayload((prev) => ({ ...prev, live: errData.live }));
-      setMessage(err?.message || 'تعذر تسجيل العملية.');
+      if (errData?.student) {
+        setLastScanResult({ student: errData.student, message: err?.message || errData?.message, ok: false, ts: Date.now() });
+      } else {
+        setLastScanResult({ student: null, message: err?.message || 'تعذر تسجيل العملية.', ok: false, ts: Date.now() });
+      }
     } finally {
       setBusy(false);
     }
@@ -3288,6 +3318,10 @@ function PublicGatePage({ token }) {
   const live = payload.live || {};
   // الإحصائيات تأتي من live.summary (من summarizeSchoolLivePayload التي تُرجع { school, summary, ... })
   const summaryView = live.summary || {};
+  // إحصائيات البوابة الحالية
+  const currentGateId = payload.gate?.id;
+  const currentGateStats = currentGateId && live.gateStats ? (live.gateStats[currentGateId] || null) : null;
+  const allGateStats = live.gateStats ? Object.values(live.gateStats) : [];
   const mode = payload.gate?.mode || 'mixed';
   const manualStudent = resolveManualStudent();
 
@@ -3305,6 +3339,37 @@ function PublicGatePage({ token }) {
           <StatCard title="الحضور المبكر" value={summaryView?.earlyToday || 0} subtitle="حتى الآن" icon={BadgeCheck} />
           <StatCard title="الخصومات اليوم" value={summaryView?.violationsToday || 0} subtitle="من سجل الإجراءات" icon={ClipboardCheck} />
         </div>
+        {/* إحصائيات البوابة الحالية */}
+        {currentGateStats ? (
+          <div className="rounded-[2rem] bg-white/10 border border-white/10 p-5 backdrop-blur">
+            <div className="text-sm font-bold text-white/70 mb-3">إحصائيات هذه البوابة ({currentGateStats.name})</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-emerald-500/20 border border-emerald-400/30 p-4 text-center">
+                <div className="text-3xl font-black text-emerald-300">{currentGateStats.presentToday}</div>
+                <div className="text-xs text-white/70 mt-1">دخلوا من هذه البوابة</div>
+              </div>
+              <div className="rounded-2xl bg-sky-500/20 border border-sky-400/30 p-4 text-center">
+                <div className="text-3xl font-black text-sky-300">{currentGateStats.scansCount}</div>
+                <div className="text-xs text-white/70 mt-1">إجمالي المسوحات</div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        {/* إحصائيات جميع البوابات - تُظهر فقط إذا كان هناك أكثر من بوابة */}
+        {allGateStats.length > 1 ? (
+          <div className="rounded-[2rem] bg-white/5 border border-white/10 p-5 backdrop-blur">
+            <div className="text-sm font-bold text-white/70 mb-3">مقارنة البوابات اليوم</div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              {allGateStats.map((gs) => (
+                <div key={gs.id} className={`rounded-2xl p-4 text-center border ${gs.id === currentGateId ? 'bg-emerald-500/20 border-emerald-400/40' : 'bg-white/5 border-white/10'}`}>
+                  <div className="text-xs text-white/60 truncate mb-1">{gs.name}</div>
+                  <div className={`text-2xl font-black ${gs.id === currentGateId ? 'text-emerald-300' : 'text-white'}`}>{gs.presentToday}</div>
+                  <div className="text-xs text-white/50">طالب</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="rounded-[2rem] border border-white/10 bg-white/5 p-4 shadow-2xl backdrop-blur md:p-6">
           <LiveCameraPanel mode={mode === 'qr' ? 'barcode' : mode === 'face' ? 'face' : 'mixed'} variant="gate" autoStart autoRestart hideDeviceSelect videoHeightClass="h-[48vh] md:h-[58vh]" title={`مرحبًا بكم في ${payload.school?.name || 'المدرسة'}`} description={`${payload.gate?.name || 'البوابة'} • وجّه QR أو الوجه أمام الكاميرا وسيتم التعرف تلقائياً بدون تدخل يدوي.`} onDetectBarcode={(value) => submitScan(value, 'QR')} onDetectFace={resolveFaceDataUrl} onCapture={resolveFaceDataUrl} />
         </div>
@@ -3327,6 +3392,21 @@ function PublicGatePage({ token }) {
             {facePreview ? <img src={facePreview} alt="face" className="mt-4 h-56 w-full rounded-2xl object-cover ring-1 ring-slate-200" /> : null}
           </div>
         </div>
+        {/* بطاقة آخر مسح - تُظهر اسم الطالب وحالة التسجيل */}
+        {lastScanResult ? (
+          <div className={`rounded-3xl px-5 py-4 ring-1 flex items-center gap-4 transition-all duration-300 ${lastScanResult.ok ? 'bg-emerald-50 ring-emerald-200 text-emerald-900' : 'bg-amber-50 ring-amber-200 text-amber-900'}`}>
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-2xl ${lastScanResult.ok ? 'bg-emerald-500 text-white' : 'bg-amber-400 text-white'}`}>
+              {lastScanResult.ok ? '✓' : '⚠'}
+            </div>
+            <div className="min-w-0 flex-1">
+              {lastScanResult.student?.name ? (
+                <div className="text-xl font-black truncate">{lastScanResult.student.name}</div>
+              ) : null}
+              <div className="mt-0.5 text-sm font-medium opacity-80">{lastScanResult.message}</div>
+            </div>
+            <div className="text-xs opacity-50 shrink-0">{new Date(lastScanResult.ts).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</div>
+          </div>
+        ) : null}
         {message ? <div className="rounded-3xl bg-white px-5 py-4 text-slate-900 ring-1 ring-slate-200">{message}</div> : null}
       </div>
     </div>

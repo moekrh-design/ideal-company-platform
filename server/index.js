@@ -1472,6 +1472,17 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
   const companyRows = getUnifiedCompanyRowsForServer(school, { preferStructure: true });
   const scansToday = state.scanLog.filter((item) => Number(item.schoolId) === Number(schoolId) && item.isoDate === today && !String(item.result || '').includes('فشل') && !String(item.result || '').includes('مسبق'));
   const actionsToday = state.actionLog.filter((item) => Number(item.schoolId) === Number(schoolId) && item.isoDate === today);
+  // إحصائيات خاصة بكل بوابة
+  const gateStats = {};
+  (school.smartLinks?.gates || []).forEach((gate) => {
+    const gateScans = scansToday.filter((item) => item.gateId === gate.id);
+    gateStats[gate.id] = {
+      id: gate.id,
+      name: gate.name,
+      presentToday: new Set(gateScans.map((item) => item.studentId).filter(Boolean)).size,
+      scansCount: gateScans.length,
+    };
+  });
   const presentToday = new Set(scansToday.map((item) => item.studentId).filter(Boolean)).size;
   const totalStudents = unifiedStudents.length;
   const attendanceRate = totalStudents ? Math.round((presentToday / totalStudents) * 100) : 0;
@@ -1594,6 +1605,7 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
     attendanceTrend,
     teacherActivity,
     structureSpotlight,
+    gateStats,
   };
 }
 
@@ -1726,7 +1738,7 @@ function getAttendanceStudentsSourceForSchool(school) {
   };
 }
 
-function applyAttendanceScanToState(state, schoolId, barcodeValue, method = 'QR') {
+function applyAttendanceScanToState(state, schoolId, barcodeValue, method = 'QR', gateId = null) {
   const next = structuredClone(state);
   const school = next.schools.find((item) => Number(item.id) === Number(schoolId));
   if (!school) return { ok: false, message: 'المدرسة غير موجودة.' };
@@ -1797,6 +1809,7 @@ function applyAttendanceScanToState(state, schoolId, barcodeValue, method = 'QR'
     studentId: student.id,
     companyId: attendanceSource.sourceMode === 'structure' ? null : student.companyId,
     classroomId: attendanceSource.sourceMode === 'structure' ? String(student.classroomId) : null,
+    gateId: gateId || null,
     student: student.name || student.fullName,
     barcode: student.barcode || rawValue,
     date: toArabicDate(now),
@@ -2953,7 +2966,7 @@ const server = http.createServer(async (req, res) => {
       const match = findGateConfigByToken(state, publicGateScanMatch[1]);
       if (!match) return sendJson(res, 404, { ok: false, message: 'رابط البوابة غير صالح.' });
       const body = await readJsonBody(req);
-      const applied = applyAttendanceScanToState(state, match.school.id, body.barcode, body.method || 'QR');
+      const applied = applyAttendanceScanToState(state, match.school.id, body.barcode, body.method || 'QR', match.gate.id);
       if (!applied.ok) {
         // إرجاع live حتى عند الفشل لتحديث الإحصائيات في الـ frontend
         const liveOnFail = summarizeSchoolLivePayload(state, match.school.id);
