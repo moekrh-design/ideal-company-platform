@@ -2868,7 +2868,11 @@ const server = http.createServer(async (req, res) => {
       if (!canManageStudentActions(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تنفيذ إجراءات الطلاب لهذه المدرسة.' });
       const body = await readJsonBody(req);
       const applied = applyStudentActionToState(getSharedState(), schoolId, body, actor);
-      if (!applied.ok) return sendJson(res, 400, applied);
+      if (!applied.ok) {
+        // إرجاع live حتى عند الفشل لتحديث الإحصائيات في الـ frontend
+        const liveOnFail = summarizeSchoolLivePayload(state, match.school.id);
+        return sendJson(res, 400, { ...applied, live: liveOnFail });
+      }
       let saved = await saveSharedState(applied.state, actor);
       if (applied.logEntry?.actionType === 'violation') {
         const automated = await runAutomatedMessagingForSchool(saved, schoolId, {
@@ -2893,7 +2897,11 @@ const server = http.createServer(async (req, res) => {
       if (!canManageStudentActions(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية اعتماد البرامج لهذه المدرسة.' });
       const body = await readJsonBody(req);
       const applied = await applyProgramToState(getSharedState(), schoolId, body, actor);
-      if (!applied.ok) return sendJson(res, 400, applied);
+      if (!applied.ok) {
+        // إرجاع live حتى عند الفشل لتحديث الإحصائيات في الـ frontend
+        const liveOnFail = summarizeSchoolLivePayload(state, match.school.id);
+        return sendJson(res, 400, { ...applied, live: liveOnFail });
+      }
       const saved = await saveSharedState(applied.state, actor);
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, state: sanitizeStateForClient(saved) });
     }
@@ -2946,7 +2954,11 @@ const server = http.createServer(async (req, res) => {
       if (!match) return sendJson(res, 404, { ok: false, message: 'رابط البوابة غير صالح.' });
       const body = await readJsonBody(req);
       const applied = applyAttendanceScanToState(state, match.school.id, body.barcode, body.method || 'QR');
-      if (!applied.ok) return sendJson(res, 400, applied);
+      if (!applied.ok) {
+        // إرجاع live حتى عند الفشل لتحديث الإحصائيات في الـ frontend
+        const liveOnFail = summarizeSchoolLivePayload(state, match.school.id);
+        return sendJson(res, 400, { ...applied, live: liveOnFail });
+      }
       let finalState = applied.state;
       if (String(applied.message || '').includes('تأخر')) {
         const automatedLate = await runAutomatedMessagingForSchool(finalState, match.school.id, { eventType: 'late', studentId: applied.student?.id, isoDate: applied.logEntry?.isoDate, lateTime: applied.logEntry?.time, time: applied.logEntry?.time, now: new Date().toISOString() });

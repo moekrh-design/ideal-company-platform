@@ -1301,7 +1301,10 @@ async function apiRequest(path, { method = "GET", body, token } = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data?.message || "تعذر تنفيذ الطلب على الخادم.");
+    // إرفاق البيانات مع الخطأ حتى يمكن استخدام live منها
+    const error = new Error(data?.message || "تعذر تنفيذ الطلب على الخادم.");
+    error.data = data;
+    throw error;
   }
   return data;
 }
@@ -1786,7 +1789,7 @@ async function detectFaceBounds(image) {
 async function buildFaceTemplateFromSource(photo) {
   const image = await loadImageSource(photo);
   const bounds = await detectFaceBounds(image);
-  const size = 16;
+  const size = 32;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
@@ -1802,8 +1805,11 @@ async function buildFaceTemplateFromSource(photo) {
     const gray = Math.round((pixels[index] * 0.299) + (pixels[index + 1] * 0.587) + (pixels[index + 2] * 0.114));
     values.push(gray);
   }
+  // تطبيع أفضل: استخدام الانحراف المعياري لتحسين المقارنة
   const average = values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
-  const signature = values.map((value) => Math.max(0, Math.min(255, Math.round(value - average + 128))));
+  const variance = values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / Math.max(values.length, 1);
+  const stdDev = Math.max(Math.sqrt(variance), 1);
+  const signature = values.map((value) => Math.max(0, Math.min(255, Math.round(((value - average) / stdDev) * 40 + 128))));
   const hasNativeFaceDetector = typeof window !== "undefined" && "FaceDetector" in window;
   return { photo, signature, faceDetected: hasNativeFaceDetector ? Boolean(bounds) : true };
 }
@@ -3232,6 +3238,9 @@ function PublicGatePage({ token }) {
       setMessage(`${response.student?.name || ''} • ${response.message}`);
       setManualQuery('');
     } catch (err) {
+      // حتى عند الخطأ (مثل المسح المكرر)، نحاول تحديث الإحصائيات
+      const errData = err?.data || err?.response;
+      if (errData?.live) setPayload((prev) => ({ ...prev, live: errData.live }));
       setMessage(err?.message || 'تعذر تسجيل العملية.');
     } finally {
       setBusy(false);
@@ -3244,7 +3253,7 @@ function PublicGatePage({ token }) {
       setMessage('لم يتم التعرف على وجه واضح في الصورة.');
       return null;
     }
-    const match = findBestFaceMatch(template.signature, students, 28);
+    const match = findBestFaceMatch(template.signature, students, 45);
     if (!match.student) {
       setMessage('لم يتم العثور على تطابق كافٍ للوجه.');
       return null;
