@@ -4,8 +4,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
-import pg from 'pg';
-const { Pool } = pg;
+import { DatabaseSync } from 'node:sqlite';
 import { createDefaultSharedState, hydrateSharedState, isRoleEnabledForSchool, defaultSettings, ensureDemoUsers } from './state.js';
 import nodemailer from 'nodemailer';
 
@@ -14,6 +13,7 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, '..');
 const DIST_DIR = path.join(ROOT_DIR, 'dist');
 const DATA_DIR = path.join(ROOT_DIR, 'data');
+const DB_PATH = path.join(DATA_DIR, 'platform.db');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const FACE_UPLOADS_DIR = path.join(UPLOADS_DIR, 'faces');
 const EVIDENCE_UPLOADS_DIR = path.join(UPLOADS_DIR, 'program-evidence');
@@ -29,36 +29,79 @@ const SCREEN_THEME_KEYS = ["emerald-night","blue-contrast","violet-stage","sunri
 const SCREEN_TEMPLATE_KEYS = ["executive","reception","leaderboard","news"];
 const TICKER_BG_KEYS = ["amber","navy","emerald","rose","slate"];
 
-// PostgreSQL pool
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
-});
-
-// Helper: run a query and return rows
-async function dbQuery(text, params = []) {
-  const client = await pool.connect();
-  try {
-    const res = await client.query(text, params);
-    return res.rows;
-  } finally {
-    client.release();
-  }
-}
-
-// Helper: run a query and return first row
-async function dbQueryOne(text, params = []) {
-  const rows = await dbQuery(text, params);
-  return rows[0] || null;
-}
-
-// Helper: run a query with no return value
-async function dbRun(text, params = []) {
-  await dbQuery(text, params);
-}
+const TABLE_SCHEMAS = {
+  app_meta: {
+    required: ['key', 'value', 'updated_at'],
+    sql: `
+      CREATE TABLE IF NOT EXISTS app_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
+  sessions: {
+    required: ['token', 'user_id', 'username', 'role', 'school_id', 'created_at', 'expires_at'],
+    sql: `
+      CREATE TABLE IF NOT EXISTS sessions (
+        token TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        username TEXT NOT NULL,
+        role TEXT NOT NULL,
+        school_id INTEGER,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+    `,
+  },
+  audit_log: {
+    required: ['id', 'actor_username', 'actor_role', 'action', 'created_at', 'details'],
+    sql: `
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_username TEXT,
+        actor_role TEXT,
+        action TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        details TEXT
+      );
+    `,
+  },
+  auth_otps: {
+    required: ['id', 'user_id', 'purpose', 'delivery', 'identifier', 'code_hash', 'destination_preview', 'created_at', 'expires_at', 'consumed_at'],
+    sql: `
+      CREATE TABLE IF NOT EXISTS auth_otps (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        purpose TEXT NOT NULL,
+        delivery TEXT NOT NULL,
+        identifier TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        destination_preview TEXT,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT
+      );
+    `,
+  },
+  auth_lockouts: {
+    required: ['id', 'identifier_key', 'user_id', 'scope', 'reason', 'failure_count', 'created_at', 'updated_at', 'expires_at', 'lifted_at'],
+    sql: `
+      CREATE TABLE IF NOT EXISTS auth_lockouts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        identifier_key TEXT,
+        user_id INTEGER,
+        scope TEXT NOT NULL,
+        reason TEXT,
+        failure_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        lifted_at TEXT
+      );
+    `,
+  },
+};
 
 await mkdir(DATA_DIR, { recursive: true });
 await mkdir(UPLOADS_DIR, { recursive: true });
@@ -66,71 +109,40 @@ await mkdir(FACE_UPLOADS_DIR, { recursive: true });
 await mkdir(EVIDENCE_UPLOADS_DIR, { recursive: true });
 await mkdir(GLOBAL_BACKUPS_DIR, { recursive: true });
 await mkdir(SCHOOL_BACKUPS_DIR, { recursive: true });
-await initializeDatabase();
-await ensureStateSeeded();
-await ensureStateMigrations();
-await cleanupExpiredSessions();
-await cleanupExpiredAuthOtps();
-await cleanupExpiredAuthLockouts();
+const db = new DatabaseSync(DB_PATH);
+initializeDatabase();
+ensureStateSeeded();
+ensureStateMigrations();
+cleanupExpiredSessions();
+cleanupExpiredAuthOtps();
+cleanupExpiredAuthLockouts();
 await ensureDailyBackups('startup');
 
-async function initializeDatabase() {
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS app_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-  `);
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS sessions (
-      token TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      username TEXT NOT NULL,
-      role TEXT NOT NULL,
-      school_id INTEGER,
-      created_at TEXT NOT NULL,
-      expires_at TEXT NOT NULL
-    )
-  `);
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS audit_log (
-      id SERIAL PRIMARY KEY,
-      actor_username TEXT,
-      actor_role TEXT,
-      action TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      details TEXT
-    )
-  `);
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS auth_otps (
-      id TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      purpose TEXT NOT NULL,
-      delivery TEXT NOT NULL,
-      identifier TEXT NOT NULL,
-      code_hash TEXT NOT NULL,
-      destination_preview TEXT,
-      created_at TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      consumed_at TEXT
-    )
-  `);
-  await dbRun(`
-    CREATE TABLE IF NOT EXISTS auth_lockouts (
-      id SERIAL PRIMARY KEY,
-      identifier_key TEXT,
-      user_id INTEGER,
-      scope TEXT NOT NULL,
-      reason TEXT,
-      failure_count INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      lifted_at TEXT
-    )
-  `);
+function tableExists(name) {
+  const row = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+  return Boolean(row?.name);
+}
+
+function getTableColumns(name) {
+  return db.prepare(`PRAGMA table_info(${name})`).all().map((item) => item.name);
+}
+
+function ensureTableSchema(name, schema) {
+  if (!tableExists(name)) {
+    db.exec(schema.sql);
+    return;
+  }
+  const currentColumns = getTableColumns(name);
+  const missingColumns = schema.required.filter((column) => !currentColumns.includes(column));
+  if (!missingColumns.length) return;
+
+  const backupName = `${name}_legacy_${Date.now()}`;
+  db.exec(`ALTER TABLE ${name} RENAME TO ${backupName};`);
+  db.exec(schema.sql);
+}
+
+function initializeDatabase() {
+  Object.entries(TABLE_SCHEMAS).forEach(([name, schema]) => ensureTableSchema(name, schema));
 }
 
 function nowIso() {
@@ -185,8 +197,9 @@ async function writeJsonBackupIfMissing(filePath, payload) {
 }
 
 async function copyDbBackupIfMissing(filePath) {
-  // PostgreSQL: no local DB file to copy
-  return false;
+  if (existsSync(filePath) || !existsSync(DB_PATH)) return false;
+  writeFileSync(filePath, readFileSync(DB_PATH));
+  return true;
 }
 
 async function ensureDailyBackups(reason = 'save', state = null) {
@@ -296,38 +309,29 @@ function sanitizeStateForClient(state) {
   };
 }
 
-async function writeStateRow(state, actor = null) {
-  await dbRun(
-    'INSERT INTO app_meta (key, value, updated_at) VALUES ($1, $2, $3) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at',
-    ['shared_state', JSON.stringify(state), nowIso()]
-  );
-  if (actor) await audit(actor, 'save_state', { schools: state.schools.length, users: state.users.length });
+function writeStateRow(state, actor = null) {
+  db.prepare('INSERT INTO app_meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+    .run('shared_state', JSON.stringify(state), nowIso());
+  if (actor) audit(actor, 'save_state', { schools: state.schools.length, users: state.users.length });
 }
 
-async function audit(actor, action, details = {}) {
-  try {
-    await dbRun(
-      'INSERT INTO audit_log (actor_username, actor_role, action, created_at, details) VALUES ($1, $2, $3, $4, $5)',
-      [actor?.username || '', actor?.role || '', action, nowIso(), JSON.stringify(details)]
-    );
-  } catch (e) {
-    console.error('audit error:', e.message);
-  }
+function audit(actor, action, details = {}) {
+  const stmt = db.prepare('INSERT INTO audit_log (actor_username, actor_role, action, created_at, details) VALUES (?, ?, ?, ?, ?)');
+  stmt.run(actor?.username || '', actor?.role || '', action, nowIso(), JSON.stringify(details));
 }
 
-async function auditAuthEvent(action, details = {}, actor = null) {
-  await audit(actor, action, details);
+function auditAuthEvent(action, details = {}, actor = null) {
+  audit(actor, action, details);
 }
 
-async function readAuthLogs(limit = 200) {
-  const rows = await dbQuery(
-    `SELECT id, actor_username, actor_role, action, created_at, details
-     FROM audit_log
-     WHERE action LIKE 'auth_%' OR action IN ('login', 'logout')
-     ORDER BY id DESC
-     LIMIT $1`,
-    [Math.max(1, Math.min(500, Number(limit) || 200))]
-  );
+function readAuthLogs(limit = 200) {
+  const rows = db.prepare(`
+    SELECT id, actor_username, actor_role, action, created_at, details
+    FROM audit_log
+    WHERE action LIKE 'auth_%' OR action IN ('login', 'logout')
+    ORDER BY id DESC
+    LIMIT ?
+  `).all(Math.max(1, Math.min(500, Number(limit) || 200)));
   return rows.map((row) => ({
     id: row.id,
     actorUsername: row.actor_username || '',
@@ -344,36 +348,33 @@ async function readAuthLogs(limit = 200) {
   }));
 }
 
-async function ensureStateSeeded() {
-  const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);
+function ensureStateSeeded() {
+  const row = db.prepare('SELECT value FROM app_meta WHERE key = ?').get('shared_state');
   if (!row) {
     const state = normalizeStateForStorage(createDefaultSharedState());
-    await writeStateRow(state);
-    await audit(null, 'seed_state', { schools: state.schools.length, users: state.users.length });
+    writeStateRow(state);
+    audit(null, 'seed_state', { schools: state.schools.length, users: state.users.length });
   }
 }
 
-async function ensureStateMigrations() {
-  const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);
+function ensureStateMigrations() {
+  const row = db.prepare('SELECT value FROM app_meta WHERE key = ?').get('shared_state');
   if (!row?.value) return;
   try {
     const parsed = JSON.parse(row.value);
     const normalized = normalizeStateForStorage(parsed, parsed);
     if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
-      await writeStateRow(normalized);
-      await audit(null, 'migrate_state', { users: normalized.users.length });
+      writeStateRow(normalized);
+      audit(null, 'migrate_state', { users: normalized.users.length });
     }
   } catch {
     const state = normalizeStateForStorage(createDefaultSharedState());
-    await writeStateRow(state);
+    writeStateRow(state);
   }
 }
 
-// Synchronous in-memory cache for shared state
-let _stateCache = null;
-
-async function getSharedStateAsync() {
-  const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);
+function getSharedState() {
+  const row = db.prepare('SELECT value FROM app_meta WHERE key = ?').get('shared_state');
   if (!row) return normalizeStateForStorage(createDefaultSharedState());
   try {
     return normalizeStateForStorage(JSON.parse(row.value), JSON.parse(row.value));
@@ -382,38 +383,27 @@ async function getSharedStateAsync() {
   }
 }
 
-function getSharedState() {
-  if (!_stateCache) {
-    throw new Error('State cache not initialized. Call await refreshStateCache() first.');
-  }
-  return _stateCache;
-}
-
-async function refreshStateCache() {
-  _stateCache = await getSharedStateAsync();
-  return _stateCache;
-}
-
-async function saveSharedState(state, actor = null) {
+function saveSharedState(state, actor = null) {
   const current = getSharedState();
   const hydrated = normalizeStateForStorage(state, current);
-  await writeStateRow(hydrated, actor);
-  _stateCache = hydrated;
+  writeStateRow(hydrated, actor);
   void ensureDailyBackups('save', hydrated);
   broadcastAllLive(hydrated);
   return hydrated;
 }
 
-async function cleanupExpiredSessions() {
-  await dbRun('DELETE FROM sessions WHERE expires_at <= $1', [nowIso()]);
+function cleanupExpiredSessions() {
+  db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(nowIso());
 }
 
-async function cleanupExpiredAuthOtps() {
-  await dbRun('DELETE FROM auth_otps WHERE expires_at <= $1 OR consumed_at IS NOT NULL', [nowIso()]);
+
+function cleanupExpiredAuthOtps() {
+  db.prepare('DELETE FROM auth_otps WHERE expires_at <= ? OR consumed_at IS NOT NULL').run(nowIso());
 }
 
-async function cleanupExpiredAuthLockouts() {
-  await dbRun('DELETE FROM auth_lockouts WHERE expires_at <= $1 OR lifted_at IS NOT NULL', [nowIso()]);
+
+function cleanupExpiredAuthLockouts() {
+  db.prepare('DELETE FROM auth_lockouts WHERE expires_at <= ? OR lifted_at IS NOT NULL').run(nowIso());
 }
 
 function normalizeIdentifierKey(identifier = '') {
@@ -424,19 +414,17 @@ function getAuthFailureActionsForScope(scope = 'password') {
   return scope === 'otp' ? ['auth_verify_otp_failed'] : ['auth_login_failed'];
 }
 
-async function getRecentAuthFailures(scope = 'password', identifier = '', userId = null, windowMinutes = 15) {
+function getRecentAuthFailures(scope = 'password', identifier = '', userId = null, windowMinutes = 15) {
   const since = new Date(Date.now() - Math.max(1, Number(windowMinutes) || 15) * 60 * 1000).toISOString();
   const actions = getAuthFailureActionsForScope(scope);
-  const placeholders = actions.map((_, i) => `$${i + 2}`).join(',');
-  const rows = await dbQuery(
-    `SELECT action, created_at, details
-     FROM audit_log
-     WHERE created_at >= $1
-       AND action IN (${placeholders})
-     ORDER BY id DESC
-     LIMIT 500`,
-    [since, ...actions]
-  );
+  const rows = db.prepare(`
+    SELECT action, created_at, details
+    FROM audit_log
+    WHERE created_at >= ?
+      AND action IN (${actions.map(() => '?').join(',')})
+    ORDER BY id DESC
+    LIMIT 500
+  `).all(since, ...actions);
   const key = normalizeIdentifierKey(identifier);
   return rows.filter((row) => {
     let details = {};
@@ -449,35 +437,33 @@ async function getRecentAuthFailures(scope = 'password', identifier = '', userId
   });
 }
 
-async function getActiveAuthLockout(identifier = '', userId = null, scope = 'any') {
-  await cleanupExpiredAuthLockouts();
+function getActiveAuthLockout(identifier = '', userId = null, scope = 'any') {
+  cleanupExpiredAuthLockouts();
   const key = normalizeIdentifierKey(identifier);
-  const rows = await dbQuery(
-    `SELECT *
-     FROM auth_lockouts
-     WHERE lifted_at IS NULL
-       AND expires_at > $1
-       AND ($2 = 'any' OR scope = $2)
-       AND (($3 <> '' AND identifier_key = $3) OR ($4::integer IS NOT NULL AND user_id = $4::integer))
-     ORDER BY updated_at DESC
-     LIMIT 20`,
-    [nowIso(), String(scope || 'any'), key, userId == null ? null : Number(userId)]
-  );
+  const rows = db.prepare(`
+    SELECT *
+    FROM auth_lockouts
+    WHERE lifted_at IS NULL
+      AND expires_at > ?
+      AND (? = 'any' OR scope = ?)
+      AND ((? <> '' AND identifier_key = ?) OR (? IS NOT NULL AND user_id = ?))
+    ORDER BY updated_at DESC
+    LIMIT 20
+  `).all(nowIso(), String(scope || 'any'), String(scope || 'any'), key, key, userId == null ? null : Number(userId), userId == null ? null : Number(userId));
   return rows[0] || null;
 }
 
-async function clearAuthLockouts(identifier = '', userId = null, actor = null) {
-  const active = await getActiveAuthLockout(identifier, userId, 'any');
+function clearAuthLockouts(identifier = '', userId = null, actor = null) {
+  const active = getActiveAuthLockout(identifier, userId, 'any');
   if (!active) return null;
   const key = normalizeIdentifierKey(identifier);
-  await dbRun(
-    `UPDATE auth_lockouts
-     SET lifted_at = $1, updated_at = $2
-     WHERE lifted_at IS NULL
-       AND (($3 <> '' AND identifier_key = $3) OR ($4::integer IS NOT NULL AND user_id = $4::integer))`,
-    [nowIso(), nowIso(), key, userId == null ? null : Number(userId)]
-  );
-  await auditAuthEvent('auth_lockout_cleared', { identifier: key, userId: userId == null ? null : Number(userId), scope: active.scope }, actor);
+  db.prepare(`
+    UPDATE auth_lockouts
+    SET lifted_at = ?, updated_at = ?
+    WHERE lifted_at IS NULL
+      AND ((? <> '' AND identifier_key = ?) OR (? IS NOT NULL AND user_id = ?))
+  `).run(nowIso(), nowIso(), key, key, userId == null ? null : Number(userId), userId == null ? null : Number(userId));
+  auditAuthEvent('auth_lockout_cleared', { identifier: key, userId: userId == null ? null : Number(userId), scope: active.scope }, actor);
   return active;
 }
 
@@ -520,23 +506,20 @@ async function registerAuthFailureAndMaybeLock(state, scope = 'password', identi
   const security = authSettings.security || defaultSettings.auth.security;
   const scopeEnabled = scope === 'otp' ? security.applyToOtp : security.applyToPassword;
   if (!security.enabled || !scopeEnabled) return { state, locked: false, failureCount: 0 };
-  const failures = await getRecentAuthFailures(scope, identifier, user?.id ?? null, security.trackWindowMinutes || 15);
+  const failures = getRecentAuthFailures(scope, identifier, user?.id ?? null, security.trackWindowMinutes || 15);
   const failureCount = failures.length;
   const maxFailedAttempts = Math.max(2, Number(security.maxFailedAttempts) || 5);
   if (failureCount < maxFailedAttempts) return { state, locked: false, failureCount };
-  const existing = await getActiveAuthLockout(identifier, user?.id ?? null, scope);
+  const existing = getActiveAuthLockout(identifier, user?.id ?? null, scope);
   if (existing) return { state, locked: true, failureCount, lockout: existing };
   const createdAt = nowIso();
   const expiresAt = new Date(Date.now() + Math.max(1, Number(security.lockoutMinutes) || 15) * 60 * 1000).toISOString();
-  await dbRun(
-    'INSERT INTO auth_lockouts (identifier_key, user_id, scope, reason, failure_count, created_at, updated_at, expires_at, lifted_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL)',
-    [normalizeIdentifierKey(identifier), user?.id == null ? null : Number(user.id), scope, 'too_many_failed_attempts', failureCount, createdAt, createdAt, expiresAt]
-  );
+  db.prepare('INSERT INTO auth_lockouts (identifier_key, user_id, scope, reason, failure_count, created_at, updated_at, expires_at, lifted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)').run(normalizeIdentifierKey(identifier), user?.id == null ? null : Number(user.id), scope, 'too_many_failed_attempts', failureCount, createdAt, createdAt, expiresAt);
   const alertMessage = `تم قفل ${scope === 'otp' ? 'التحقق بالرمز' : 'الدخول بكلمة المرور'} مؤقتًا لمدة ${Math.max(1, Number(security.lockoutMinutes) || 15)} دقيقة للحساب ${user?.username || normalizeIdentifierKey(identifier) || 'غير معروف'} بعد ${failureCount} محاولات فاشلة.`;
   let next = state;
   if (security.notifyAdminOnLock) {
     next = await notifyAuthSecurityAlert(state, { identifier: normalizeIdentifierKey(identifier), userId: user?.id ?? null, scope, message: alertMessage, actor });
-    await await saveSharedState(next, actor);
+    saveSharedState(next, actor);
   }
   return { state: next, locked: true, failureCount, lockout: { expires_at: expiresAt, scope, failure_count: failureCount } };
 }
@@ -726,9 +709,9 @@ async function runAuthOtpScenarioTest(state, actor, body = {}) {
     : String(delivery === 'sms' || delivery === 'whatsapp' ? normalizePhoneNumber(user.mobile || '') : user.username || '').trim().toLowerCase();
   if (!identifier) throw new Error(delivery === 'email' ? 'هذا المستخدم لا يملك بريدًا إلكترونيًا.' : 'هذا المستخدم لا يملك رقم جوال.');
   const code = generateOtpCode(authSettings.otpLength || 6);
-  const request = await createAuthOtpRequest(user, identifier, delivery, code, authSettings);
+  const request = createAuthOtpRequest(user, identifier, delivery, code, authSettings);
   const dispatchResult = await dispatchAuthOtp(state, user, delivery, code, authSettings);
-  await finalizeAuthOtpDestination(request.id, dispatchResult.destinationPreview || '');
+  finalizeAuthOtpDestination(request.id, dispatchResult.destinationPreview || '');
   auditAuthEvent('auth_scenario_test', { targetUserId: user.id, delivery }, { username: actor.username, role: actor.role });
   return {
     message: 'تم تنفيذ اختبار OTP على المستخدم المحدد بنجاح.',
@@ -740,71 +723,62 @@ async function runAuthOtpScenarioTest(state, actor, body = {}) {
 }
 
 
-async function createAuthOtpRequest(user, identifier, delivery, code, authSettings) {
-  await cleanupExpiredAuthOtps();
-  await dbRun('DELETE FROM auth_otps WHERE user_id = $1 AND purpose = $2', [Number(user.id), 'login']);
+function createAuthOtpRequest(user, identifier, delivery, code, authSettings) {
+  cleanupExpiredAuthOtps();
+  db.prepare('DELETE FROM auth_otps WHERE user_id = ? AND purpose = ?').run(Number(user.id), 'login');
   const id = `otp_${crypto.randomBytes(10).toString('hex')}`;
   const createdAt = nowIso();
   const expiresAt = new Date(Date.now() + (Math.max(1, Number(authSettings.otpExpiryMinutes) || 10) * 60 * 1000)).toISOString();
-  await dbRun(
-    'INSERT INTO auth_otps (id, user_id, purpose, delivery, identifier, code_hash, destination_preview, created_at, expires_at, consumed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)',
-    [id, Number(user.id), 'login', delivery, String(identifier || '').trim().toLowerCase(), hashPassword(code), '', createdAt, expiresAt]
-  );
+  db.prepare('INSERT INTO auth_otps (id, user_id, purpose, delivery, identifier, code_hash, destination_preview, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
+    .run(id, Number(user.id), 'login', delivery, String(identifier || '').trim().toLowerCase(), hashPassword(code), '', createdAt, expiresAt);
   return { id, expiresAt };
 }
 
-async function finalizeAuthOtpDestination(id, destinationPreview = '') {
-  await dbRun('UPDATE auth_otps SET destination_preview = $1 WHERE id = $2', [destinationPreview, id]);
+function finalizeAuthOtpDestination(id, destinationPreview = '') {
+  db.prepare('UPDATE auth_otps SET destination_preview = ? WHERE id = ?').run(destinationPreview, id);
 }
 
-async function verifyAndConsumeAuthOtp(user, identifier, code) {
-  await cleanupExpiredAuthOtps();
-  const row = await dbQueryOne(
-    'SELECT * FROM auth_otps WHERE user_id = $1 AND purpose = $2 AND identifier = $3 ORDER BY created_at DESC LIMIT 1',
-    [Number(user.id), 'login', String(identifier || '').trim().toLowerCase()]
-  );
+function verifyAndConsumeAuthOtp(user, identifier, code) {
+  cleanupExpiredAuthOtps();
+  const row = db.prepare('SELECT * FROM auth_otps WHERE user_id = ? AND purpose = ? AND identifier = ? ORDER BY created_at DESC LIMIT 1').get(Number(user.id), 'login', String(identifier || '').trim().toLowerCase());
   if (!row) return { ok: false, message: 'لا يوجد طلب رمز تحقق نشط لهذا الحساب.' };
   if (row.consumed_at) return { ok: false, message: 'تم استخدام الرمز مسبقًا.' };
   if (row.expires_at <= nowIso()) return { ok: false, message: 'انتهت صلاحية الرمز. اطلب رمزًا جديدًا.' };
   if (!verifyPassword(String(code || '').trim(), row.code_hash)) return { ok: false, message: 'رمز التحقق غير صحيح.' };
-  await dbRun('UPDATE auth_otps SET consumed_at = $1 WHERE id = $2', [nowIso(), row.id]);
+  db.prepare('UPDATE auth_otps SET consumed_at = ? WHERE id = ?').run(nowIso(), row.id);
   return { ok: true, row };
 }
 
 
-async function createSession(user) {
-  await cleanupExpiredSessions();
+function createSession(user) {
+  cleanupExpiredSessions();
   const token = crypto.randomBytes(32).toString('hex');
-  await dbRun(
-    'INSERT INTO sessions (token, user_id, username, role, school_id, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-    [token, user.id, user.username, user.role, user.schoolId ?? null, nowIso(), daysFromNow(SESSION_DAYS)]
-  );
-  await auditAuthEvent('login', { tokenPreview: token.slice(0, 8) }, user);
+  db.prepare('INSERT INTO sessions (token, user_id, username, role, school_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(token, user.id, user.username, user.role, user.schoolId ?? null, nowIso(), daysFromNow(SESSION_DAYS));
+  auditAuthEvent('login', { tokenPreview: token.slice(0, 8) }, user);
   return token;
 }
 
-async function appMetaGetJson(key) {
-  const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', [key]);
+function appMetaGetJson(key) {
+  const row = db.prepare('SELECT value FROM app_meta WHERE key = ?').get(key);
   if (!row?.value) return null;
   try { return JSON.parse(row.value); } catch { return null; }
 }
 
-async function appMetaSetJson(key, value) {
-  await dbRun(
-    'INSERT INTO app_meta (key, value, updated_at) VALUES ($1, $2, $3) ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at',
-    [key, JSON.stringify(value), nowIso()]
-  );
+function appMetaSetJson(key, value) {
+  db.prepare('INSERT INTO app_meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+    .run(key, JSON.stringify(value), nowIso());
 }
 
-async function appMetaDelete(key) {
-  await dbRun('DELETE FROM app_meta WHERE key = $1', [key]);
+function appMetaDelete(key) {
+  db.prepare('DELETE FROM app_meta WHERE key = ?').run(key);
 }
 
 function resetRequestKey(userId) {
   return `password_reset_${Number(userId)}`;
 }
 
-async function createPasswordResetRequest(user) {
+function createPasswordResetRequest(user) {
   const code = String(Math.floor(100000 + Math.random() * 900000));
   const payload = {
     userId: Number(user.id),
@@ -814,36 +788,36 @@ async function createPasswordResetRequest(user) {
     requestedAt: nowIso(),
     expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
   };
-  await appMetaSetJson(resetRequestKey(user.id), payload);
-  await audit({ username: user.username, role: user.role }, 'request_password_reset', { userId: user.id, email: payload.email, delivery: process.env.SMTP_HOST ? 'email-ready' : 'manual-code' });
+  appMetaSetJson(resetRequestKey(user.id), payload);
+  audit({ username: user.username, role: user.role }, 'request_password_reset', { userId: user.id, email: payload.email, delivery: process.env.SMTP_HOST ? 'email-ready' : 'manual-code' });
   return payload;
 }
 
-async function consumePasswordResetRequest(user, code) {
-  const payload = await appMetaGetJson(resetRequestKey(user.id));
+function consumePasswordResetRequest(user, code) {
+  const payload = appMetaGetJson(resetRequestKey(user.id));
   if (!payload) return { ok: false, message: 'لا يوجد طلب نشط لإعادة التعيين لهذا الحساب.' };
   if (new Date(payload.expiresAt).getTime() < Date.now()) {
-    await appMetaDelete(resetRequestKey(user.id));
+    appMetaDelete(resetRequestKey(user.id));
     return { ok: false, message: 'انتهت صلاحية رمز إعادة التعيين. اطلب رمزًا جديدًا.' };
   }
   if (String(payload.code || '') !== String(code || '').trim()) {
     return { ok: false, message: 'رمز إعادة التعيين غير صحيح.' };
   }
-  await appMetaDelete(resetRequestKey(user.id));
+  appMetaDelete(resetRequestKey(user.id));
   return { ok: true, payload };
 }
 
-async function getSession(token) {
+function getSession(token) {
   if (!token) return null;
-  await cleanupExpiredSessions();
-  const row = await dbQueryOne('SELECT * FROM sessions WHERE token = $1', [token]);
+  cleanupExpiredSessions();
+  const row = db.prepare('SELECT * FROM sessions WHERE token = ?').get(token);
   if (!row) return null;
   return row;
 }
 
-async function deleteSession(token) {
+function deleteSession(token) {
   if (!token) return;
-  await dbRun('DELETE FROM sessions WHERE token = $1', [token]);
+  db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
 }
 
 function sanitizeUser(user) {
@@ -852,8 +826,8 @@ function sanitizeUser(user) {
   return safe;
 }
 
-async function getUserFromToken(token) {
-  const session = await getSession(token);
+function getUserFromToken(token) {
+  const session = getSession(token);
   if (!session) return null;
   const state = getSharedState();
   const user = state.users.find((item) => item.id === session.user_id && item.username === session.username && item.status === 'نشط');
@@ -2141,7 +2115,7 @@ const server = http.createServer(async (req, res) => {
 
     if (reqUrl.pathname === '/api/bootstrap' && req.method === 'GET') {
       const state = getSharedState();
-      const user = await getUserFromToken(token);
+      const user = getUserFromToken(token);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(state), sessionUser: user });
     }
 
@@ -2156,7 +2130,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 403, { ok: false, message: 'تسجيل الدخول بكلمة المرور معطل من الإعدادات.' });
       }
       const matchedUser = state.users.find((item) => item.username.toLowerCase() === username);
-      const activePasswordLock = matchedUser ? await getActiveAuthLockout(username, matchedUser.id, 'password') : await getActiveAuthLockout(username, null, 'password');
+      const activePasswordLock = matchedUser ? getActiveAuthLockout(username, matchedUser.id, 'password') : getActiveAuthLockout(username, null, 'password');
       if (activePasswordLock) {
         auditAuthEvent('auth_login_blocked', { identifier: username, userId: matchedUser?.id || null, reason: 'temporary_lockout', expiresAt: activePasswordLock.expires_at, scope: activePasswordLock.scope }, matchedUser ? { username: matchedUser.username, role: matchedUser.role } : null);
         return sendJson(res, 423, { ok: false, message: getAuthLockoutMessage(activePasswordLock), lockout: { expiresAt: activePasswordLock.expires_at, scope: activePasswordLock.scope } });
@@ -2179,8 +2153,8 @@ const server = http.createServer(async (req, res) => {
         auditAuthEvent('auth_login_blocked', { identifier: username, userId: user.id, reason: 'otp_only_user' }, { username: user.username, role: user.role });
         return sendJson(res, 403, { ok: false, message: 'هذا الحساب محدد للدخول بالرمز فقط حسب إعدادات الأدمن.' });
       }
-      await clearAuthLockouts(username, user.id, { username: user.username, role: user.role });
-      const sessionToken = await createSession(user);
+      clearAuthLockouts(username, user.id, { username: user.username, role: user.role });
+      const sessionToken = createSession(user);
       return sendJson(res, 200, { ok: true, token: sessionToken, user: sanitizeUser(user) });
     }
 
@@ -2203,7 +2177,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { ok: false, message: 'قناة التحقق المختارة غير مفعلة.' });
       }
       const preMatchedUser = findUserByIdentifier(state, identifier, authSettings.identifierMode || 'username');
-      const activeOtpLock = await getActiveAuthLockout(identifier, preMatchedUser?.id ?? null, 'otp');
+      const activeOtpLock = getActiveAuthLockout(identifier, preMatchedUser?.id ?? null, 'otp');
       if (activeOtpLock) {
         auditAuthEvent('auth_request_otp_blocked', { identifier, delivery, userId: preMatchedUser?.id || null, reason: 'temporary_lockout', expiresAt: activeOtpLock.expires_at, scope: activeOtpLock.scope }, preMatchedUser ? { username: preMatchedUser.username, role: preMatchedUser.role } : null);
         return sendJson(res, 423, { ok: false, message: getAuthLockoutMessage(activeOtpLock), lockout: { expiresAt: activeOtpLock.expires_at, scope: activeOtpLock.scope } });
@@ -2223,10 +2197,10 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 403, { ok: false, message: 'هذا الدور غير مفعل لهذه المدرسة من قبل الأدمن العام.' });
       }
       const code = generateOtpCode(authSettings.otpLength || 6);
-      const request = await createAuthOtpRequest(user, identifier, delivery, code, authSettings);
+      const request = createAuthOtpRequest(user, identifier, delivery, code, authSettings);
       try {
         const dispatchResult = await dispatchAuthOtp(state, user, delivery, code, authSettings);
-        await finalizeAuthOtpDestination(request.id, dispatchResult.destinationPreview || '');
+        finalizeAuthOtpDestination(request.id, dispatchResult.destinationPreview || '');
         auditAuthEvent('auth_request_otp_success', { delivery, userId: user.id, identifier, destinationPreview: dispatchResult.destinationPreview || '' }, { username: user.username, role: user.role });
         return sendJson(res, 200, { ok: true, message: `تم إرسال رمز التحقق عبر ${delivery === 'email' ? 'البريد الإلكتروني' : delivery === 'sms' ? 'SMS' : 'واتساب'}.`, delivery, expiresAt: request.expiresAt, destinationPreview: dispatchResult.destinationPreview || '', previewCode: dispatchResult.previewCode });
       } catch (error) {
@@ -2250,7 +2224,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { ok: false, message: 'أدخل المعرّف والرمز أولاً.' });
       }
       const preMatchedUser = findUserByIdentifier(state, identifier, authSettings.identifierMode || 'username');
-      const activeOtpLock = await getActiveAuthLockout(identifier, preMatchedUser?.id ?? null, 'otp');
+      const activeOtpLock = getActiveAuthLockout(identifier, preMatchedUser?.id ?? null, 'otp');
       if (activeOtpLock) {
         auditAuthEvent('auth_verify_otp_blocked', { identifier, userId: preMatchedUser?.id || null, reason: 'temporary_lockout', expiresAt: activeOtpLock.expires_at, scope: activeOtpLock.scope }, preMatchedUser ? { username: preMatchedUser.username, role: preMatchedUser.role } : null);
         return sendJson(res, 423, { ok: false, message: getAuthLockoutMessage(activeOtpLock), lockout: { expiresAt: activeOtpLock.expires_at, scope: activeOtpLock.scope } });
@@ -2269,7 +2243,7 @@ const server = http.createServer(async (req, res) => {
         auditAuthEvent('auth_verify_otp_blocked', { identifier, userId: user.id, reason: 'role_disabled_for_school' }, { username: user.username, role: user.role });
         return sendJson(res, 403, { ok: false, message: 'هذا الدور غير مفعل لهذه المدرسة من قبل الأدمن العام.' });
       }
-      const verified = await verifyAndConsumeAuthOtp(user, identifier, code);
+      const verified = verifyAndConsumeAuthOtp(user, identifier, code);
       if (!verified.ok) {
         auditAuthEvent('auth_verify_otp_failed', { identifier, userId: user.id, reason: verified?.message || 'verification_failed' }, { username: user.username, role: user.role });
         const lockResult = await registerAuthFailureAndMaybeLock(state, 'otp', identifier, user, { username: user.username, role: user.role });
@@ -2278,14 +2252,14 @@ const server = http.createServer(async (req, res) => {
         }
         return sendJson(res, 400, verified);
       }
-      await clearAuthLockouts(identifier, user.id, { username: user.username, role: user.role });
-      const sessionToken = await createSession(user);
+      clearAuthLockouts(identifier, user.id, { username: user.username, role: user.role });
+      const sessionToken = createSession(user);
       auditAuthEvent('auth_verify_otp_success', { userId: user.id, delivery: verified.row.delivery }, { username: user.username, role: user.role });
       return sendJson(res, 200, { ok: true, token: sessionToken, user: sanitizeUser(user) });
     }
 
     if (reqUrl.pathname === '/api/auth/test-delivery' && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'هذه الصفحة والصلاحية للأدمن الرئيسي فقط.' });
       const body = await readJsonBody(req);
       const state = getSharedState();
@@ -2298,7 +2272,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/auth/test-otp-scenario' && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'هذه الصفحة والصلاحية للأدمن الرئيسي فقط.' });
       const body = await readJsonBody(req);
       const state = getSharedState();
@@ -2311,15 +2285,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/auth/logs' && req.method === 'GET') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'هذه الصفحة والصلاحية للأدمن الرئيسي فقط.' });
       const limit = Number(reqUrl.searchParams.get('limit') || 200);
-      return sendJson(res, 200, { ok: true, logs: await readAuthLogs(limit) });
+      return sendJson(res, 200, { ok: true, logs: readAuthLogs(limit) });
     }
 
     if (reqUrl.pathname === '/api/auth/logout' && req.method === 'POST') {
-      const user = await getUserFromToken(token);
-      await deleteSession(token);
+      const user = getUserFromToken(token);
+      deleteSession(token);
       auditAuthEvent('logout', {}, user);
       return sendJson(res, 200, { ok: true });
     }
@@ -2335,7 +2309,7 @@ const server = http.createServer(async (req, res) => {
       if (!user || !String(user.email || '').trim()) {
         return sendJson(res, 200, { ok: true, delivery: 'generic', message: 'إذا كان الحساب موجودًا ومرتبطًا ببريد إلكتروني فسيتم تجهيز إعادة التعيين له.' });
       }
-      const request = await createPasswordResetRequest(user);
+      const request = createPasswordResetRequest(user);
       return sendJson(res, 200, { ok: true, delivery: process.env.SMTP_HOST ? 'email' : 'manual', message: process.env.SMTP_HOST ? 'تم تجهيز إعادة التعيين وإرسالها للبريد الإلكتروني المرتبط بالحساب.' : 'تم إنشاء رمز إعادة تعيين مؤقت لهذا الحساب في البيئة التجريبية.', previewCode: process.env.SMTP_HOST ? undefined : request.code, expiresAt: request.expiresAt });
     }
 
@@ -2355,19 +2329,19 @@ const server = http.createServer(async (req, res) => {
       if (!user) {
         return sendJson(res, 400, { ok: false, message: 'الحساب المطلوب غير موجود.' });
       }
-      const consumed = await consumePasswordResetRequest(user, code);
+      const consumed = consumePasswordResetRequest(user, code);
       if (!consumed.ok) {
         return sendJson(res, 400, consumed);
       }
       const next = structuredClone(state);
       next.users = (next.users || []).map((item) => Number(item.id) !== Number(user.id) ? item : { ...item, password: newPassword.trim() });
-      await saveSharedState(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
-      await audit({ username: user.username, role: user.role }, 'confirm_password_reset', { userId: user.id });
+      saveSharedState(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
+      audit({ username: user.username, role: user.role }, 'confirm_password_reset', { userId: user.id });
       return sendJson(res, 200, { ok: true, message: 'تم تحديث كلمة المرور بنجاح. يمكنك الدخول الآن.' });
     }
 
     if (reqUrl.pathname === '/api/auth/change-password' && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       const body = await readJsonBody(req);
       const currentPassword = String(body.currentPassword || '');
@@ -2395,13 +2369,13 @@ const server = http.createServer(async (req, res) => {
       }
       const next = structuredClone(state);
       next.users = (next.users || []).map((item) => Number(item.id) !== Number(user.id) ? item : { ...item, password: newPassword });
-      await saveSharedState(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
-      await audit({ username: user.username, role: user.role }, 'change_password', { userId: user.id });
+      saveSharedState(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
+      audit({ username: user.username, role: user.role }, 'change_password', { userId: user.id });
       return sendJson(res, 200, { ok: true, message: 'تم تغيير كلمة المرور بنجاح.' });
     }
 
     if (reqUrl.pathname === '/api/auth/admin-reset-password' && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       const body = await readJsonBody(req);
       const targetUserId = Number(body.userId || 0);
@@ -2442,33 +2416,33 @@ const server = http.createServer(async (req, res) => {
       }
       const next = structuredClone(state);
       next.users = (next.users || []).map((item) => Number(item.id) !== Number(targetUser.id) ? item : { ...item, password: newPassword });
-      await saveSharedState(next, { username: actorFull.username, role: actorFull.role, id: actorFull.id, schoolId: actorFull.schoolId ?? null });
-      await audit({ username: actorFull.username, role: actorFull.role }, 'admin_reset_password', { targetUserId: targetUser.id, targetUsername: targetUser.username, targetRole: targetUser.role });
+      saveSharedState(next, { username: actorFull.username, role: actorFull.role, id: actorFull.id, schoolId: actorFull.schoolId ?? null });
+      audit({ username: actorFull.username, role: actorFull.role }, 'admin_reset_password', { targetUserId: targetUser.id, targetUsername: targetUser.username, targetRole: targetUser.role });
       return sendJson(res, 200, { ok: true, message: `تمت إعادة تعيين كلمة مرور المستخدم ${targetUser.name || targetUser.username} بنجاح.` });
     }
 
     if (reqUrl.pathname === '/api/state/save' && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (actor.role === 'student') return sendJson(res, 403, { ok: false, message: 'هذا الحساب لا يملك صلاحية حفظ بيانات المنصة.' });
       const body = await readJsonBody(req);
       const incomingState = body.state || body;
       const currentState = getSharedState();
       const merged = mergeStateByRole(currentState, incomingState, actor);
-      const saved = await saveSharedState(merged, actor);
+      const saved = saveSharedState(merged, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved), sessionUser: actor });
     }
 
     if (reqUrl.pathname === '/api/state/reset' && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه إعادة تهيئة المنصة.' });
       const fresh = createDefaultSharedState();
-      await saveSharedState(fresh, actor);
+      saveSharedState(fresh, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(fresh), sessionUser: actor });
     }
 
     if (reqUrl.pathname === '/api/state/export' && req.method === 'GET') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'يلزم تسجيل الدخول أولاً.' });
       const state = getSharedState();
       const payload = JSON.stringify(sanitizeStateForClient(state), null, 2);
@@ -2484,7 +2458,7 @@ const server = http.createServer(async (req, res) => {
 
 
     if (reqUrl.pathname === '/api/backups/status' && req.method === 'GET') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه عرض حالة النسخ الاحتياطي.' });
       const latestPath = path.join(BACKUPS_DIR, 'latest.json');
       let latest = null;
@@ -2496,7 +2470,7 @@ const server = http.createServer(async (req, res) => {
 
     const schoolDeviceMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links$/);
     if (schoolDeviceMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolDeviceMatch[1]);
       if (!canManageSchoolDevices(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة روابط الأجهزة لهذه المدرسة.' });
       const body = await readJsonBody(req);
@@ -2516,7 +2490,7 @@ const server = http.createServer(async (req, res) => {
         };
         smartLinks.gates = [...(smartLinks.gates || []), gate];
         school.smartLinks = smartLinks;
-        const saved = await await saveSharedState(next, actor);
+        const saved = saveSharedState(next, actor);
         return sendJson(res, 200, { ok: true, link: gate, state: sanitizeStateForClient(saved) });
       }
       const screen = {
@@ -2548,13 +2522,13 @@ const server = http.createServer(async (req, res) => {
       };
       smartLinks.screens = [...(smartLinks.screens || []), screen];
       school.smartLinks = smartLinks;
-      const saved = await await saveSharedState(next, actor);
+      const saved = saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, link: screen, state: sanitizeStateForClient(saved) });
     }
 
     const schoolDeviceUpdateMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links\/screen\/([^/]+)$/);
     if (schoolDeviceUpdateMatch && req.method === 'PATCH') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolDeviceUpdateMatch[1]);
       const screenId = schoolDeviceUpdateMatch[2];
       if (!canManageSchoolDevices(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تعديل هذا الرابط.' });
@@ -2591,13 +2565,13 @@ const server = http.createServer(async (req, res) => {
       if (body.tickerLayout === 'stacked' || body.tickerLayout === 'marquee') screen.tickerLayout = body.tickerLayout;
       if (body.sourceMode === 'school' || body.sourceMode === 'classroom') screen.sourceMode = body.sourceMode;
       if (body.linkedClassroomId !== undefined) screen.linkedClassroomId = body.linkedClassroomId ? String(body.linkedClassroomId) : '';
-      const saved = await await saveSharedState(next, actor);
+      const saved = saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, link: screen, state: sanitizeStateForClient(saved) });
     }
 
     const schoolDeviceDeleteMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links\/(gate|screen)\/([^/]+)$/);
     if (schoolDeviceDeleteMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolDeviceDeleteMatch[1]);
       const kind = schoolDeviceDeleteMatch[2];
       const linkId = schoolDeviceDeleteMatch[3];
@@ -2608,25 +2582,25 @@ const server = http.createServer(async (req, res) => {
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
       if (kind === 'gate') school.smartLinks.gates = (school.smartLinks?.gates || []).filter((item) => item.id !== linkId);
       else school.smartLinks.screens = (school.smartLinks?.screens || []).filter((item) => item.id !== linkId);
-      const saved = await await saveSharedState(next, actor);
+      const saved = saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
     const schoolImportMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/students\/import$/);
     if (schoolImportMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolImportMatch[1]);
       if (!canManageSchoolDevices(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية استيراد الطلاب لهذه المدرسة.' });
       const body = await readJsonBody(req);
       const imported = importStudentsIntoSchool(getSharedState(), schoolId, Array.isArray(body.rows) ? body.rows : []);
       if (!imported.ok) return sendJson(res, 400, imported);
-      const saved = await await saveSharedState(imported.state, actor);
+      const saved = saveSharedState(imported.state, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved), added: imported.added, skipped: imported.skipped, companiesCreated: imported.companiesCreated });
     }
 
     const schoolAttendanceBindingMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/attendance-binding$/);
     if (schoolAttendanceBindingMatch && req.method === 'PATCH') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolAttendanceBindingMatch[1]);
       if (!canManageSchoolDevices(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تعديل مصدر الحضور لهذه المدرسة.' });
       const body = await readJsonBody(req);
@@ -2639,13 +2613,13 @@ const server = http.createServer(async (req, res) => {
       const linkedClassroomId = sourceMode === 'structure' && body?.linkedClassroomId ? String(body.linkedClassroomId) : '';
       school.structure = school.structure || {};
       school.structure.attendanceBinding = { sourceMode, linkedClassroomId };
-      const saved = await await saveSharedState(next, actor);
+      const saved = saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, attendanceBinding: school.structure.attendanceBinding, state: sanitizeStateForClient(saved) });
     }
 
     const schoolReportMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/reports\/executive$/);
     if (schoolReportMatch && req.method === 'GET') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolReportMatch[1]);
       if (!canReadSchoolReports(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية عرض التقارير التنفيذية لهذه المدرسة.' });
       const payload = summarizeSchoolLivePayload(getSharedState(), schoolId);
@@ -2655,13 +2629,13 @@ const server = http.createServer(async (req, res) => {
 
     const schoolMessagingTestMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/test$/);
     if (schoolMessagingTestMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolMessagingTestMatch[1]);
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
       const body = await readJsonBody(req);
       const tested = await testSchoolMessagingIntegration(getSharedState(), schoolId, body.channel === 'sms' ? 'sms' : body.channel === 'internal' ? 'internal' : 'whatsapp', body.settings || null);
       if (tested.state) {
-        const saved = await saveSharedState(tested.state, actor);
+        const saved = saveSharedState(tested.state, actor);
         return sendJson(res, tested.ok ? 200 : 400, { ok: tested.ok, message: tested.message, providerMessageId: tested.providerMessageId || '', state: sanitizeStateForClient(saved) });
       }
       return sendJson(res, tested.ok ? 200 : 400, tested);
@@ -2669,19 +2643,19 @@ const server = http.createServer(async (req, res) => {
 
     const schoolMessagingSendMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/send$/);
     if (schoolMessagingSendMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolMessagingSendMatch[1]);
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
       const body = await readJsonBody(req);
       const processed = await processSchoolMessageSend(getSharedState(), schoolId, actor, body || {});
       if (!processed.ok) return sendJson(res, 400, processed);
-      const saved = await saveSharedState(processed.state, actor);
+      const saved = saveSharedState(processed.state, actor);
       return sendJson(res, 200, { ok: true, message: processed.message, log: processed.log, state: sanitizeStateForClient(saved) });
     }
 
     const schoolMessagingSettingsMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/settings$/);
     if (schoolMessagingSettingsMatch && req.method === 'PATCH') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolMessagingSettingsMatch[1]);
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
       const body = await readJsonBody(req);
@@ -2702,13 +2676,13 @@ const server = http.createServer(async (req, res) => {
           sms: { ...(school.messaging.settings?.integration?.sms || {}), ...(body?.integration?.sms || {}) },
         },
       };
-      const saved = await await saveSharedState(next, actor);
+      const saved = saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
     const schoolMessagingTemplateSaveMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/templates\/save$/);
     if (schoolMessagingTemplateSaveMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolMessagingTemplateSaveMatch[1]);
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
       const body = await readJsonBody(req);
@@ -2722,13 +2696,13 @@ const server = http.createServer(async (req, res) => {
       school.messaging.templates = exists
         ? school.messaging.templates.map((item) => String(item.id) !== String(body?.id) ? item : { ...item, ...(body || {}) })
         : [{ ...(body || {}), id: body?.id || Date.now(), active: body?.active !== false }, ...school.messaging.templates];
-      const saved = await await saveSharedState(next, actor);
+      const saved = saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
     const schoolMessagingTemplateDeleteMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/templates\/([^/]+)\/delete$/);
     if (schoolMessagingTemplateDeleteMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolMessagingTemplateDeleteMatch[1]);
       const templateId = schoolMessagingTemplateDeleteMatch[2];
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
@@ -2738,13 +2712,13 @@ const server = http.createServer(async (req, res) => {
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
       school.messaging = school.messaging || {};
       school.messaging.templates = (school.messaging.templates || []).filter((item) => String(item.id) !== String(templateId));
-      const saved = await await saveSharedState(next, actor);
+      const saved = saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
     const schoolMessagingRuleSaveMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/rules\/save$/);
     if (schoolMessagingRuleSaveMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolMessagingRuleSaveMatch[1]);
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
       const body = await readJsonBody(req);
@@ -2758,13 +2732,13 @@ const server = http.createServer(async (req, res) => {
       school.messaging.rules = exists
         ? school.messaging.rules.map((item) => String(item.id) !== String(body?.id) ? item : { ...item, ...(body || {}) })
         : [{ ...(body || {}), id: body?.id || Date.now(), active: body?.active !== false }, ...school.messaging.rules];
-      const saved = await await saveSharedState(next, actor);
+      const saved = saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
     const schoolMessagingRuleToggleMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/rules\/([^/]+)\/toggle$/);
     if (schoolMessagingRuleToggleMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolMessagingRuleToggleMatch[1]);
       const ruleId = schoolMessagingRuleToggleMatch[2];
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
@@ -2774,13 +2748,13 @@ const server = http.createServer(async (req, res) => {
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
       school.messaging = school.messaging || {};
       school.messaging.rules = (school.messaging.rules || []).map((item) => String(item.id) !== String(ruleId) ? item : { ...item, active: item?.active === false });
-      const saved = await await saveSharedState(next, actor);
+      const saved = saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
     const schoolStudentsMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/students$/);
     if (schoolStudentsMatch && req.method === 'GET') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolStudentsMatch[1]);
       if (!canManageSchoolContent(actor, schoolId) && !canReadSchoolReports(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية عرض الطلاب لهذه المدرسة.' });
       const state = getSharedState();
@@ -2794,7 +2768,7 @@ const server = http.createServer(async (req, res) => {
 
     const schoolStudentFaceMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/students\/(\d+)\/face$/);
     if (schoolStudentFaceMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolStudentFaceMatch[1]);
       const studentId = Number(schoolStudentFaceMatch[2]);
       if (!canManageStudentActions(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تعديل بصمة الوجه لهذه المدرسة.' });
@@ -2810,7 +2784,7 @@ const server = http.createServer(async (req, res) => {
       student.faceReady = Boolean(signature.length || imageUrl);
       student.faceSignature = signature;
       student.facePhoto = imageUrl || '';
-      const saved = await await saveSharedState(next, actor);
+      const saved = saveSharedState(next, actor);
       const updatedSchool = saved.schools.find((item) => Number(item.id) === schoolId);
       const updatedStudent = updatedSchool?.students?.find((item) => Number(item.id) === studentId) || null;
       return sendJson(res, 200, { ok: true, student: updatedStudent, state: sanitizeStateForClient(saved) });
@@ -2818,13 +2792,13 @@ const server = http.createServer(async (req, res) => {
 
     const schoolActionApplyMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/actions\/apply$/);
     if (schoolActionApplyMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolActionApplyMatch[1]);
       if (!canManageStudentActions(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تنفيذ إجراءات الطلاب لهذه المدرسة.' });
       const body = await readJsonBody(req);
       const applied = applyStudentActionToState(getSharedState(), schoolId, body, actor);
       if (!applied.ok) return sendJson(res, 400, applied);
-      let saved = await saveSharedState(applied.state, actor);
+      let saved = saveSharedState(applied.state, actor);
       if (applied.logEntry?.actionType === 'violation') {
         const automated = await runAutomatedMessagingForSchool(saved, schoolId, {
           eventType: 'behavior',
@@ -2836,20 +2810,20 @@ const server = http.createServer(async (req, res) => {
           now: new Date().toISOString(),
           time: applied.logEntry?.time || '—',
         });
-        if (automated?.state) saved = await saveSharedState(automated.state, actor);
+        if (automated?.state) saved = saveSharedState(automated.state, actor);
       }
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, student: applied.student, state: sanitizeStateForClient(saved) });
     }
 
     const schoolProgramApplyMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/programs\/apply$/);
     if (schoolProgramApplyMatch && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
+      const actor = getUserFromToken(token);
       const schoolId = Number(schoolProgramApplyMatch[1]);
       if (!canManageStudentActions(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية اعتماد البرامج لهذه المدرسة.' });
       const body = await readJsonBody(req);
       const applied = await applyProgramToState(getSharedState(), schoolId, body, actor);
       if (!applied.ok) return sendJson(res, 400, applied);
-      const saved = await saveSharedState(applied.state, actor);
+      const saved = saveSharedState(applied.state, actor);
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, state: sanitizeStateForClient(saved) });
     }
 
@@ -2901,7 +2875,7 @@ const server = http.createServer(async (req, res) => {
       }
       const automatedAbsence = await runAutomatedMessagingForSchool(finalState, match.school.id, { eventType: 'absence', isoDate: applied.logEntry?.isoDate, now: new Date().toISOString() });
       finalState = automatedAbsence.state || finalState;
-      const saved = await saveSharedState(finalState, { username: `public:${match.gate.name}`, role: 'gate' });
+      const saved = saveSharedState(finalState, { username: `public:${match.gate.name}`, role: 'gate' });
       const live = summarizeSchoolLivePayload(saved, match.school.id);
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, student: applied.student, live });
     }
