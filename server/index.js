@@ -29,6 +29,9 @@ const SCREEN_THEME_KEYS = ["emerald-night","blue-contrast","violet-stage","sunri
 const SCREEN_TEMPLATE_KEYS = ["executive","reception","leaderboard","news"];
 const TICKER_BG_KEYS = ["amber","navy","emerald","rose","slate"];
 
+// State cache (must be declared before any top-level await calls)
+let _stateCache = null;
+
 // PostgreSQL pool
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -370,9 +373,6 @@ async function ensureStateMigrations() {
     await writeStateRow(state);
   }
 }
-
-// Synchronous in-memory cache for shared state
-let _stateCache = null;
 
 async function getSharedStateAsync() {
   const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);
