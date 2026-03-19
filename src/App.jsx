@@ -2175,10 +2175,7 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     const video = videoRef.current;
     if (!video) return false;
     if (!stream || !stream.active) return false;
-    // Reset first to avoid stale srcObject on iOS
-    video.pause?.();
-    video.srcObject = null;
-    video.load?.();
+    // Set required attributes for cross-browser autoplay
     video.muted = true;
     video.autoplay = true;
     video.playsInline = true;
@@ -2186,32 +2183,39 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     video.setAttribute("autoplay", "");
     video.setAttribute("playsinline", "");
     video.setAttribute("webkit-playsinline", "");
-    // Small delay to let iOS release previous stream
-    await new Promise((resolve) => window.setTimeout(resolve, 80));
+    // Assign stream directly - do NOT call video.load() as it cancels the stream
     video.srcObject = stream;
+    // Wait for metadata or canplay (whichever fires first)
     await new Promise((resolve) => {
-      const finalize = () => { video.onloadedmetadata = null; resolve(true); };
+      let done = false;
+      const finalize = () => {
+        if (done) return;
+        done = true;
+        video.onloadedmetadata = null;
+        video.oncanplay = null;
+        resolve(true);
+      };
       video.onloadedmetadata = finalize;
-      // iOS sometimes fires canplay instead of loadedmetadata
       video.oncanplay = finalize;
-      window.setTimeout(finalize, 1200);
+      // Fallback timeout in case neither event fires
+      window.setTimeout(finalize, 1500);
     });
-    video.oncanplay = null;
     try {
       const playPromise = video.play();
       if (playPromise !== undefined) await playPromise;
     } catch (err) {
-      // NotAllowedError on autoStart without user gesture - show play button
       if (err && err.name === 'NotAllowedError') {
+        // Autoplay blocked - user must tap the video or the start button
         setError('اضغط على زر تشغيل الكاميرا لبدء البث.');
       }
+      // Other errors (AbortError) are safe to ignore
     }
-    // Extra play attempt after short delay for iOS Safari
-    window.setTimeout(async () => {
+    // Retry play after a short delay for browsers that need a nudge
+    window.setTimeout(() => {
       if (videoRef.current && videoRef.current.paused && videoRef.current.srcObject) {
-        try { await videoRef.current.play(); } catch { /* ignore */ }
+        videoRef.current.play().catch(() => {});
       }
-    }, 400);
+    }, 500);
     return Boolean(video.videoWidth || video.readyState >= 2);
   }, []);
 
