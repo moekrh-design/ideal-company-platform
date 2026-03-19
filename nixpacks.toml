@@ -1,5 +1,5 @@
 [phases.install]
-cmds = ["npm install --production --ignore-scripts"]
+cmds = ["npm install nodemailer --no-save --ignore-scripts"]
 
 [phases.build]
 cmds = []
