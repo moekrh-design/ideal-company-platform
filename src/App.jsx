@@ -2541,11 +2541,13 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
   useEffect(() => {
     if (!autoStart || hasAutoStartedRef.current) return undefined;
     hasAutoStartedRef.current = true;
+    // نستخدم startCameraRef.current لتجنب stale closures ومشاكل re-render
     const id = window.setTimeout(() => {
-      if (!streamRef.current && !active) startCamera();
-    }, 120);
+      if (!streamRef.current) startCameraRef.current?.();
+    }, 300);
     return () => window.clearTimeout(id);
-  }, [autoStart, active, startCamera]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart]);
 
   const captureFrame = async () => {
     if (!videoRef.current || !active) return;
@@ -3262,7 +3264,8 @@ function PublicGatePage({ token }) {
   if (!payload) return <div dir="rtl" className="flex min-h-screen items-center justify-center bg-slate-100 p-6"><div className="rounded-3xl bg-white p-8 ring-1 ring-slate-200">جارِ تحميل البوابة...</div></div>;
 
   const live = payload.live || {};
-  const summaryView = payload.summary || {};
+  // الإحصائيات تأتي من live.summary (من summarizeSchoolLivePayload التي تُرجع { school, summary, ... })
+  const summaryView = live.summary || {};
   const mode = payload.gate?.mode || 'mixed';
   const manualStudent = resolveManualStudent();
 
