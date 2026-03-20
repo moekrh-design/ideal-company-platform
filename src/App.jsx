@@ -4027,14 +4027,64 @@ function PublicScreenPage({ token }) {
         ),
       });
     }
+    // شريحة المعلمين الأبرز
+    const teacherActivityForSlide = live?.teacherActivity || [];
+    if (teacherActivityForSlide.length > 0) {
+      items.push({
+        key: 'teacherActivity',
+        title: 'المعلمون الأبرز اليوم',
+        render: () => (
+          <div className="h-full rounded-[2.2rem] bg-gradient-to-br from-amber-50 to-white p-8 text-slate-950 shadow-2xl ring-1 ring-amber-200">
+            <div className="mb-6 flex items-center gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-amber-400 shadow-lg">
+                <span className="text-3xl">🏆</span>
+              </div>
+              <div>
+                <div className="text-4xl font-black text-slate-900 xl:text-5xl">المعلمون الأبرز اليوم</div>
+                <div className="mt-1 text-xl text-amber-700">{safeSchoolName}</div>
+              </div>
+            </div>
+            <div className="grid gap-4 xl:grid-cols-2">
+              {teacherActivityForSlide.slice(0, 6).map((teacher, index) => (
+                <div key={`${teacher.actorName}-${index}`} className={`rounded-[1.75rem] p-5 ring-1 ${index === 0 ? 'bg-amber-100 ring-amber-300' : 'bg-white ring-slate-200'}`}>
+                  <div className="flex items-center gap-3">
+                    <span className={`flex h-10 w-10 items-center justify-center rounded-2xl text-xl font-black ${index === 0 ? 'bg-amber-400 text-white' : 'bg-slate-100 text-slate-700'}`}>{index + 1}</span>
+                    <div className="text-2xl font-black text-slate-900">{teacher.actorName}</div>
+                  </div>
+                  <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+                    <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+                      <div className="text-2xl font-black text-slate-800">{formatEnglishDigits(teacher.count)}</div>
+                      <div className="text-sm font-bold text-slate-500">إجمالي</div>
+                    </div>
+                    <div className="rounded-2xl bg-emerald-50 p-3 ring-1 ring-emerald-200">
+                      <div className="text-2xl font-black text-emerald-700">{formatEnglishDigits(teacher.rewardCount)}</div>
+                      <div className="text-sm font-bold text-emerald-600">مكافآت</div>
+                    </div>
+                    <div className="rounded-2xl bg-rose-50 p-3 ring-1 ring-rose-200">
+                      <div className="text-2xl font-black text-rose-700">{formatEnglishDigits(teacher.violationCount)}</div>
+                      <div className="text-sm font-bold text-rose-600">خصومات</div>
+                    </div>
+                    <div className="rounded-2xl bg-violet-50 p-3 ring-1 ring-violet-200">
+                      <div className="text-2xl font-black text-violet-700">{formatEnglishDigits(teacher.programCount)}</div>
+                      <div className="text-sm font-bold text-violet-600">برامج</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ),
+      });
+    }
+
     if (!items.length) {
       return [{ key: 'empty', title: 'الشاشة', render: () => <div className="h-full rounded-[2rem] bg-white p-8 text-slate-950 ring-1 ring-slate-200">لا توجد عناصر مفعلة لهذه الشاشة.</div> }];
     }
     const priorityMap = {
-      executive: ['metrics','attendanceChart','recentActivity','topStudents','topCompanies'],
-      reception: ['metrics','recentActivity','topStudents','attendanceChart','topCompanies'],
-      leaderboard: ['topStudents','topCompanies','metrics','attendanceChart','recentActivity'],
-      news: ['recentActivity','metrics','attendanceChart','topStudents','topCompanies'],
+      executive: ['metrics','attendanceChart','teacherActivity','recentActivity','topStudents','topCompanies'],
+      reception: ['metrics','recentActivity','teacherActivity','topStudents','attendanceChart','topCompanies'],
+      leaderboard: ['topStudents','topCompanies','teacherActivity','metrics','attendanceChart','recentActivity'],
+      news: ['recentActivity','metrics','teacherActivity','attendanceChart','topStudents','topCompanies'],
     };
     const order = priorityMap[screenTemplate] || priorityMap.executive;
     return items.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
@@ -4056,7 +4106,7 @@ function PublicScreenPage({ token }) {
         )
       }];
     }
-  }, [live, widgets, screenTemplate, structureSpotlight, summaryView, topStudentsView, topCompaniesView, topStudentsChartData, topCompaniesChartData, attendanceTrendView, recentAttendanceView, safeSchoolName]);
+  }, [live, widgets, screenTemplate, structureSpotlight, summaryView, topStudentsView, topCompaniesView, topStudentsChartData, topCompaniesChartData, attendanceTrendView, recentAttendanceView, safeSchoolName, teacherActivityForSlide]);
 
   useEffect(() => {
     setSlideIndex(0);
@@ -5181,7 +5231,7 @@ function SchoolStructurePage({ selectedSchool, schoolUsers = [], currentUser, on
   );
 }
 
-function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog, notifications, canSelectSchool = true, executiveReport, currentUser, onCreateGateLink, onDeleteGateLink, onCreateScreenLink, onDeleteScreenLink, onUpdateScreenLink, onNavigate }) {
+function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog, actionLog = [], settings = {}, notifications, canSelectSchool = true, executiveReport, currentUser, onCreateGateLink, onDeleteGateLink, onCreateScreenLink, onDeleteScreenLink, onUpdateScreenLink, onNavigate }) {
   const fallbackSchool = selectedSchool || schools[0] || null;
   const scopedSchools = canSelectSchool ? schools : [fallbackSchool].filter(Boolean);
   const totalStudents = scopedSchools.reduce((sum, school) => sum + getUnifiedSchoolStudents(school, { includeArchived: false, preferStructure: true }).length, 0);
@@ -5221,6 +5271,63 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
   }));
   const liveSummary = executiveReport?.summary || summarizeSchoolLiveState(fallbackSchool, scanLog, []).summary;
   const latestNotifications = notifications.slice(0, 4);
+
+  // ===== إحصائيات الإجراءات =====
+  const schoolActionLog = useMemo(() => (actionLog || []).filter((item) => item.schoolId === fallbackSchool?.id), [actionLog, fallbackSchool]);
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  const actionStats = useMemo(() => {
+    const rewardMap = {};
+    const violationMap = {};
+    const programMap = {};
+    const teacherMap = {};
+    let rewardTotal = 0, violationTotal = 0, programTotal = 0;
+    let rewardToday = 0, violationToday = 0, programToday = 0;
+    const tPoints = settings?.teacherPoints || {};
+    const ptReward = Number(tPoints.pointsPerReward ?? 2);
+    const ptViolation = Number(tPoints.pointsPerViolation ?? 1);
+    const ptProgram = Number(tPoints.pointsPerProgram ?? 3);
+
+    schoolActionLog.forEach((item) => {
+      const isToday = (item.isoDate || '').slice(0, 10) === todayIso;
+      const actor = item.actorName || 'غير محدد';
+      if (!teacherMap[actor]) teacherMap[actor] = { name: actor, rewards: 0, violations: 0, programs: 0, points: 0 };
+
+      if (item.actionType === 'reward') {
+        rewardTotal++;
+        if (isToday) rewardToday++;
+        const title = item.actionTitle || 'غير محدد';
+        rewardMap[title] = (rewardMap[title] || { title, count: 0, points: 0 });
+        rewardMap[title].count++;
+        rewardMap[title].points += Number(item.points || 0);
+        teacherMap[actor].rewards++;
+        teacherMap[actor].points += ptReward;
+      } else if (item.actionType === 'violation') {
+        violationTotal++;
+        if (isToday) violationToday++;
+        const title = item.actionTitle || 'غير محدد';
+        violationMap[title] = (violationMap[title] || { title, count: 0, points: 0 });
+        violationMap[title].count++;
+        violationMap[title].points += Math.abs(Number(item.points || 0));
+        teacherMap[actor].violations++;
+        teacherMap[actor].points += ptViolation;
+      } else if (item.actionType === 'program') {
+        programTotal++;
+        if (isToday) programToday++;
+        const title = item.actionTitle || 'غير محدد';
+        programMap[title] = (programMap[title] || { title, count: 0 });
+        programMap[title].count++;
+        teacherMap[actor].programs++;
+        teacherMap[actor].points += ptProgram;
+      }
+    });
+
+    const topRewards = Object.values(rewardMap).sort((a, b) => b.count - a.count).slice(0, 8);
+    const topViolations = Object.values(violationMap).sort((a, b) => b.count - a.count).slice(0, 8);
+    const topPrograms = Object.values(programMap).sort((a, b) => b.count - a.count).slice(0, 8);
+    const topTeachers = Object.values(teacherMap).sort((a, b) => b.points - a.points).slice(0, 8);
+    return { rewardTotal, violationTotal, programTotal, rewardToday, violationToday, programToday, topRewards, topViolations, topPrograms, topTeachers };
+  }, [schoolActionLog, settings, todayIso]);
   const quickNavigation = [
     { key: 'attendance', label: 'الحضور الذكي', tone: 'blue' },
     { key: 'students', label: 'الطلاب', tone: 'violet' },
@@ -5449,6 +5556,228 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
             </div>
           </SectionCard>
         </div>
+      </div>
+
+      {/* ===== قسم إحصائيات الإجراءات ===== */}
+      <div id="actions-stats-section" className="space-y-6">
+        {/* ملخص أرقام الإجراءات */}
+        <SectionCard title="إحصائيات الإجراءات" icon={ClipboardList} action={
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="flex items-center gap-2 rounded-2xl bg-slate-800 px-4 py-2 text-sm font-bold text-white hover:bg-slate-700"
+          >
+            <Printer className="h-4 w-4" /> طباعة التقرير
+          </button>
+        }>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+            <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100 text-center">
+              <div className="text-xs font-bold text-emerald-700">مكافآت الإجمالي</div>
+              <div className="mt-2 text-3xl font-black text-emerald-800">{actionStats.rewardTotal}</div>
+              <div className="mt-1 text-xs text-emerald-600">اليوم: {actionStats.rewardToday}</div>
+            </div>
+            <div className="rounded-2xl bg-rose-50 p-4 ring-1 ring-rose-100 text-center">
+              <div className="text-xs font-bold text-rose-700">خصومات الإجمالي</div>
+              <div className="mt-2 text-3xl font-black text-rose-800">{actionStats.violationTotal}</div>
+              <div className="mt-1 text-xs text-rose-600">اليوم: {actionStats.violationToday}</div>
+            </div>
+            <div className="rounded-2xl bg-violet-50 p-4 ring-1 ring-violet-100 text-center">
+              <div className="text-xs font-bold text-violet-700">برامج الإجمالي</div>
+              <div className="mt-2 text-3xl font-black text-violet-800">{actionStats.programTotal}</div>
+              <div className="mt-1 text-xs text-violet-600">اليوم: {actionStats.programToday}</div>
+            </div>
+            <div className="rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100 text-center">
+              <div className="text-xs font-bold text-amber-700">أعلى مكافأة</div>
+              <div className="mt-2 text-base font-black text-amber-800 leading-tight">{actionStats.topRewards[0]?.title || '—'}</div>
+              <div className="mt-1 text-xs text-amber-600">{actionStats.topRewards[0]?.count || 0} مرة</div>
+            </div>
+            <div className="rounded-2xl bg-sky-50 p-4 ring-1 ring-sky-100 text-center">
+              <div className="text-xs font-bold text-sky-700">أعلى خصم</div>
+              <div className="mt-2 text-base font-black text-sky-800 leading-tight">{actionStats.topViolations[0]?.title || '—'}</div>
+              <div className="mt-1 text-xs text-sky-600">{actionStats.topViolations[0]?.count || 0} مرة</div>
+            </div>
+            <div className="rounded-2xl bg-indigo-50 p-4 ring-1 ring-indigo-100 text-center">
+              <div className="text-xs font-bold text-indigo-700">المعلم الأبرز</div>
+              <div className="mt-2 text-base font-black text-indigo-800 leading-tight">{actionStats.topTeachers[0]?.name || '—'}</div>
+              <div className="mt-1 text-xs text-indigo-600">{actionStats.topTeachers[0]?.points || 0} نقطة</div>
+            </div>
+          </div>
+        </SectionCard>
+
+        {/* رسوم بيانية للإجراءات */}
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          {/* مخطط المكافآت */}
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-emerald-100"><Trophy className="h-5 w-5 text-emerald-700" /></div>
+              <div className="font-extrabold text-slate-800">أكثر المكافآت تكراراً</div>
+            </div>
+            {actionStats.topRewards.length ? (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={actionStats.topRewards} layout="vertical" margin={{ right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" />
+                    <YAxis type="category" dataKey="title" width={120} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v) => [`${v} مرة`, 'التكرار']} />
+                    <Bar dataKey="count" radius={[0, 8, 8, 0]} fill="#10b981" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">لا توجد مكافآت مسجلة بعد.</div>}
+          </div>
+
+          {/* مخطط الخصومات */}
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-rose-100"><ShieldAlert className="h-5 w-5 text-rose-700" /></div>
+              <div className="font-extrabold text-slate-800">أكثر الخصومات تكراراً</div>
+            </div>
+            {actionStats.topViolations.length ? (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={actionStats.topViolations} layout="vertical" margin={{ right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" />
+                    <YAxis type="category" dataKey="title" width={120} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v) => [`${v} مرة`, 'التكرار']} />
+                    <Bar dataKey="count" radius={[0, 8, 8, 0]} fill="#f43f5e" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">لا توجد خصومات مسجلة بعد.</div>}
+          </div>
+
+          {/* مخطط البرامج */}
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-violet-100"><Rocket className="h-5 w-5 text-violet-700" /></div>
+              <div className="font-extrabold text-slate-800">أكثر البرامج تنفيذاً</div>
+            </div>
+            {actionStats.topPrograms.length ? (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={actionStats.topPrograms} layout="vertical" margin={{ right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" />
+                    <YAxis type="category" dataKey="title" width={120} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v) => [`${v} مرة`, 'التكرار']} />
+                    <Bar dataKey="count" radius={[0, 8, 8, 0]} fill="#8b5cf6" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">لا توجد برامج مسجلة بعد.</div>}
+          </div>
+
+          {/* مخطط المعلمين الأبرز */}
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-amber-100"><Users className="h-5 w-5 text-amber-700" /></div>
+              <div className="font-extrabold text-slate-800">المعلمون الأبرز (بالنقاط)</div>
+            </div>
+            {actionStats.topTeachers.length ? (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={actionStats.topTeachers} layout="vertical" margin={{ right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" />
+                    <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v, name) => [v, name === 'points' ? 'النقاط' : name === 'rewards' ? 'المكافآت' : name === 'violations' ? 'الخصومات' : 'البرامج']} />
+                    <Bar dataKey="points" radius={[0, 8, 8, 0]} fill="#f59e0b" />
+                    <Bar dataKey="rewards" radius={[0, 8, 8, 0]} fill="#10b981" />
+                    <Bar dataKey="violations" radius={[0, 8, 8, 0]} fill="#f43f5e" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">لا توجد إجراءات مسجلة بعد.</div>}
+          </div>
+        </div>
+
+        {/* جدول تفاصيل المكافآت */}
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="mb-4 font-extrabold text-emerald-800">تفاصيل المكافآت</div>
+            <div className="space-y-2">
+              {actionStats.topRewards.length ? actionStats.topRewards.map((item, i) => (
+                <div key={item.title} className="flex items-center justify-between rounded-2xl bg-emerald-50 px-4 py-3 ring-1 ring-emerald-100">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-200 text-xs font-black text-emerald-800">{i + 1}</span>
+                    <span className="text-sm font-bold text-slate-800">{item.title}</span>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-black text-emerald-700">{item.count} مرة</div>
+                    <div className="text-xs text-slate-500">{item.points} نقطة</div>
+                  </div>
+                </div>
+              )) : <div className="text-sm text-slate-400 text-center py-4">لا توجد بيانات</div>}
+            </div>
+          </div>
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="mb-4 font-extrabold text-rose-800">تفاصيل الخصومات</div>
+            <div className="space-y-2">
+              {actionStats.topViolations.length ? actionStats.topViolations.map((item, i) => (
+                <div key={item.title} className="flex items-center justify-between rounded-2xl bg-rose-50 px-4 py-3 ring-1 ring-rose-100">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-200 text-xs font-black text-rose-800">{i + 1}</span>
+                    <span className="text-sm font-bold text-slate-800">{item.title}</span>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm font-black text-rose-700">{item.count} مرة</div>
+                    <div className="text-xs text-slate-500">{item.points} نقطة</div>
+                  </div>
+                </div>
+              )) : <div className="text-sm text-slate-400 text-center py-4">لا توجد بيانات</div>}
+            </div>
+          </div>
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="mb-4 font-extrabold text-violet-800">تفاصيل البرامج</div>
+            <div className="space-y-2">
+              {actionStats.topPrograms.length ? actionStats.topPrograms.map((item, i) => (
+                <div key={item.title} className="flex items-center justify-between rounded-2xl bg-violet-50 px-4 py-3 ring-1 ring-violet-100">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-200 text-xs font-black text-violet-800">{i + 1}</span>
+                    <span className="text-sm font-bold text-slate-800">{item.title}</span>
+                  </div>
+                  <div className="text-sm font-black text-violet-700">{item.count} مرة</div>
+                </div>
+              )) : <div className="text-sm text-slate-400 text-center py-4">لا توجد بيانات</div>}
+            </div>
+          </div>
+        </div>
+
+        {/* جدول المعلمين الأبرز */}
+        <SectionCard title="المعلمون الأبرز — التفاصيل الكاملة" icon={Users}>
+          {actionStats.topTeachers.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th className="py-3 pr-4 text-right font-extrabold text-slate-700">#</th>
+                    <th className="py-3 pr-4 text-right font-extrabold text-slate-700">المعلم</th>
+                    <th className="py-3 px-4 text-center font-extrabold text-emerald-700">مكافآت</th>
+                    <th className="py-3 px-4 text-center font-extrabold text-rose-700">خصومات</th>
+                    <th className="py-3 px-4 text-center font-extrabold text-violet-700">برامج</th>
+                    <th className="py-3 px-4 text-center font-extrabold text-amber-700">النقاط</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {actionStats.topTeachers.map((teacher, i) => (
+                    <tr key={teacher.name} className={`border-b border-slate-100 ${i === 0 ? 'bg-amber-50' : ''}`}>
+                      <td className="py-3 pr-4 font-black text-slate-500">{i + 1}</td>
+                      <td className="py-3 pr-4 font-bold text-slate-800">{teacher.name}</td>
+                      <td className="py-3 px-4 text-center font-bold text-emerald-700">{teacher.rewards}</td>
+                      <td className="py-3 px-4 text-center font-bold text-rose-700">{teacher.violations}</td>
+                      <td className="py-3 px-4 text-center font-bold text-violet-700">{teacher.programs}</td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="rounded-full bg-amber-100 px-3 py-1 font-black text-amber-800">{teacher.points}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500">لا توجد إجراءات مسجلة بعد.</div>}
+        </SectionCard>
       </div>
     </div>
   );
@@ -12109,7 +12438,7 @@ export default function App() {
     case "classes":
       return <ClassesPage selectedSchool={selectedSchool} />;
       default:
-        return <SchoolDashboard schools={schools} selectedSchool={selectedSchool} setSelectedSchoolId={setSelectedSchoolId} scanLog={scanLog} notifications={notifications} canSelectSchool={currentUser.role === "superadmin"} executiveReport={executiveReport} currentUser={currentUser} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} onNavigate={setActivePage} />;
+        return <SchoolDashboard schools={schools} selectedSchool={selectedSchool} setSelectedSchoolId={setSelectedSchoolId} scanLog={scanLog} actionLog={actionLog} settings={settings} notifications={notifications} canSelectSchool={currentUser.role === "superadmin"} executiveReport={executiveReport} currentUser={currentUser} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} onNavigate={setActivePage} />;
     }
   };
 
