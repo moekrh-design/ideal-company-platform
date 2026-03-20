@@ -2163,7 +2163,22 @@ function serveStatic(req, res) {
   if (existsSync(filePath)) {
     const ct = mimeTypeFor(filePath);
     const headers = { 'Content-Type': ct };
-    if (pathname === '/index.html') headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    // حقن إصلاح QuotaExceededError في index.html مباشرة عند تقديمه
+    if (filePath.endsWith('index.html')) {
+      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+      try {
+        let html = readFileSync(filePath, 'utf8');
+        const quotaScript = `<script>\n    (function(){try{var t='__qt__';localStorage.setItem(t,'1');localStorage.removeItem(t);}catch(e){if(e&&(e.name==='QuotaExceededError'||e.code===22||e.code===1014)){try{localStorage.clear();}catch(e2){}}}})();\n    <\/script>`;
+        if (!html.includes('__qt__')) {
+          html = html.replace('<meta charset', quotaScript + '\n    <meta charset');
+        }
+        res.writeHead(200, headers);
+        res.end(html);
+        return;
+      } catch(e) {
+        // fallback to stream
+      }
+    }
     res.writeHead(200, headers);
     createReadStream(filePath).pipe(res);
     return;
