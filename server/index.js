@@ -2610,6 +2610,25 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, link: screen, state: sanitizeStateForClient(saved) });
     }
 
+    const schoolGateUpdateMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links\/gate\/([^/]+)$/);
+    if (schoolGateUpdateMatch && req.method === 'PATCH') {
+      const actor = await getUserFromToken(token);
+      const schoolId = Number(schoolGateUpdateMatch[1]);
+      const gateId = schoolGateUpdateMatch[2];
+      if (!canManageSchoolDevices(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تعديل هذا الرابط.' });
+      const body = await readJsonBody(req);
+      const current = getSharedState();
+      const next = structuredClone(current);
+      const school = next.schools.find((item) => Number(item.id) === schoolId);
+      if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      const gate = (school.smartLinks?.gates || []).find((item) => item.id === gateId);
+      if (!gate) return sendJson(res, 404, { ok: false, message: 'البوابة غير موجودة.' });
+      if (typeof body.name === 'string') gate.name = String(body.name).trim();
+      if (['qr', 'face', 'mixed'].includes(body.mode)) gate.mode = body.mode;
+      const saved = await saveSharedState(next, actor);
+      return sendJson(res, 200, { ok: true, link: gate, state: sanitizeStateForClient(saved) });
+    }
+
     const schoolDeviceDeleteMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links\/(gate|screen)\/([^/]+)$/);
     if (schoolDeviceDeleteMatch && req.method === 'POST') {
       const actor = await getUserFromToken(token);
