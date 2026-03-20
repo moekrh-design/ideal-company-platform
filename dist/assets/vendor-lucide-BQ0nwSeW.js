@@ -1,4 +1,4 @@
-import{r as d}from"./vendor-react-DBciaCfS.js";/**
+import{r as d}from"./vendor-react-CQfCc3oy.js";/**
  * @license lucide-react v0.542.0 - ISC
  *
  * This source code is licensed under the ISC license.
@@ -18,7 +18,7 @@ import{r as d}from"./vendor-react-DBciaCfS.js";/**
  *
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
- */const a=(t,e)=>{const h=d.forwardRef(({className:o,...s},c)=>d.createElement(m,{ref:c,iconNode:e,className:r(`lucide-${M(y(t))}`,`lucide-${t}`,o),...s}));return h.displayName=y(t),h};/**
+ */const a=(t,e)=>{const h=d.forwardRef(({className:o,...s},c)=>d.createElement(m,{ref:c,iconNode:e,className:r("lucide-".concat(M(y(t))),"lucide-".concat(t),o),...s}));return h.displayName=y(t),h};/**
  * @license lucide-react v0.542.0 - ISC
  *
  * This source code is licensed under the ISC license.
