@@ -416,9 +416,9 @@ const defaultSettings = {
     behavior: 4,
   },
   teacherPoints: {
-    perReward: 2,
-    perViolation: 1,
-    perProgram: 3,
+    perReward: 5,
+    perViolation: 2,
+    perProgram: 10,
   },
   devices: {
     barcodeEnabled: true,
@@ -5284,9 +5284,9 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
     let rewardTotal = 0, violationTotal = 0, programTotal = 0;
     let rewardToday = 0, violationToday = 0, programToday = 0;
     const tPoints = settings?.teacherPoints || {};
-    const ptReward = Number(tPoints.pointsPerReward ?? 2);
-    const ptViolation = Number(tPoints.pointsPerViolation ?? 1);
-    const ptProgram = Number(tPoints.pointsPerProgram ?? 3);
+    const ptReward = Number(tPoints.perReward ?? 5);
+    const ptViolation = Number(tPoints.perViolation ?? 2);
+    const ptProgram = Number(tPoints.perProgram ?? 10);
 
     schoolActionLog.forEach((item) => {
       const isToday = (item.isoDate || '').slice(0, 10) === todayIso;
@@ -8336,7 +8336,11 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
   const currentDefinitions = getDefinitionsByType(actionType);
   const selectedDefinition = currentDefinitions.find((item) => String(item.id) === String(definitionId)) || currentDefinitions[0] || null;
   const latestActions = actionLog.filter((item) => item.schoolId === selectedSchool.id).slice(0, 10);
-  const teacherRecentActions = latestActions.filter((item) => (currentUser?.id && String(item.actorId || '') === String(currentUser.id)) || item.actorUsername === currentUser?.username || item.actorName === currentUser?.fullName).slice(0, 5);
+  const teacherRecentActions = latestActions.filter((item) =>
+    (currentUser?.id && item.actorId != null && String(item.actorId) === String(currentUser.id)) ||
+    (currentUser?.username && item.actorUsername && item.actorUsername === currentUser.username) ||
+    (currentUser?.name && item.actorName && item.actorName === currentUser.name)
+  ).slice(0, 5);
   const teacherStats = {
     total: teacherRecentActions.length,
     rewards: teacherRecentActions.filter((item) => item.actionType === "reward").length,
@@ -8347,17 +8351,19 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
   // حساب نقاط المعلم من كامل actionLog
   const allMyActions = actionLog.filter((item) =>
     item.schoolId === selectedSchool.id &&
-    ((currentUser?.id && String(item.actorId || '') === String(currentUser.id)) ||
-     item.actorUsername === currentUser?.username ||
-     item.actorName === currentUser?.fullName)
+    (
+      (currentUser?.id && item.actorId != null && String(item.actorId) === String(currentUser.id)) ||
+      (currentUser?.username && item.actorUsername && item.actorUsername === currentUser.username) ||
+      (currentUser?.name && item.actorName && item.actorName === currentUser.name)
+    )
   );
   const todayIso = new Date().toISOString().slice(0, 10);
   const todayMyActions = allMyActions.filter((item) => (item.isoDate || '').slice(0, 10) === todayIso);
-  const tpSettings = settings.teacherPoints || { perReward: 2, perViolation: 1, perProgram: 3 };
+  const tpSettings = settings.teacherPoints || { perReward: 5, perViolation: 2, perProgram: 10 };
   const calcTeacherPoints = (actions) => actions.reduce((sum, item) => {
-    if (item.actionType === 'reward') return sum + Number(tpSettings.perReward || 2);
-    if (item.actionType === 'violation') return sum + Number(tpSettings.perViolation || 1);
-    if (item.actionType === 'program') return sum + Number(tpSettings.perProgram || 3);
+    if (item.actionType === 'reward') return sum + Number(tpSettings.perReward ?? 5);
+    if (item.actionType === 'violation') return sum + Number(tpSettings.perViolation ?? 2);
+    if (item.actionType === 'program') return sum + Number(tpSettings.perProgram ?? 10);
     return sum;
   }, 0);
   const myPointsToday = calcTeacherPoints(todayMyActions);
@@ -9612,7 +9618,7 @@ function TeacherPointsReport({ schoolActions, settings }) {
   const [filterActor, setFilterActor] = React.useState('');
   const [filterType, setFilterType] = React.useState('all');
   const [filterDate, setFilterDate] = React.useState('');
-  const tpSettings = settings.teacherPoints || { perReward: 2, perViolation: 1, perProgram: 3 };
+  const tpSettings = settings.teacherPoints || { perReward: 5, perViolation: 2, perProgram: 10 };
 
   // جمع قائمة المعلمين
   const actorNames = React.useMemo(() => {
@@ -10185,9 +10191,9 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
                 <div className="mt-1 text-sm leading-7 text-slate-500">حدد عدد النقاط التي يكسبها المعلم مقابل كل إجراء ينفذه. تُحسب يومياً وإجمالياً وتظهر في صفحة المعلم وتقاريره.</div>
               </div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <Input label="نقاط مقابل كل مكافأة" type="number" value={localSettings.teacherPoints?.perReward ?? 2} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perReward: safeNumber(e.target.value) } })} />
-                <Input label="نقاط مقابل كل خصم/مخالفة" type="number" value={localSettings.teacherPoints?.perViolation ?? 1} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perViolation: safeNumber(e.target.value) } })} />
-                <Input label="نقاط مقابل كل برنامج" type="number" value={localSettings.teacherPoints?.perProgram ?? 3} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perProgram: safeNumber(e.target.value) } })} />
+                <Input label="نقاط مقابل كل مكافأة" type="number" value={localSettings.teacherPoints?.perReward ?? 5} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perReward: safeNumber(e.target.value) } })} />
+                <Input label="نقاط مقابل كل خصم/مخالفة" type="number" value={localSettings.teacherPoints?.perViolation ?? 2} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perViolation: safeNumber(e.target.value) } })} />
+                <Input label="نقاط مقابل كل برنامج" type="number" value={localSettings.teacherPoints?.perProgram ?? 10} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perProgram: safeNumber(e.target.value) } })} />
               </div>
             </div>
           </div>
