@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>منصة الشركة المثالية</title>
+    <script>
+    window.onerror = function(msg, src, line, col, err) {
+      var d = document.getElementById('__err_overlay');
+      if (!d) {
+        d = document.createElement('div');
+        d.id = '__err_overlay';
+        d.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);color:#fff;padding:20px;overflow:auto;z-index:99999;font-family:monospace;font-size:12px;direction:ltr;word-break:break-all';
+        d.innerHTML = '<h3 style="color:#ff6b6b;margin:0 0 10px">JS Error:</h3><pre id="__err_text" style="white-space:pre-wrap"></pre>';
+        document.body.appendChild(d);
+      }
+      var t = document.getElementById('__err_text');
+      if (t) t.textContent += msg + '\n' + (src||'') + ':' + line + '\n' + (err&&err.stack||'') + '\n\n';
+    };
+    window.addEventListener('unhandledrejection', function(e) {
+      window.onerror('UnhandledRejection: ' + (e.reason && (e.reason.message || String(e.reason))), '', 0, 0, e.reason);
+    });
+    </script>
     <script type="module" crossorigin src="/assets/index-DplEDWHr.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-CQfCc3oy.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-jsqr-BTxHCHug.js">
