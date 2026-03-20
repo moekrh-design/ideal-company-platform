@@ -1586,6 +1586,20 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
     }
   }
 
+  // إحصائيات أصناف المكافآت والخصومات
+  const rewardStatsMap = {};
+  const violationStatsMap = {};
+  state.actionLog.filter((item) => Number(item.schoolId) === Number(schoolId)).forEach((item) => {
+    const title = item.actionTitle || item.definitionTitle || 'غير محدد';
+    if (item.actionType === 'reward') {
+      rewardStatsMap[title] = (rewardStatsMap[title] || 0) + 1;
+    } else if (item.actionType === 'violation') {
+      violationStatsMap[title] = (violationStatsMap[title] || 0) + 1;
+    }
+  });
+  const rewardStats = Object.entries(rewardStatsMap).map(([title, count]) => ({ title, count })).sort((a, b) => b.count - a.count).slice(0, 6);
+  const violationStats = Object.entries(violationStatsMap).map(([title, count]) => ({ title, count })).sort((a, b) => b.count - a.count).slice(0, 6);
+
   return {
     school: { id: school.id, name: school.name, city: school.city, code: school.code, manager: school.manager },
     summary: {
@@ -1604,6 +1618,8 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
     recentAttendance,
     attendanceTrend,
     teacherActivity,
+    rewardStats,
+    violationStats,
     structureSpotlight,
     gateStats,
   };

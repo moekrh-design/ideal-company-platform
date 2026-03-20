@@ -617,6 +617,8 @@ function normalizeSmartLinks(links) {
       topCompanies: item?.widgets?.topCompanies !== false,
       attendanceChart: item?.widgets?.attendanceChart !== false,
       recentActivity: item?.widgets?.recentActivity !== false,
+      teacherActivity: item?.widgets?.teacherActivity !== false,
+      actionStats: item?.widgets?.actionStats !== false,
     },
     createdAt: item?.createdAt || new Date().toISOString(),
   });
@@ -2936,13 +2938,19 @@ function ScreenAxisTick({ x, y, payload, width = 280 }) {
 }
 
 function ScreenBarValueLabel({ x, y, width, value, suffix = '' }) {
+  if (!value && value !== 0) return null;
   const text = `${formatEnglishDigits(value)}${suffix}`;
-  const labelWidth = Math.max(92, 26 + text.length * 12);
-  const labelX = x + width + 14;
+  const labelWidth = Math.max(80, 20 + text.length * 13);
+  // وضع الرقم داخل الشريط من الطرف الأيمن (مسافة 8px من الحافة)
+  const labelX = x + width - labelWidth - 8;
+  // إذا كان الشريط ضيقاً جداً نضعه بعد الشريط
+  const finalX = labelX < x ? x + width + 6 : labelX;
+  const textColor = finalX < x ? '#0f172a' : '#ffffff';
+  const bgFill = finalX < x ? '#f1f5f9' : '#0f172a';
   return (
     <g>
-      <rect x={labelX} y={y - 6} rx="14" ry="14" width={labelWidth} height="40" fill="#0f172a" opacity="0.96" />
-      <text x={labelX + labelWidth / 2} y={y + 20} textAnchor="middle" fill="#ffffff" fontSize="22" fontWeight="900">
+      <rect x={finalX} y={y - 4} rx="12" ry="12" width={labelWidth} height="36" fill={bgFill} opacity="0.92" />
+      <text x={finalX + labelWidth / 2} y={y + 18} textAnchor="middle" fill={textColor} fontSize="20" fontWeight="900">
         {text}
       </text>
     </g>
@@ -3021,6 +3029,8 @@ function ScreenSettingsEditor({ value, onChange, compact = false, classrooms = [
     ["topCompanies", "ترتيب الشركات"],
     ["attendanceChart", "الرسم البياني للحضور"],
     ["recentActivity", "آخر النشاطات"],
+    ["teacherActivity", "المعلمون الأبرز ونقاطهم"],
+    ["actionStats", "أصناف المكافآت والخصومات"],
   ];
 
   return (
@@ -3704,18 +3714,32 @@ function PublicScreenPage({ token }) {
 
   useEffect(() => {
     loadScreen();
+    // إعادة المحاولة كل  30 ثانية لضمان استمرار الشاشة
+    const refreshId = window.setInterval(() => loadScreen(), 30000);
     const socket = new WebSocket(buildWsUrl(`/ws/public?kind=screen&token=${encodeURIComponent(token)}`));
     socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data || '{}');
         if (data?.type === 'live_update') {
-          setPayload((prev) => prev ? ({ ...prev, screen: data.screen || prev.screen, live: data.live || prev.live }) : prev);
+          // تحديث payload حتى لو كان null (لم يكتمل loadScreen بعد)
+          setPayload((prev) => ({
+            ...(prev || {}),
+            screen: data.screen || prev?.screen || {},
+            live: data.live || prev?.live || {},
+          }));
           setError('');
         }
       } catch {}
     };
-    socket.onerror = () => { if (!payload) console.warn('WebSocket screen stream unavailable'); };
-    return () => socket.close();
+    socket.onerror = () => console.warn('WebSocket screen stream unavailable');
+    socket.onclose = () => {
+      // إعادة التحميل عند انقطاع الاتصال
+      setTimeout(() => loadScreen(), 3000);
+    };
+    return () => {
+      window.clearInterval(refreshId);
+      socket.close();
+    };
   }, [loadScreen, token]);
 
   useEffect(() => {
@@ -4029,7 +4053,7 @@ function PublicScreenPage({ token }) {
     }
     // شريحة المعلمين الأبرز
     const teacherActivityForSlide = live?.teacherActivity || [];
-    if (teacherActivityForSlide.length > 0) {
+    if (widgets.teacherActivity !== false && teacherActivityForSlide.length > 0) {
       items.push({
         key: 'teacherActivity',
         title: 'المعلمون الأبرز اليوم',
@@ -4077,14 +4101,68 @@ function PublicScreenPage({ token }) {
       });
     }
 
+    // شريحة أصناف المكافآت والخصومات
+    if (widgets.actionStats !== false) {
+      const rewardStats = (live?.rewardStats || []).slice(0, 6);
+      const violationStats = (live?.violationStats || []).slice(0, 6);
+      if (rewardStats.length > 0 || violationStats.length > 0) {
+        items.push({
+          key: 'actionStats',
+          title: 'أصناف المكافآت والخصومات',
+          render: () => (
+            <div className="grid h-full gap-5 xl:grid-cols-2">
+              {rewardStats.length > 0 && (
+                <div className="rounded-[2.2rem] bg-white p-7 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+                  <div className="mb-5 flex items-center gap-3">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100 text-2xl">🏆</span>
+                    <div className="text-3xl font-black text-emerald-800">أعلى أصناف المكافآت</div>
+                  </div>
+                  <div className="space-y-3">
+                    {rewardStats.map((item, index) => (
+                      <div key={item.title || index} className="flex items-center justify-between rounded-[1.4rem] bg-emerald-50 px-5 py-4 ring-1 ring-emerald-200">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-200 text-lg font-black text-emerald-800">{index + 1}</span>
+                          <div className="text-2xl font-black text-slate-900">{item.title || item.name}</div>
+                        </div>
+                        <div className="rounded-xl bg-emerald-600 px-4 py-2 text-xl font-black text-white">{formatEnglishDigits(item.count)} مرة</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {violationStats.length > 0 && (
+                <div className="rounded-[2.2rem] bg-white p-7 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+                  <div className="mb-5 flex items-center gap-3">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-100 text-2xl">⚠️</span>
+                    <div className="text-3xl font-black text-rose-800">أعلى أصناف الخصومات</div>
+                  </div>
+                  <div className="space-y-3">
+                    {violationStats.map((item, index) => (
+                      <div key={item.title || index} className="flex items-center justify-between rounded-[1.4rem] bg-rose-50 px-5 py-4 ring-1 ring-rose-200">
+                        <div className="flex items-center gap-3">
+                          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-200 text-lg font-black text-rose-800">{index + 1}</span>
+                          <div className="text-2xl font-black text-slate-900">{item.title || item.name}</div>
+                        </div>
+                        <div className="rounded-xl bg-rose-600 px-4 py-2 text-xl font-black text-white">{formatEnglishDigits(item.count)} مرة</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ),
+        });
+      }
+    }
+
     if (!items.length) {
       return [{ key: 'empty', title: 'الشاشة', render: () => <div className="h-full rounded-[2rem] bg-white p-8 text-slate-950 ring-1 ring-slate-200">لا توجد عناصر مفعلة لهذه الشاشة.</div> }];
     }
     const priorityMap = {
-      executive: ['metrics','attendanceChart','teacherActivity','recentActivity','topStudents','topCompanies'],
-      reception: ['metrics','recentActivity','teacherActivity','topStudents','attendanceChart','topCompanies'],
-      leaderboard: ['topStudents','topCompanies','teacherActivity','metrics','attendanceChart','recentActivity'],
-      news: ['recentActivity','metrics','teacherActivity','attendanceChart','topStudents','topCompanies'],
+      executive: ['metrics','attendanceChart','actionStats','teacherActivity','recentActivity','topStudents','topCompanies'],
+      reception: ['metrics','recentActivity','actionStats','teacherActivity','topStudents','attendanceChart','topCompanies'],
+      leaderboard: ['topStudents','topCompanies','teacherActivity','actionStats','metrics','attendanceChart','recentActivity'],
+      news: ['recentActivity','metrics','actionStats','teacherActivity','attendanceChart','topStudents','topCompanies'],
     };
     const order = priorityMap[screenTemplate] || priorityMap.executive;
     return items.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
@@ -4106,7 +4184,7 @@ function PublicScreenPage({ token }) {
         )
       }];
     }
-  }, [live, widgets, screenTemplate, structureSpotlight, summaryView, topStudentsView, topCompaniesView, topStudentsChartData, topCompaniesChartData, attendanceTrendView, recentAttendanceView, safeSchoolName, teacherActivityForSlide]);
+  }, [live, widgets, screenTemplate, structureSpotlight, summaryView, topStudentsView, topCompaniesView, topStudentsChartData, topCompaniesChartData, attendanceTrendView, recentAttendanceView, safeSchoolName]);
 
   useEffect(() => {
     setSlideIndex(0);
