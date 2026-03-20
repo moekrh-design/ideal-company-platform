@@ -1,6 +1,6 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npm install --production"
+buildCommand = "npm install --production && echo 'dist version: index-Dj60X6gO'"
 # pre-built dist included in repo - no frontend build needed
 
 [deploy]
