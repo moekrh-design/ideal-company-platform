@@ -4201,11 +4201,7 @@ function DeviceDisplaysPage({ selectedSchool, currentUser, onCreateGateLink, onD
             <div className="mt-2 text-3xl font-black">{selectedSchool.smartLinks?.gates?.length || 0}</div>
             <div className="mt-2 text-sm leading-7 text-white/80">روابط جاهزة للآيباد والجوال واللابتوب لبوابات QR وبصمة الوجه بدون تسجيل دخول.</div>
           </div>
-          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200 shadow-sm">
-            <div className="text-sm font-bold text-slate-500">تنبيه صلاحيات</div>
-            <div className="mt-2 text-lg font-black text-slate-900">الصلاحية المطلوبة: الشاشات والبوابات</div>
-            <div className="mt-2 text-sm leading-7 text-slate-600">يمكن لمدير المدرسة منح هذه الصلاحية للمشرف أو المعلم من صفحة المستخدمين والصلاحيات.</div>
-          </div>
+
         </div>
       </SectionCard>
       <SchoolDeviceLinksPanel
@@ -7034,6 +7030,250 @@ function ResetUserPasswordModal({ open, targetUser, onClose, onSubmit, loading }
             <button type="button" onClick={onClose} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700">إلغاء</button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ===== دليل التعليمات المخصص لكل دور =====
+const HELP_GUIDES = {
+  superadmin: {
+    title: 'دليل الأدمن العام',
+    color: 'violet',
+    sections: [
+      {
+        title: 'إضافة مدرسة جديدة',
+        steps: [
+          'انتقل إلى صفحة "المدارس" من الشريط الجانبي.',
+          'اضغط "إضافة مدرسة جديدة" وأدخل اسم المدرسة والمدينة.',
+          'أدخل بيانات مدير المدرسة (اسم المستخدم وكلمة المرور).',
+          'اضغط "حفظ" — سيُنشأ حساب المدير تلقائياً.',
+        ],
+      },
+      {
+        title: 'إضافة مستخدم جديد',
+        steps: [
+          'انتقل إلى "المستخدمون والصلاحيات".',
+          'اضغط "إضافة مستخدم" واختر الدور (أدمن عام، مدير، مشرف، معلم، بوابة).',
+          'أدخل اسم المستخدم وكلمة المرور والمدرسة المرتبطة.',
+          'اضغط "حفظ" لإنشاء الحساب.',
+        ],
+      },
+      {
+        title: 'إعداد طريقة الدخول (OTP / كلمة مرور)',
+        steps: [
+          'انتقل إلى "الدخول والمصادقة" من الشريط العلوي.',
+          'فعّل أو عطّل تسجيل الدخول بكلمة المرور أو OTP.',
+          'اختر قناة التوصيل: بريد إلكتروني، SMS، أو واتساب.',
+          'احفظ الإعدادات.',
+        ],
+      },
+      {
+        title: 'منح صلاحيات لمدير مدرسة',
+        steps: [
+          'انتقل إلى "المستخدمون والصلاحيات" ثم اختر المدرسة.',
+          'في قسم "صلاحيات المدرسة" فعّل الصلاحيات المطلوبة.',
+          'اضغط "حفظ صلاحيات المدرسة".',
+        ],
+      },
+    ],
+  },
+  principal: {
+    title: 'دليل مدير المدرسة',
+    color: 'sky',
+    sections: [
+      {
+        title: 'إضافة الفصول والشركات',
+        steps: [
+          'انتقل إلى "البصمة والمعرفات" من الشريط الجانبي.',
+          'اضغط "إضافة فصل" وأدخل اسم الفصل.',
+          'لكل فصل يمكنك إضافة شركات (مجموعات) بداخله.',
+          'اضغط "حفظ" لتأكيد الإضافة.',
+        ],
+      },
+      {
+        title: 'استيراد الطلاب من Excel',
+        steps: [
+          'انتقل إلى "البصمة والمعرفات".',
+          'اضغط "استيراد من Excel" وحمّل ملف الطلاب.',
+          'تأكد أن الأعمدة تحتوي: الاسم، رقم الهوية، الفصل.',
+          'راجع البيانات واضغط "تأكيد الاستيراد".',
+        ],
+      },
+      {
+        title: 'نقل طالب بين الفصول',
+        steps: [
+          'انتقل إلى "البصمة والمعرفات" وابحث عن الطالب.',
+          'اضغط على اسم الطالب ثم "تعديل".',
+          'غيّر الفصل من القائمة المنسدلة.',
+          'اضغط "حفظ".',
+        ],
+      },
+      {
+        title: 'تسجيل بصمة الوجه للطالب',
+        steps: [
+          'انتقل إلى "البصمة والمعرفات" وابحث عن الطالب.',
+          'اضغط "تسجيل بصمة الوجه".',
+          'افتح الكاميرا ووجّه وجه الطالب بوضوح أمامها.',
+          'اضغط "التقاط" — ستُحفظ البصمة تلقائياً.',
+        ],
+      },
+      {
+        title: 'إضافة معلم أو مشرف',
+        steps: [
+          'انتقل إلى "المستخدمون والصلاحيات".',
+          'اضغط "إضافة مستخدم" واختر الدور (معلم أو مشرف).',
+          'أدخل الاسم واسم المستخدم وكلمة المرور.',
+          'اضغط "حفظ".',
+        ],
+      },
+      {
+        title: 'إنشاء بوابة حضور',
+        steps: [
+          'انتقل إلى "الشاشات والبوابات".',
+          'اضغط "إضافة بوابة" وأدخل اسمها.',
+          'اختر وضع الكاميرا: QR فقط، وجه فقط، أو كلاهما.',
+          'انسخ الرابط وافتحه على الجهاز المخصص للبوابة.',
+        ],
+      },
+    ],
+  },
+  supervisor: {
+    title: 'دليل المشرف',
+    color: 'emerald',
+    sections: [
+      {
+        title: 'متابعة الحضور اليومي',
+        steps: [
+          'انتقل إلى "الحضور" من الشريط الجانبي.',
+          'اختر التاريخ والفصل لعرض قائمة الحضور.',
+          'يمكنك تعديل حالة أي طالب يدوياً بالضغط عليها.',
+          'احفظ التعديلات إن وجدت.',
+        ],
+      },
+      {
+        title: 'تسجيل حضور يدوي',
+        steps: [
+          'انتقل إلى "الحضور" واضغط "تسجيل يدوي".',
+          'ابحث عن الطالب بالاسم أو رقم الهوية.',
+          'اختر الحالة (حاضر، متأخر، غائب) واضغط "تسجيل".',
+        ],
+      },
+      {
+        title: 'منح مكافأة أو خصم',
+        steps: [
+          'انتقل إلى "إجراءات المعلم".',
+          'حدد الطالب بالباركود أو الوجه أو البحث اليدوي.',
+          'اختر نوع الإجراء (مكافأة أو خصم) ثم اضغط على البند.',
+          'سيُنفَّذ الإجراء فوراً وتظهر لافتة التأكيد.',
+        ],
+      },
+    ],
+  },
+  teacher: {
+    title: 'دليل المعلم',
+    color: 'amber',
+    sections: [
+      {
+        title: 'تحديد الطالب',
+        steps: [
+          'افتح صفحة "إجراءات المعلم".',
+          'اختر طريقة التعرف: باركود (QR)، وجه، أو يدوي.',
+          'للباركود: وجّه الكاميرا على بطاقة الطالب.',
+          'للوجه: وجّه الكاميرا على وجه الطالب.',
+          'لليدوي: ابحث باسم الطالب أو رقمه.',
+        ],
+      },
+      {
+        title: 'منح مكافأة',
+        steps: [
+          'بعد تحديد الطالب، اضغط على تبويب "مكافأة".',
+          'اضغط على البند المناسب (مثل: حضور مبكر، مبادرة...).',
+          'سيتحول الزر للأخضر ويظهر "جارٍ التنفيذ..." ثم لافتة النجاح.',
+          'لا تضغط مرتين — الزر يُعطَّل تلقائياً أثناء التنفيذ.',
+        ],
+      },
+      {
+        title: 'تسجيل خصم',
+        steps: [
+          'بعد تحديد الطالب، اضغط على تبويب "خصم".',
+          'اختر البند المناسب واضغط عليه.',
+          'سيُنفَّذ الخصم فوراً مع لافتة تأكيد.',
+        ],
+      },
+      {
+        title: 'الوضع الخاطف (سريع)',
+        steps: [
+          'اضغط "تفعيل الوضع الخاطف" في أعلى الصفحة.',
+          'في هذا الوضع تظهر الأزرار مباشرة بدون تفاصيل إضافية.',
+          'مناسب للاستخدام السريع في الفصل أو الطابور.',
+        ],
+      },
+    ],
+  },
+};
+
+function HelpGuideModal({ open, role, onClose }) {
+  const [activeSection, setActiveSection] = useState(0);
+  useEffect(() => { if (open) setActiveSection(0); }, [open]);
+  if (!open) return null;
+  const guide = HELP_GUIDES[role] || HELP_GUIDES.teacher;
+  const colorMap = {
+    violet: { bg: 'bg-violet-700', light: 'bg-violet-50', ring: 'ring-violet-200', text: 'text-violet-900', badge: 'bg-violet-100 text-violet-800', active: 'bg-violet-700 text-white', inactive: 'bg-slate-100 text-slate-700' },
+    sky: { bg: 'bg-sky-700', light: 'bg-sky-50', ring: 'ring-sky-200', text: 'text-sky-900', badge: 'bg-sky-100 text-sky-800', active: 'bg-sky-700 text-white', inactive: 'bg-slate-100 text-slate-700' },
+    emerald: { bg: 'bg-emerald-700', light: 'bg-emerald-50', ring: 'ring-emerald-200', text: 'text-emerald-900', badge: 'bg-emerald-100 text-emerald-800', active: 'bg-emerald-700 text-white', inactive: 'bg-slate-100 text-slate-700' },
+    amber: { bg: 'bg-amber-600', light: 'bg-amber-50', ring: 'ring-amber-200', text: 'text-amber-900', badge: 'bg-amber-100 text-amber-800', active: 'bg-amber-600 text-white', inactive: 'bg-slate-100 text-slate-700' },
+  };
+  const c = colorMap[guide.color] || colorMap.sky;
+  const section = guide.sections[activeSection];
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4" onClick={onClose}>
+      <div className="w-full max-w-lg overflow-hidden rounded-[2rem] bg-white shadow-2xl ring-1 ring-slate-200" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className={cx('flex items-center justify-between gap-4 p-5', c.bg)}>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/20">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+            </div>
+            <div>
+              <div className="text-xs font-bold text-white/70">دليل الاستخدام</div>
+              <div className="text-lg font-black text-white">{guide.title}</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/20 text-white hover:bg-white/30">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="h-5 w-5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        {/* Tabs */}
+        <div className="flex gap-2 overflow-x-auto p-4 pb-0">
+          {guide.sections.map((s, i) => (
+            <button key={i} onClick={() => setActiveSection(i)} className={cx('flex-shrink-0 rounded-2xl px-4 py-2 text-sm font-bold transition', i === activeSection ? c.active : c.inactive)}>
+              {s.title}
+            </button>
+          ))}
+        </div>
+        {/* Content */}
+        <div className="p-5">
+          <div className={cx('rounded-[1.5rem] p-5', c.light, 'ring-1', c.ring)}>
+            <div className={cx('text-base font-black', c.text)}>{section.title}</div>
+            <ol className="mt-4 space-y-3">
+              {section.steps.map((step, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <span className={cx('flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-black text-white', c.bg)}>{i + 1}</span>
+                  <span className={cx('text-sm leading-7', c.text)}>{step}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+          <div className="mt-4 flex items-center justify-between">
+            <span className="text-xs text-slate-400">{activeSection + 1} / {guide.sections.length}</span>
+            <div className="flex gap-2">
+              {activeSection > 0 && <button onClick={() => setActiveSection(activeSection - 1)} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">السابق</button>}
+              {activeSection < guide.sections.length - 1 && <button onClick={() => setActiveSection(activeSection + 1)} className={cx('rounded-2xl px-4 py-2 text-sm font-bold text-white', c.bg)}>التالي</button>}
+              {activeSection === guide.sections.length - 1 && <button onClick={onClose} className={cx('rounded-2xl px-4 py-2 text-sm font-bold text-white', c.bg)}>إغلاق</button>}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -9900,6 +10140,7 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState(getSessionToken() ? "connecting" : "idle");
   const [executiveReport, setExecutiveReport] = useState(null);
   const [accountSecurityOpen, setAccountSecurityOpen] = useState(false);
+  const [helpGuideOpen, setHelpGuideOpen] = useState(false);
   const [accountSecurityLoading, setAccountSecurityLoading] = useState(false);
   const [resetUserPasswordOpen, setResetUserPasswordOpen] = useState(false);
   const [resetUserPasswordLoading, setResetUserPasswordLoading] = useState(false);
@@ -11685,10 +11926,7 @@ export default function App() {
             })}
           </nav>
 
-          <div className="mt-5 rounded-3xl bg-amber-50 p-4 text-amber-900 ring-1 ring-amber-200">
-            <div className="font-bold">بنية الصلاحيات</div>
-            <div className="mt-2 text-sm leading-7">الأدمن العام يدير جميع المدارس والمستخدمين. مدير المدرسة هو أدمن المدرسة، ويستطيع إنشاء المستخدمين داخل مدرسته بحسب الصلاحيات الممنوحة لهم.</div>
-          </div>
+
         </aside>
 
         <main className="p-4 md:p-6 lg:p-8">
@@ -11738,6 +11976,10 @@ export default function App() {
                 )}
                 <button onClick={() => setActivePage("dashboard")} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><Bell className="h-4 w-4" /> التنبيهات</button>
                 {canAccessPermission(currentUser, "settings") && <button onClick={() => setActivePage(currentUser.role === "superadmin" ? "platformAuth" : "settings")} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><BookOpen className="h-4 w-4" /> {currentUser.role === "superadmin" ? "الدخول والمصادقة" : "الإعدادات"}</button>}
+                <button onClick={() => setHelpGuideOpen(true)} className="inline-flex items-center gap-2 rounded-2xl bg-amber-50 px-4 py-3 font-bold text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100 transition" title="دليل الاستخدام">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+                  دليل الاستخدام
+                </button>
                 <button onClick={() => setAccountSecurityOpen(true)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><ShieldCheck className="h-4 w-4" /> أمان الحساب</button>
                 <button onClick={quickAction} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-4 py-3 font-bold text-white"><Plus className="h-4 w-4" /> إجراء سريع</button>
               </div>
@@ -11753,6 +11995,7 @@ export default function App() {
     </div>
       <AccountSecurityModal open={accountSecurityOpen} currentUser={currentUser} onClose={() => setAccountSecurityOpen(false)} onSubmit={handleChangeOwnPassword} loading={accountSecurityLoading} />
       <ResetUserPasswordModal open={resetUserPasswordOpen} targetUser={resetPasswordTargetUser} onClose={() => { setResetUserPasswordOpen(false); setResetPasswordTargetUserId(null); }} onSubmit={handleAdminResetUserPassword} loading={resetUserPasswordLoading} />
+      <HelpGuideModal open={helpGuideOpen} role={currentUser?.role} onClose={() => setHelpGuideOpen(false)} />
       </>
     </PageErrorBoundary>
   );
