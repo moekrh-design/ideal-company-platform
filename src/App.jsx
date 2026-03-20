@@ -2145,6 +2145,7 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     // الوضع الافتراضي: خلفية للباركود والمختلط، أمامية للوجه
     return mode === 'barcode' || mode === 'mixed' ? 'environment' : 'user';
   });
+  const facingModeRef = useRef(mode === 'barcode' || mode === 'mixed' ? 'environment' : 'user');
   const [hasBothCameras, setHasBothCameras] = useState(false);
   const [devicesLoaded, setDevicesLoaded] = useState(false);
 
@@ -2341,7 +2342,7 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     setCameraReady(false);
     setShowGreenFrame(false);
     setMessage(mode === "barcode" ? "وجّه QR الطالب نحو الكاميرا وستجري القراءة مباشرة دون الحاجة إلى تصوير." : mode === "mixed" ? "وجّه QR أو الوجه داخل الإطار وسيتم التعرف تلقائيًا." : "وجّه الوجه داخل الإطار وستجري المطابقة المباشرة تلقائيًا.");
-    const preferredFacing = facingMode;
+    const preferredFacing = facingModeRef.current;
     const attempts = [];
     const currentDeviceId = selectedDeviceIdRef.current || selectedDeviceId;
     if (currentDeviceId) attempts.push({ video: { deviceId: { exact: currentDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
@@ -2407,12 +2408,13 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       }
     }, 4000);
     loadDevices();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyStreamToVideo, clearReadyWatcher, facingMode, loadDevices, mode, stopCamera]);
+  }, [applyStreamToVideo, clearReadyWatcher, loadDevices, mode, stopCamera]);
 
   // تحديث refs عند تغيير props
   useEffect(() => { autoRestartRef.current = autoRestart; }, [autoRestart]);
   useEffect(() => { startCameraRef.current = startCamera; }, [startCamera]);
+  // تحديث facingModeRef عند تغيير facingMode
+  useEffect(() => { facingModeRef.current = facingMode; }, [facingMode]);
 
   useEffect(() => () => stopCamera(), [stopCamera]);
 
@@ -2639,11 +2641,14 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
           <button
             onClick={() => {
               const newFacing = facingMode === 'user' ? 'environment' : 'user';
+              // تحديث الـ ref فوراً قبل استدعاء startCamera لمنع stale closure
+              facingModeRef.current = newFacing;
               setFacingMode(newFacing);
               setSelectedDeviceId('');
+              selectedDeviceIdRef.current = '';
               if (active) {
                 stopCamera();
-                window.setTimeout(() => startCamera(), 300);
+                window.setTimeout(() => startCameraRef.current?.(), 300);
               }
             }}
             className="flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-2.5 text-sm font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200 active:scale-95 transition-all"
@@ -3288,6 +3293,8 @@ function PublicGatePage({ token }) {
       setMessage('لم يتم العثور على تطابق كافٍ للوجه.');
       return null;
     }
+    // تعيين lastScanResult مسبقاً من match.student لضمان صحة الاسم قبل رد السيرفر
+    setLastScanResult({ student: { name: match.student.name || match.student.fullName }, message: 'جارٍ تسجيل الحضور...', ok: true, ts: Date.now() });
     await submitScan(match.student.barcode, 'بصمة وجه');
     return match.student;
   };
@@ -5807,7 +5814,7 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
                       </label>
                       <button onClick={() => onClearFace(featuredStudent.id)} className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">حذف البصمة</button>
                     </div>
-                    <LiveCameraPanel mode="face" title="التقاط مباشر" description="يمكن أخذ صورة مباشرة من الكاميرا وربطها بالطالب المحدد. الكاميرا تكشف الوجه تلقائياً وتحفظ الصورة فور اكتشافه." onCapture={handleFaceCameraCapture} onDetectFace={handleFaceCameraCapture} />
+                    <LiveCameraPanel mode="face" title="التقاط مباشر" description="اضغط زر 'التقاط احتياطي' أسفل الكاميرا لتسجيل بصمة الوجه للطالب المحدد. التسجيل يدوي فقط ولا يتم تلقائياً." onCapture={handleFaceCameraCapture} />
                     {faceBusy ? <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">جارٍ حفظ البصمة...</div> : null}
                   </div>
                 ) : null}

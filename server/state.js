@@ -441,6 +441,8 @@ export function hydrateScanLog(logs) {
     schoolId: item.schoolId,
     studentId: item.studentId || null,
     companyId: item.companyId || null,
+    classroomId: item.classroomId || null,
+    gateId: item.gateId || null,
     student: item.student || "غير معروف",
     barcode: item.barcode || "—",
     date: item.date || toArabicDate(new Date(item.isoDate || Date.now())),
