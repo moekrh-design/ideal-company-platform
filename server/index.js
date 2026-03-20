@@ -2122,6 +2122,20 @@ function mimeTypeFor(filePath) {
   }[ext] || 'application/octet-stream';
 }
 
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/moekrh-design/ideal-company-platform/main/dist';
+
+async function fetchFromGithub(urlPath) {
+  const { default: https } = await import('https');
+  return new Promise((resolve, reject) => {
+    https.get(GITHUB_RAW_BASE + urlPath, (r) => {
+      if (r.statusCode !== 200) { resolve(null); return; }
+      const chunks = [];
+      r.on('data', c => chunks.push(c));
+      r.on('end', () => resolve(Buffer.concat(chunks)));
+    }).on('error', reject);
+  });
+}
+
 function serveStatic(req, res) {
   const reqUrl = new URL(req.url, `http://${req.headers.host}`);
   let pathname = decodeURIComponent(reqUrl.pathname);
@@ -2146,13 +2160,26 @@ function serveStatic(req, res) {
     filePath = path.join(DIST_DIR, 'index.html');
   }
 
-  if (!existsSync(filePath)) {
-    sendText(res, 404, 'Build not found. Run npm run build first.');
+  if (existsSync(filePath)) {
+    const ct = mimeTypeFor(filePath);
+    const headers = { 'Content-Type': ct };
+    if (pathname === '/index.html') headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    res.writeHead(200, headers);
+    createReadStream(filePath).pipe(res);
     return;
   }
 
-  res.writeHead(200, { 'Content-Type': mimeTypeFor(filePath) });
-  createReadStream(filePath).pipe(res);
+  // Fallback: fetch from GitHub if file not found locally
+  const ghPath = pathname.startsWith('/assets/') ? pathname : '/index.html';
+  fetchFromGithub(ghPath).then(buf => {
+    if (!buf) {
+      sendText(res, 404, 'File not found');
+      return;
+    }
+    const ct = mimeTypeFor(ghPath);
+    res.writeHead(200, { 'Content-Type': ct, 'X-Source': 'github-fallback' });
+    res.end(buf);
+  }).catch(() => sendText(res, 404, 'File not found'));
 }
 
 const server = http.createServer(async (req, res) => {
