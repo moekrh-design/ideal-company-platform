@@ -508,7 +508,7 @@ const navItems = [
   { key: "dashboard", label: "الرئيسية", icon: LayoutDashboard, permission: "dashboard" },
   { key: "schools", label: "المدارس", icon: Building2, permission: "schools" },
   { key: "companies", label: "الشركات والفصول", icon: Layers3, permission: "companies" },
-  { key: "students", label: "الطلاب", icon: GraduationCap, permission: "students" },
+  { key: "students", label: "البصمة والمعرفات", icon: GraduationCap, permission: "students" },
   { key: "attendance", label: "الحضور الذكي", icon: ScanLine, permission: "attendance" },
   { key: "actions", label: "إجراءات الطلاب", icon: ClipboardCheck, permission: "actions" },
   { key: "points", label: "النقاط والترتيب", icon: Trophy, permission: "points" },
@@ -1830,6 +1830,31 @@ async function buildFaceTemplateFromDataUrl(photo) {
   return buildFaceTemplateFromSource(photo);
 }
 
+// تحسين تباين الصورة لتحسين قراءة الباركود
+function enhanceContrastForBarcode(ctx, width, height) {
+  try {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    // حساب المتوسط والتباين
+    let sum = 0;
+    const grays = [];
+    for (let i = 0; i < data.length; i += 4) {
+      const g = Math.round(data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
+      grays.push(g);
+      sum += g;
+    }
+    const mean = sum / grays.length;
+    // تطبيق تباين بسيط حول المتوسط
+    for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+      const enhanced = Math.max(0, Math.min(255, Math.round((grays[j] - mean) * 1.4 + mean)));
+      data[i] = enhanced;
+      data[i+1] = enhanced;
+      data[i+2] = enhanced;
+    }
+    ctx.putImageData(imageData, 0, 0);
+  } catch { /* ignore */ }
+}
+
 async function detectBarcodeValueFromSource(source) {
   if (typeof window === "undefined") return "";
   try {
@@ -1837,18 +1862,40 @@ async function detectBarcodeValueFromSource(source) {
     if (!target) return "";
 
     if ("BarcodeDetector" in window) {
-      const detector = new window.BarcodeDetector({ formats: ["qr_code", "code_39", "code_128"] });
+      const detector = new window.BarcodeDetector({ formats: ["qr_code", "code_39", "code_128", "ean_13", "ean_8"] });
       const codes = await detector.detect(target);
       const rawValue = String(codes?.[0]?.rawValue || codes?.[0]?.displayValue || "").trim();
       if (rawValue) return sanitizeBarcodeValue(rawValue);
     }
 
     if (!jsQR) return "";
-    const drawn = drawVisualSourceToCanvas(target, 960);
-    if (!drawn) return "";
-    const imageData = drawn.context.getImageData(0, 0, drawn.width, drawn.height);
-    const result = jsQR(imageData.data, drawn.width, drawn.height, { inversionAttempts: "attemptBoth" });
-    return sanitizeBarcodeValue(String(result?.data || "").trim());
+
+    // محاولة 1: بدقة عالية 1280
+    const drawn1 = drawVisualSourceToCanvas(target, 1280);
+    if (drawn1) {
+      const imageData1 = drawn1.context.getImageData(0, 0, drawn1.width, drawn1.height);
+      const result1 = jsQR(imageData1.data, drawn1.width, drawn1.height, { inversionAttempts: "attemptBoth" });
+      if (result1?.data) return sanitizeBarcodeValue(String(result1.data).trim());
+    }
+
+    // محاولة 2: بدقة متوسطة مع تحسين التباين
+    const drawn2 = drawVisualSourceToCanvas(target, 800);
+    if (drawn2) {
+      enhanceContrastForBarcode(drawn2.context, drawn2.width, drawn2.height);
+      const imageData2 = drawn2.context.getImageData(0, 0, drawn2.width, drawn2.height);
+      const result2 = jsQR(imageData2.data, drawn2.width, drawn2.height, { inversionAttempts: "attemptBoth" });
+      if (result2?.data) return sanitizeBarcodeValue(String(result2.data).trim());
+    }
+
+    // محاولة 3: دقة منخفضة للباركودات الصغيرة
+    const drawn3 = drawVisualSourceToCanvas(target, 480);
+    if (drawn3) {
+      const imageData3 = drawn3.context.getImageData(0, 0, drawn3.width, drawn3.height);
+      const result3 = jsQR(imageData3.data, drawn3.width, drawn3.height, { inversionAttempts: "dontInvert" });
+      if (result3?.data) return sanitizeBarcodeValue(String(result3.data).trim());
+    }
+
+    return "";
   } catch {
     return "";
   }
@@ -3414,7 +3461,7 @@ function PublicGatePage({ token }) {
       setMessage('لم يتم التعرف على وجه واضح في الصورة.');
       return null;
     }
-    const match = findBestFaceMatch(template.signature, students, 45);
+    const match = findBestFaceMatch(template.signature, students, 38);
     if (!match.student) {
       setMessage('لم يتم العثور على تطابق كافٍ للوجه.');
       return null;
@@ -3438,7 +3485,7 @@ function PublicGatePage({ token }) {
     if (!faceFile) return;
     const template = await buildFaceTemplateFromFile(faceFile);
     if (template.faceDetected === false) return setMessage('لم يتم التعرف على وجه واضح في الصورة.');
-    const match = findBestFaceMatch(template.signature, students, 28);
+    const match = findBestFaceMatch(template.signature, students, 38);
     if (!match.student) return setMessage('لم يتم العثور على تطابق كافٍ للوجه.');
     await submitScan(match.student.barcode, 'بصمة وجه');
     setFaceFile(null);
@@ -7570,6 +7617,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
   const [facePreview, setFacePreview] = useState("");
   const [identifiedStudent, setIdentifiedStudent] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [executingDefinitionId, setExecutingDefinitionId] = useState(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [teacherFastMode, setTeacherFastMode] = useState(true);
   const [teacherView, setTeacherView] = useState("home");
@@ -7845,7 +7893,9 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
 
   const applyAction = async (definitionOverride = selectedDefinition, methodOverride = null) => {
     if (!identifiedStudent || !definitionOverride) return;
+    if (executingDefinitionId) return; // منع الضغط المزدوج
     setBusy(true);
+    setExecutingDefinitionId(String(definitionOverride.id));
     try {
       const result = await onApplyStudentAction({
         studentId: identifiedStudent.id,
@@ -7873,6 +7923,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
       return result;
     } finally {
       setBusy(false);
+      setExecutingDefinitionId(null);
     }
   };
 
@@ -8202,7 +8253,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
       </div>
       {teacherLastDefinitionForCurrentType ? (
         <div className={cx('mt-4 grid gap-3', teacherFastMode ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2')}>
-          <button onClick={continueOnLastDefinition} disabled={!identifiedStudent} className={cx('rounded-[28px] border px-4 py-4 text-right text-sm font-black transition', !identifiedStudent ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400' : 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800')}>
+          <button onClick={continueOnLastDefinition} disabled={!identifiedStudent || !!executingDefinitionId} className={cx('rounded-[28px] border px-4 py-4 text-right text-sm font-black transition', !identifiedStudent || executingDefinitionId ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400' : 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800')}>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div>تنفيذ آخر سبب مباشرة</div>
@@ -8224,43 +8275,46 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
           ) : null}
         </div>
       ) : null}
-      {teacherFavoriteDefinitions.length ? (
-        <div className="mt-4 rounded-[28px] bg-amber-50 p-3 ring-1 ring-amber-200">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-bold text-amber-900">المفضلة لك</div>
-              <div className="text-xs text-amber-800/80">هذه البنود ظهرت أولًا لأنها الأكثر استخدامًا لك خلال الفترة الأخيرة.</div>
-            </div>
-            <Badge tone="amber">{teacherFavoriteDefinitions.length}</Badge>
-          </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {teacherFavoriteDefinitions.map((item) => (
-              <button key={`fav-${item.id}`} onClick={() => applyAction(item, `اختصار ${actionType === 'reward' ? 'مكافأة' : 'خصم'}`)} disabled={!identifiedStudent} className={cx('rounded-[24px] border px-4 py-3 text-right text-sm font-black transition', !identifiedStudent ? 'cursor-not-allowed border-amber-100 bg-white/70 text-slate-400' : 'border-amber-200 bg-white text-amber-900 hover:bg-amber-100')}>
-                <div className="flex items-center justify-between gap-3">
-                  <div>{item.title}</div>
-                  <span className="rounded-xl bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-900">مفضل</span>
-                </div>
-                <div className="mt-1 text-xs font-bold opacity-70">{item.points > 0 ? `+${item.points}` : item.points} نقطة</div>
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      {/* تم إزالة قسم المفضلة بناءً على طلب المستخدم */}
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {teacherPreferredDefinitions.map((item, index) => (
-          <button key={item.id} onClick={() => applyAction(item)} disabled={!identifiedStudent} className={cx('rounded-[28px] border p-4 text-right transition shadow-sm', !identifiedStudent ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400' : actionType === 'reward' ? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100' : 'border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100')}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="font-black">{item.title}</div>
-                <div className="mt-1 text-xs leading-6 opacity-80">{item.description || 'بدون وصف إضافي'}</div>
+        {teacherPreferredDefinitions.map((item, index) => {
+          const isExecuting = executingDefinitionId === String(item.id);
+          const isDisabled = !identifiedStudent || (executingDefinitionId && !isExecuting);
+          return (
+            <button
+              key={item.id}
+              onClick={() => applyAction(item)}
+              disabled={isDisabled || isExecuting}
+              className={cx(
+                'rounded-[28px] border p-4 text-right transition shadow-sm relative overflow-hidden',
+                isExecuting
+                  ? actionType === 'reward' ? 'border-emerald-500 bg-emerald-600 text-white scale-[0.98] shadow-lg' : 'border-rose-500 bg-rose-600 text-white scale-[0.98] shadow-lg'
+                  : !identifiedStudent || executingDefinitionId
+                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                    : actionType === 'reward' ? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 active:scale-[0.97]' : 'border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100 active:scale-[0.97]'
+              )}
+            >
+              {isExecuting && (
+                <div className="absolute inset-0 flex items-center justify-center rounded-[28px] bg-emerald-600/90">
+                  <div className="flex items-center gap-2 text-white">
+                    <svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                    <span className="text-sm font-black">جارٍ التنفيذ...</span>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-black">{item.title}</div>
+                  <div className="mt-1 text-xs leading-6 opacity-80">{item.description || 'بدون وصف إضافي'}</div>
+                </div>
+                <div className="space-y-2 text-left">
+                  <div className="rounded-2xl bg-white/80 px-3 py-2 text-sm font-black">{item.points > 0 ? `+${item.points}` : item.points}</div>
+                  {index < 2 ? <div className="text-[11px] font-bold opacity-70">سريع</div> : null}
+                </div>
               </div>
-              <div className="space-y-2 text-left">
-                <div className="rounded-2xl bg-white/80 px-3 py-2 text-sm font-black">{item.points > 0 ? `+${item.points}` : item.points}</div>
-                {index < 2 ? <div className="text-[11px] font-bold opacity-70">سريع</div> : null}
-              </div>
-            </div>
-          </button>
-        ))}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -8307,36 +8361,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
         </div>
       ) : null}
 
-      {teacherProgramFavoriteActions.length ? (
-        <div className="rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-200">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="font-bold text-amber-900">المفضلة لك</div>
-              <div className="text-xs text-amber-900/75">أكثر البرامج التي استخدمتها مؤخرًا لإعادة تعبئتها بسرعة.</div>
-            </div>
-            <Badge tone="amber">{teacherProgramFavoriteActions.length}</Badge>
-          </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
-            {teacherProgramFavoriteActions.map((item) => (
-              <button
-                key={`program-favorite-${item.id}`}
-                onClick={() => applyProgramPreset({
-                  definitionId: item.definitionId,
-                  title: item.definitionTitle || item.actionTitle,
-                  targetType: item.targetType === 'فصل / شركة' ? 'company' : item.targetType === 'طالب واحد' ? 'student' : item.targetType === 'مجموعة' ? 'group' : 'school',
-                  targetLabel: item.targetLabel || '',
-                  targetCount: item.targetCount || '1',
-                  note: item.note || '',
-                })}
-                className="rounded-2xl border border-amber-200 bg-white px-4 py-3 text-right text-sm font-black text-amber-900 transition hover:bg-amber-100"
-              >
-                <div>{item.definitionTitle || item.actionTitle || 'برنامج سابق'}</div>
-                <div className="mt-1 text-xs opacity-75">{item.targetLabel || item.targetType || 'بدون مستهدف'} • {item.targetCount || 1}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      {/* تم إزالة قسم مفضلة البرامج بناءً على طلب المستخدم */}
 
       <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
         <div className="flex items-center justify-between gap-3">
