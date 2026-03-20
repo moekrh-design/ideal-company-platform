@@ -2201,6 +2201,33 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, service: 'ideal-company-platform-server', time: nowIso() });
     }
 
+    if (reqUrl.pathname === '/test' && req.method === 'GET') {
+      const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Test</title></head><body style="font-family:sans-serif;padding:20px;background:#f0f0f0">
+<h2>اختبار المتصفح</h2>
+<div id="out"></div>
+<script>
+var out = document.getElementById('out');
+function log(msg, ok) {
+  var d = document.createElement('div');
+  d.style.cssText = 'padding:8px;margin:4px 0;border-radius:6px;background:' + (ok ? '#d4edda' : '#f8d7da') + ';color:' + (ok ? '#155724' : '#721c24');
+  d.textContent = (ok ? '✓ ' : '✗ ') + msg;
+  out.appendChild(d);
+}
+try { log('JavaScript يعمل', true); } catch(e) { log('خطأ: ' + e, false); }
+try { var x = {}; x?.y; log('Optional chaining يعمل', true); } catch(e) { log('Optional chaining لا يعمل: ' + e, false); }
+try { var y = null; var z = y ?? 'default'; log('Nullish coalescing يعمل', true); } catch(e) { log('Nullish coalescing لا يعمل: ' + e, false); }
+try { (async function(){})(); log('Async/await يعمل', true); } catch(e) { log('Async/await لا يعمل: ' + e, false); }
+try { var m = new Map(); log('Map يعمل', true); } catch(e) { log('Map لا يعمل: ' + e, false); }
+try { var p = Promise.resolve(); log('Promise يعمل', true); } catch(e) { log('Promise لا يعمل: ' + e, false); }
+try { var s = new Set(); log('Set يعمل', true); } catch(e) { log('Set لا يعمل: ' + e, false); }
+try { fetch('/api/health').then(function(r){return r.json()}).then(function(d){log('Fetch API يعمل: ' + JSON.stringify(d), true)}).catch(function(e){log('Fetch خطأ: ' + e, false)}); } catch(e) { log('Fetch لا يعمل: ' + e, false); }
+log('User Agent: ' + navigator.userAgent, true);
+<\/script></body></html>`;
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
+    }
+
     if (reqUrl.pathname === '/api/debug/dist' && req.method === 'GET') {
       const { readdirSync: rds } = await import('fs');
       let files = [];
