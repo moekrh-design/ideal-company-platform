@@ -1789,15 +1789,22 @@ async function detectFaceBounds(image) {
 async function buildFaceTemplateFromSource(photo) {
   const image = await loadImageSource(photo);
   const bounds = await detectFaceBounds(image);
-  const size = 32;
+  const size = 64; // رفع الدقة من 32 إلى 64 لتحسين الدقة
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const context = canvas.getContext("2d", { willReadFrequently: true });
-  const sx = bounds?.x ?? 0;
-  const sy = bounds?.y ?? 0;
-  const sw = bounds?.width ?? image.width;
-  const sh = bounds?.height ?? image.height;
+  // توسيع منطقة الوجه بنسبة 15% لتضمين السياق المحيط
+  let sx, sy, sw, sh;
+  if (bounds) {
+    const pad = Math.round(Math.min(bounds.width, bounds.height) * 0.15);
+    sx = Math.max(0, bounds.x - pad);
+    sy = Math.max(0, bounds.y - pad);
+    sw = Math.min(image.width - sx, bounds.width + pad * 2);
+    sh = Math.min(image.height - sy, bounds.height + pad * 2);
+  } else {
+    sx = 0; sy = 0; sw = image.width; sh = image.height;
+  }
   context.drawImage(image, sx, sy, sw, sh, 0, 0, size, size);
   const pixels = context.getImageData(0, 0, size, size).data;
   const values = [];
@@ -1805,10 +1812,10 @@ async function buildFaceTemplateFromSource(photo) {
     const gray = Math.round((pixels[index] * 0.299) + (pixels[index + 1] * 0.587) + (pixels[index + 2] * 0.114));
     values.push(gray);
   }
-  // تطبيع أفضل: استخدام الانحراف المعياري لتحسين المقارنة
+  // Z-score normalization مع حد أدنى 8 للانحراف المعياري
   const average = values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
   const variance = values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / Math.max(values.length, 1);
-  const stdDev = Math.max(Math.sqrt(variance), 1);
+  const stdDev = Math.max(Math.sqrt(variance), 8);
   const signature = values.map((value) => Math.max(0, Math.min(255, Math.round(((value - average) / stdDev) * 40 + 128))));
   const hasNativeFaceDetector = typeof window !== "undefined" && "FaceDetector" in window;
   return { photo, signature, faceDetected: hasNativeFaceDetector ? Boolean(bounds) : true };
@@ -1856,7 +1863,7 @@ function compareFaceSignatures(baseSignature, candidateSignature) {
   return total / length;
 }
 
-function findBestFaceMatch(signature, students, maxScore = 28) {
+function findBestFaceMatch(signature, students, maxScore = 32) {
   let bestStudent = null;
   let bestScore = Number.POSITIVE_INFINITY;
   students.forEach((student) => {
@@ -2464,12 +2471,57 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     if (!(active && ["barcode", "mixed"].includes(mode) && onDetectBarcode && videoRef.current)) return undefined;
     let cancelled = false;
     let processing = false;
+    // كشف الحركة: نحفظ بصمة الإطار الأخير بعد المسح ونقارنها
+    let lastFrameHash = null;
+    let waitingForChange = false;
+
+    // حساب بصمة بسيطة للإطار (16x16 grayscale)
+    const getFrameHash = () => {
+      if (!videoRef.current) return null;
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = 16; cv.height = 16;
+        const cx = cv.getContext('2d', { willReadFrequently: true });
+        cx.drawImage(videoRef.current, 0, 0, 16, 16);
+        const d = cx.getImageData(0, 0, 16, 16).data;
+        let sum = 0;
+        const vals = [];
+        for (let i = 0; i < d.length; i += 4) {
+          const g = Math.round(d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114);
+          vals.push(g); sum += g;
+        }
+        return vals;
+      } catch { return null; }
+    };
+
+    // مقارنة إطارين: يُرجع نسبة التغيير (0-1)
+    const frameChangedEnough = (h1, h2, threshold = 18) => {
+      if (!h1 || !h2 || h1.length !== h2.length) return true;
+      let diff = 0;
+      for (let i = 0; i < h1.length; i++) diff += Math.abs(h1[i] - h2[i]);
+      return (diff / h1.length) > threshold;
+    };
+
     const tick = async () => {
       if (cancelled || !videoRef.current || processing) return;
       if (!(videoRef.current.videoWidth && videoRef.current.videoHeight)) {
         timerRef.current = window.setTimeout(tick, 500);
         return;
       }
+
+      // إذا كنا ننتظر تغيير المشهد، نتحقق من الحركة أولاً
+      if (waitingForChange) {
+        const currentHash = getFrameHash();
+        if (!frameChangedEnough(lastFrameHash, currentHash, 18)) {
+          // لم يتغير المشهد - ننتظر أكثر
+          timerRef.current = window.setTimeout(tick, 400);
+          return;
+        }
+        // تغيّر المشهد - نستأنف القراءة
+        waitingForChange = false;
+        lastFrameHash = null;
+      }
+
       processing = true;
       try {
         // محاولة كشف موضع الباركود أولاً لإظهار مؤشر بصري
@@ -2483,21 +2535,19 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
               if (box) showDetectionHint('barcode', box);
             }
           } catch {
-            // ignore - سيتم الكشف في الخطوة التالية
+            // ignore
           }
         }
         const value = await detectBarcodeValueFromSource(videoRef.current);
         if (value) {
-          flashSuccessFrame(`تمت قراءة QR مباشرة: ${value}`);
+          flashSuccessFrame(`تمت قراءة QR: ${value}`);
           window.setTimeout(() => onDetectBarcode(value), 220);
-          // الكاميرا تبقى مفتوحة دائماً في وضع البوابة - فقط نوقف القراءة مؤقتاً
           if (autoRestartRef.current) {
-            // cooldown ثانيتين ثم نستمر في القراءة للطالب التالي
-            processing = true;
-            timerRef.current = window.setTimeout(() => {
-              processing = false;
-              if (!cancelled) timerRef.current = window.setTimeout(tick, 350);
-            }, 2200);
+            // نحفظ بصمة الإطار الحالي وننتظر تغيير المشهد
+            lastFrameHash = getFrameHash();
+            waitingForChange = true;
+            processing = false;
+            timerRef.current = window.setTimeout(tick, 800);
           } else {
             window.setTimeout(() => stopCamera(), 1900);
           }
@@ -2524,6 +2574,31 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     if (!(active && ["face", "mixed"].includes(mode) && onDetectFace && videoRef.current)) return undefined;
     let cancelled = false;
     let processing = false;
+    let lastFrameHash = null;
+    let waitingForChange = false;
+
+    const getFrameHash = () => {
+      if (!videoRef.current) return null;
+      try {
+        const cv = document.createElement('canvas');
+        cv.width = 16; cv.height = 16;
+        const cx = cv.getContext('2d', { willReadFrequently: true });
+        cx.drawImage(videoRef.current, 0, 0, 16, 16);
+        const d = cx.getImageData(0, 0, 16, 16).data;
+        const vals = [];
+        for (let i = 0; i < d.length; i += 4) {
+          vals.push(Math.round(d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114));
+        }
+        return vals;
+      } catch { return null; }
+    };
+
+    const frameChangedEnough = (h1, h2, threshold = 18) => {
+      if (!h1 || !h2 || h1.length !== h2.length) return true;
+      let diff = 0;
+      for (let i = 0; i < h1.length; i++) diff += Math.abs(h1[i] - h2[i]);
+      return (diff / h1.length) > threshold;
+    };
 
     const tick = async () => {
       if (cancelled || !videoRef.current || processing) return;
@@ -2531,14 +2606,24 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
         timerRef.current = window.setTimeout(tick, 700);
         return;
       }
+
+      // إذا كنا ننتظر تغيير المشهد، نتحقق من الحركة أولاً
+      if (waitingForChange) {
+        const currentHash = getFrameHash();
+        if (!frameChangedEnough(lastFrameHash, currentHash, 18)) {
+          timerRef.current = window.setTimeout(tick, 400);
+          return;
+        }
+        waitingForChange = false;
+        lastFrameHash = null;
+      }
+
       processing = true;
       try {
-        // الخطوة 1: كشف الوجه أولاً قبل إرسال الصورة للمطابقة
         const video = videoRef.current;
         let faceBox = null;
         let faceDetected = false;
 
-        // محاولة استخدام FaceDetector API المدمج في المتصفح
         if (typeof window !== 'undefined' && 'FaceDetector' in window) {
           try {
             const detector = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 1 });
@@ -2548,26 +2633,19 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
               faceBox = faces[0].boundingBox;
             }
           } catch {
-            // FaceDetector غير مدعوم - نرسل الصورة مباشرة
             faceDetected = true;
           }
         } else {
-          // إذا لم يتوفر FaceDetector نرسل الصورة مباشرة
           faceDetected = true;
         }
 
         if (!faceDetected) {
-          // لا يوجد وجه - ننتظر ونحاول مجدداً
           timerRef.current = window.setTimeout(tick, 600);
           return;
         }
 
-        // الخطوة 2: إظهار مؤشر بصري عند اكتشاف الوجه
-        if (faceBox) {
-          showDetectionHint('face', faceBox);
-        }
+        if (faceBox) showDetectionHint('face', faceBox);
 
-        // الخطوة 3: إرسال الصورة للمطابقة أو الحفظ
         const dataUrl = captureDataUrlFromVideo(video, 0.88);
         if (dataUrl) {
           const result = await onDetectFace(dataUrl);
@@ -2576,16 +2654,14 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
             const isEnroll = typeof result === "object" && result.enrolled;
             const msg = isEnroll
               ? `تم حفظ بصمة الوجه${name ? ` لـ: ${name}` : ""}`
-              : `تمت المطابقة المباشرة للوجه${name ? `: ${name}` : ""}`;
+              : `تمت المطابقة للوجه${name ? `: ${name}` : ""}`;
             flashSuccessFrame(msg);
-            // الكاميرا تبقى مفتوحة دائماً في وضع البوابة
             if (autoRestartRef.current) {
-              // cooldown ثانيتين ثم نستمر في القراءة للطالب التالي
-              processing = true;
-              timerRef.current = window.setTimeout(() => {
-                processing = false;
-                if (!cancelled) timerRef.current = window.setTimeout(tick, 800);
-              }, 2200);
+              // نحفظ بصمة الإطار وننتظر تغيير المشهد
+              lastFrameHash = getFrameHash();
+              waitingForChange = true;
+              processing = false;
+              timerRef.current = window.setTimeout(tick, 800);
             } else {
               window.setTimeout(() => stopCamera(), 1900);
             }
