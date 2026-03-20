@@ -2197,11 +2197,8 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
   const [detectionHint, setDetectionHint] = useState(null);
   const detectionHintTimerRef = useRef(null);
   // تبديل الكاميرا الأمامية/الخلفية
-  const [facingMode, setFacingMode] = useState(() => {
-    // الوضع الافتراضي: خلفية للباركود والمختلط، أمامية للوجه
-    return mode === 'barcode' || mode === 'mixed' ? 'environment' : 'user';
-  });
-  const facingModeRef = useRef(mode === 'barcode' || mode === 'mixed' ? 'environment' : 'user');
+  const [facingMode, setFacingMode] = useState('environment'); // الخلفية افتراضياً لجميع الأوضاع
+  const facingModeRef = useRef('environment');
   const [hasBothCameras, setHasBothCameras] = useState(false);
   const [devicesLoaded, setDevicesLoaded] = useState(false);
 
