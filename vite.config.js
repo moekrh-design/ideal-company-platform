@@ -13,6 +13,9 @@ export default defineConfig({
     target: ['es2015', 'safari13'],
     rollupOptions: {
       output: {
+        entryFileNames: 'assets/[name]-DplEDWHr.js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
         manualChunks(id) {
           if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/react-is/') || id.includes('node_modules/scheduler/')) {
             return 'vendor-react';
@@ -26,7 +29,7 @@ export default defineConfig({
         },
       },
     },
-    chunkSizeWarningLimit: 800,
+    chunkSizeWarningLimit: 1600,
   },
   server: {
     host: '0.0.0.0',
