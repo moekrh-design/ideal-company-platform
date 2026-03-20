@@ -3149,6 +3149,23 @@ server.on('upgrade', (req, socket) => {
   }
 });
 
+// تحديث index.html لإضافة إصلاح QuotaExceededError عند بدء التشغيل
+(function patchIndexHtml() {
+  const indexPath = path.join(DIST_DIR, 'index.html');
+  if (!existsSync(indexPath)) return;
+  try {
+    const content = readFileSync(indexPath, 'utf8');
+    const quotaFix = `<script>\n    (function() {\n      try {\n        var testKey = '__quota_test__';\n        localStorage.setItem(testKey, '1');\n        localStorage.removeItem(testKey);\n      } catch(e) {\n        if (e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014)) {\n          try { localStorage.clear(); } catch(e2) {}\n        }\n      }\n    })();\n    <\/script>`;
+    if (!content.includes('__quota_test__')) {
+      const patched = content.replace('<meta name="viewport"', quotaFix + '\n    <meta name="viewport"');
+      writeFileSync(indexPath, patched, 'utf8');
+      console.log('index.html patched with QuotaExceededError fix');
+    }
+  } catch(e) {
+    console.warn('Failed to patch index.html:', e.message);
+  }
+})();
+
 server.listen(PORT, () => {
   console.log(`ideal-company-platform server running on http://localhost:${PORT}`);
   console.log(`database: PostgreSQL (Neon)`);  // PostgreSQL
