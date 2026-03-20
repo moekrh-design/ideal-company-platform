@@ -2174,6 +2174,13 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, service: 'ideal-company-platform-server', time: nowIso() });
     }
 
+    if (reqUrl.pathname === '/api/debug/dist' && req.method === 'GET') {
+      const { readdirSync: rds } = await import('fs');
+      let files = [];
+      try { files = rds(path.join(DIST_DIR, 'assets')); } catch(e) { files = ['ERROR: ' + e.message]; }
+      return sendJson(res, 200, { distDir: DIST_DIR, files, indexExists: existsSync(path.join(DIST_DIR, 'index.html')) });
+    }
+
     if (reqUrl.pathname === '/api/bootstrap' && req.method === 'GET') {
       const state = getSharedState();
       const user = await getUserFromToken(token);
