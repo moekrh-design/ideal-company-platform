@@ -415,6 +415,11 @@ const defaultSettings = {
     initiative: 10,
     behavior: 4,
   },
+  teacherPoints: {
+    perReward: 2,
+    perViolation: 1,
+    perProgram: 3,
+  },
   devices: {
     barcodeEnabled: true,
     faceEnabled: true,
@@ -1153,6 +1158,7 @@ function buildHydratedClientState(parsed = {}, uiState = {}) {
       ...(parsed.settings || {}),
       policy: { ...defaultSettings.policy, ...(parsed.settings?.policy || {}) },
       points: { ...defaultSettings.points, ...(parsed.settings?.points || {}) },
+      teacherPoints: { ...defaultSettings.teacherPoints, ...(parsed.settings?.teacherPoints || {}) },
       devices: { ...defaultSettings.devices, ...(parsed.settings?.devices || {}) },
       actions: hydrateActionCatalog(parsed.settings?.actions || defaultSettings.actions),
       auth: {
@@ -8008,6 +8014,28 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
     violations: teacherRecentActions.filter((item) => item.actionType === "violation").length,
     programs: teacherRecentActions.filter((item) => item.actionType === "program").length,
   };
+
+  // حساب نقاط المعلم من كامل actionLog
+  const allMyActions = actionLog.filter((item) =>
+    item.schoolId === selectedSchool.id &&
+    ((currentUser?.id && String(item.actorId || '') === String(currentUser.id)) ||
+     item.actorUsername === currentUser?.username ||
+     item.actorName === currentUser?.fullName)
+  );
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayMyActions = allMyActions.filter((item) => (item.isoDate || '').slice(0, 10) === todayIso);
+  const tpSettings = settings.teacherPoints || { perReward: 2, perViolation: 1, perProgram: 3 };
+  const calcTeacherPoints = (actions) => actions.reduce((sum, item) => {
+    if (item.actionType === 'reward') return sum + Number(tpSettings.perReward || 2);
+    if (item.actionType === 'violation') return sum + Number(tpSettings.perViolation || 1);
+    if (item.actionType === 'program') return sum + Number(tpSettings.perProgram || 3);
+    return sum;
+  }, 0);
+  const myPointsToday = calcTeacherPoints(todayMyActions);
+  const myPointsTotal = calcTeacherPoints(allMyActions);
+  const myTodayRewards = todayMyActions.filter((item) => item.actionType === 'reward').length;
+  const myTodayViolations = todayMyActions.filter((item) => item.actionType === 'violation').length;
+  const myTodayPrograms = todayMyActions.filter((item) => item.actionType === 'program').length;
   const teacherPreferredDefinitions = currentDefinitions.slice().sort((a, b) => {
     const aCount = teacherRecentActions.filter((item) => item.actionType === actionType && String(item.definitionId || '') === String(a.id)).length;
     const bCount = teacherRecentActions.filter((item) => item.actionType === actionType && String(item.definitionId || '') === String(b.id)).length;
@@ -8812,11 +8840,41 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
                   </div>
                 </div>
               </div>
-              <div className="mt-5 grid grid-cols-2 gap-3">
-                <div className="rounded-3xl bg-white/10 p-3 ring-1 ring-white/10"><div className="text-xs text-white/70">نقاطي</div><div className="mt-1 text-2xl font-black">{currentUser.points || 0}</div><div className="mt-1 text-[11px] text-white/60">الرصيد الحالي للمعلم</div></div>
-                <div className="rounded-3xl bg-white/10 p-3 ring-1 ring-white/10"><div className="text-xs text-white/70">عملياتي اليوم</div><div className="mt-1 text-2xl font-black">{teacherStats.total}</div><div className="mt-1 text-[11px] text-white/60">مكافآت وخصومات وبرامج</div></div>
-                <div className="rounded-3xl bg-white/10 p-3 ring-1 ring-white/10"><div className="text-xs text-white/70">المكافآت</div><div className="mt-1 text-2xl font-black">{teacherStats.rewards}</div><div className="mt-1 text-[11px] text-white/60">منفذة من حسابك</div></div>
-                <div className="rounded-3xl bg-white/10 p-3 ring-1 ring-white/10"><div className="text-xs text-white/70">البرامج</div><div className="mt-1 text-2xl font-black">{teacherStats.programs}</div><div className="mt-1 text-[11px] text-white/60">محفوظة أو معتمدة</div></div>
+              {/* بطاقة نقاطي الكبيرة */}
+              <div className="mt-5 rounded-3xl bg-white/15 p-4 ring-1 ring-white/20">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-black text-white">⭐ نقاطي</div>
+                  <div className="rounded-2xl bg-amber-400 px-3 py-1 text-xs font-black text-slate-950">إجمالي: {myPointsTotal} نقطة</div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl bg-white/10 p-3">
+                    <div className="text-[11px] text-white/70">نقاط اليوم</div>
+                    <div className="mt-1 text-3xl font-black text-amber-300">{myPointsToday}</div>
+                    <div className="mt-1 text-[10px] text-white/60">من {myTodayRewards + myTodayViolations + myTodayPrograms} إجراء</div>
+                  </div>
+                  <div className="rounded-2xl bg-white/10 p-3">
+                    <div className="text-[11px] text-white/70">إجمالي النقاط</div>
+                    <div className="mt-1 text-3xl font-black text-emerald-300">{myPointsTotal}</div>
+                    <div className="mt-1 text-[10px] text-white/60">من {allMyActions.length} إجراء كلي</div>
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <div className="rounded-2xl bg-emerald-500/20 p-2 text-center">
+                    <div className="text-[10px] text-emerald-200">مكافآت</div>
+                    <div className="text-lg font-black text-emerald-300">{myTodayRewards}</div>
+                    <div className="text-[9px] text-white/50">+{myTodayRewards * Number(tpSettings.perReward || 2)} نقطة</div>
+                  </div>
+                  <div className="rounded-2xl bg-rose-500/20 p-2 text-center">
+                    <div className="text-[10px] text-rose-200">خصومات</div>
+                    <div className="text-lg font-black text-rose-300">{myTodayViolations}</div>
+                    <div className="text-[9px] text-white/50">+{myTodayViolations * Number(tpSettings.perViolation || 1)} نقطة</div>
+                  </div>
+                  <div className="rounded-2xl bg-sky-500/20 p-2 text-center">
+                    <div className="text-[10px] text-sky-200">برامج</div>
+                    <div className="text-lg font-black text-sky-300">{myTodayPrograms}</div>
+                    <div className="text-[9px] text-white/50">+{myTodayPrograms * Number(tpSettings.perProgram || 3)} نقطة</div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -9213,8 +9271,157 @@ function ReportsPage({ schools, scanLog, actionLog, selectedSchool, settings, ex
             <div className="space-y-3">{teacherActivity.length ? teacherActivity.map((item, index) => <div key={`${item.actorName}-${index}`} className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="font-black">{item.actorName}</div><div className="mt-1 text-sm text-slate-500">{getRoleLabel(item.actorRole)}</div><div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs"><div className="rounded-xl bg-slate-50 p-2"><div className="font-black text-slate-800">{item.count}</div><div className="text-slate-500">إجمالي</div></div><div className="rounded-xl bg-emerald-50 p-2"><div className="font-black text-emerald-700">{item.rewardCount}</div><div className="text-emerald-700">مكافآت</div></div><div className="rounded-xl bg-rose-50 p-2"><div className="font-black text-rose-700">{item.violationCount}</div><div className="text-rose-700">خصومات</div></div><div className="rounded-xl bg-violet-50 p-2"><div className="font-black text-violet-700">{item.programCount}</div><div className="text-violet-700">برامج</div></div></div></div>) : <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200 text-sm text-slate-500">لا توجد بيانات نشاط كافية بعد.</div>}</div>
           </div>
         </div>
-      </SectionCard>
+       </SectionCard>
+
+      {/* تقرير نقاط المعلمين التفصيلي */}
+      <TeacherPointsReport schoolActions={schoolActions} settings={settings} />
     </div>
+  );
+}
+
+function TeacherPointsReport({ schoolActions, settings }) {
+  const [filterActor, setFilterActor] = React.useState('');
+  const [filterType, setFilterType] = React.useState('all');
+  const [filterDate, setFilterDate] = React.useState('');
+  const tpSettings = settings.teacherPoints || { perReward: 2, perViolation: 1, perProgram: 3 };
+
+  // جمع قائمة المعلمين
+  const actorNames = React.useMemo(() => {
+    const names = new Set();
+    schoolActions.forEach((item) => { if (item.actorName) names.add(item.actorName); });
+    return Array.from(names).sort();
+  }, [schoolActions]);
+
+  // حساب نقاط كل معلم
+  const teacherPointsData = React.useMemo(() => {
+    const map = {};
+    schoolActions.forEach((item) => {
+      const key = item.actorName || 'غير محدد';
+      if (!map[key]) map[key] = { actorName: key, actorRole: item.actorRole || 'teacher', rewards: 0, violations: 0, programs: 0, total: 0, points: 0, actions: [] };
+      map[key].actions.push(item);
+      if (item.actionType === 'reward') { map[key].rewards += 1; map[key].points += Number(tpSettings.perReward || 2); }
+      else if (item.actionType === 'violation') { map[key].violations += 1; map[key].points += Number(tpSettings.perViolation || 1); }
+      else if (item.actionType === 'program') { map[key].programs += 1; map[key].points += Number(tpSettings.perProgram || 3); }
+      map[key].total += 1;
+    });
+    return Object.values(map).sort((a, b) => b.points - a.points);
+  }, [schoolActions, tpSettings]);
+
+  // تفاصيل الإجراءات بعد التصفية
+  const filteredActions = React.useMemo(() => {
+    return schoolActions.filter((item) => {
+      if (filterActor && item.actorName !== filterActor) return false;
+      if (filterType !== 'all' && item.actionType !== filterType) return false;
+      if (filterDate && (item.isoDate || '').slice(0, 10) !== filterDate) return false;
+      return true;
+    }).slice(0, 200);
+  }, [schoolActions, filterActor, filterType, filterDate]);
+
+  const filteredPoints = filteredActions.reduce((sum, item) => {
+    if (item.actionType === 'reward') return sum + Number(tpSettings.perReward || 2);
+    if (item.actionType === 'violation') return sum + Number(tpSettings.perViolation || 1);
+    if (item.actionType === 'program') return sum + Number(tpSettings.perProgram || 3);
+    return sum;
+  }, 0);
+
+  return (
+    <SectionCard title="نقاط المعلمين" icon={Trophy}>
+      {/* ملخص نقاط كل معلم */}
+      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {teacherPointsData.map((teacher, index) => (
+          <div key={teacher.actorName} className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="font-black text-slate-900">{index + 1}. {teacher.actorName}</div>
+                <div className="mt-1 text-xs text-slate-500">{getRoleLabel(teacher.actorRole)}</div>
+              </div>
+              <div className="rounded-2xl bg-amber-100 px-3 py-2 text-center">
+                <div className="text-xl font-black text-amber-700">{teacher.points}</div>
+                <div className="text-[10px] text-amber-600">نقطة</div>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="rounded-xl bg-emerald-50 p-2"><div className="font-black text-emerald-700">{teacher.rewards}</div><div className="text-emerald-600">مكافآت</div></div>
+              <div className="rounded-xl bg-rose-50 p-2"><div className="font-black text-rose-700">{teacher.violations}</div><div className="text-rose-600">خصومات</div></div>
+              <div className="rounded-xl bg-sky-50 p-2"><div className="font-black text-sky-700">{teacher.programs}</div><div className="text-sky-600">برامج</div></div>
+            </div>
+          </div>
+        ))}
+        {teacherPointsData.length === 0 && <div className="rounded-3xl bg-slate-50 p-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">لا توجد بيانات بعد.</div>}
+      </div>
+
+      {/* فلترة التفاصيل */}
+      <div className="mb-4 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+        <div className="mb-3 font-bold text-slate-800">تفاصيل الإجراءات</div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-xs font-bold text-slate-600">المعلم</label>
+            <select value={filterActor} onChange={(e) => setFilterActor(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+              <option value="">جميع المعلمين</option>
+              {actorNames.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-bold text-slate-600">نوع الإجراء</label>
+            <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+              <option value="all">جميع الأنواع</option>
+              <option value="reward">مكافآت</option>
+              <option value="violation">خصومات</option>
+              <option value="program">برامج</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-bold text-slate-600">التاريخ</label>
+            <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" />
+          </div>
+        </div>
+        {(filterActor || filterType !== 'all' || filterDate) && (
+          <div className="mt-3 flex items-center gap-3">
+            <span className="text-sm font-bold text-slate-700">مجموع النقاط: <span className="text-amber-700">{filteredPoints}</span></span>
+            <span className="text-sm text-slate-500">({filteredActions.length} إجراء)</span>
+            <button onClick={() => { setFilterActor(''); setFilterType('all'); setFilterDate(''); }} className="rounded-xl bg-slate-200 px-3 py-1 text-xs font-bold text-slate-700">إعادة تعيين</button>
+          </div>
+        )}
+      </div>
+
+      {/* جدول التفاصيل */}
+      <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-100">
+            <tr>
+              <th className="px-4 py-3 text-right font-black text-slate-700">المعلم</th>
+              <th className="px-4 py-3 text-right font-black text-slate-700">النوع</th>
+              <th className="px-4 py-3 text-right font-black text-slate-700">البند</th>
+              <th className="px-4 py-3 text-right font-black text-slate-700">الطالب / المستهدف</th>
+              <th className="px-4 py-3 text-right font-black text-slate-700">التاريخ</th>
+              <th className="px-4 py-3 text-right font-black text-slate-700">الوقت</th>
+              <th className="px-4 py-3 text-center font-black text-slate-700">النقاط</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredActions.length === 0 && (
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات مطابقة.</td></tr>
+            )}
+            {filteredActions.map((item) => {
+              const pts = item.actionType === 'reward' ? Number(tpSettings.perReward || 2) : item.actionType === 'violation' ? Number(tpSettings.perViolation || 1) : Number(tpSettings.perProgram || 3);
+              const typeLabel = item.actionType === 'reward' ? 'مكافأة' : item.actionType === 'violation' ? 'خصم' : 'برنامج';
+              const typeTone = item.actionType === 'reward' ? 'text-emerald-700 bg-emerald-50' : item.actionType === 'violation' ? 'text-rose-700 bg-rose-50' : 'text-sky-700 bg-sky-50';
+              return (
+                <tr key={item.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-4 py-3 font-bold text-slate-800">{item.actorName || '—'}</td>
+                  <td className="px-4 py-3"><span className={`rounded-xl px-2 py-1 text-xs font-black ${typeTone}`}>{typeLabel}</span></td>
+                  <td className="px-4 py-3 text-slate-700">{item.actionTitle || '—'}</td>
+                  <td className="px-4 py-3 text-slate-600">{item.student || item.targetLabel || '—'}</td>
+                  <td className="px-4 py-3 text-slate-500">{item.date || item.isoDate || '—'}</td>
+                  <td className="px-4 py-3 text-slate-500">{item.time || '—'}</td>
+                  <td className="px-4 py-3 text-center font-black text-amber-700">+{pts}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </SectionCard>
   );
 }
 
@@ -9640,6 +9847,18 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
                 <Input label="خصم التأخر" type="number" value={localSettings.points.late} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, late: safeNumber(e.target.value) } })} />
                 <Input label="نقاط المبادرة" type="number" value={localSettings.points.initiative} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, initiative: safeNumber(e.target.value) } })} />
                 <Input label="نقاط السلوك" type="number" value={localSettings.points.behavior} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, behavior: safeNumber(e.target.value) } })} />
+              </div>
+            </div>
+            {/* نقاط المعلمين */}
+            <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+              <div className="mb-4">
+                <div className="font-black text-slate-900">نقاط المعلمين (نقاطي)</div>
+                <div className="mt-1 text-sm leading-7 text-slate-500">حدد عدد النقاط التي يكسبها المعلم مقابل كل إجراء ينفذه. تُحسب يومياً وإجمالياً وتظهر في صفحة المعلم وتقاريره.</div>
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <Input label="نقاط مقابل كل مكافأة" type="number" value={localSettings.teacherPoints?.perReward ?? 2} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perReward: safeNumber(e.target.value) } })} />
+                <Input label="نقاط مقابل كل خصم/مخالفة" type="number" value={localSettings.teacherPoints?.perViolation ?? 1} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perViolation: safeNumber(e.target.value) } })} />
+                <Input label="نقاط مقابل كل برنامج" type="number" value={localSettings.teacherPoints?.perProgram ?? 3} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perProgram: safeNumber(e.target.value) } })} />
               </div>
             </div>
           </div>
@@ -11441,6 +11660,7 @@ export default function App() {
       ...(payload.settings || {}),
       policy: { ...defaultSettings.policy, ...(payload.settings?.policy || {}) },
       points: { ...defaultSettings.points, ...(payload.settings?.points || {}) },
+      teacherPoints: { ...defaultSettings.teacherPoints, ...(payload.settings?.teacherPoints || {}) },
       devices: { ...defaultSettings.devices, ...(payload.settings?.devices || {}) },
       actions: hydrateActionCatalog(payload.settings?.actions || defaultSettings.actions),
     });
