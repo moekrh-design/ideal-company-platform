@@ -3100,7 +3100,7 @@ function ScreenSettingsEditor({ value, onChange, compact = false, classrooms = [
   );
 }
 
-function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink, onDeleteGateLink, onCreateScreenLink, onDeleteScreenLink, onUpdateScreenLink }) {
+function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink, onDeleteGateLink, onUpdateGateLink, onCreateScreenLink, onDeleteScreenLink, onUpdateScreenLink }) {
   const [activeTab, setActiveTab] = useState("screens");
   const [gateName, setGateName] = useState("");
   const [gateMode, setGateMode] = useState("mixed");
@@ -3126,6 +3126,8 @@ function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink,
   const [editingScreenId, setEditingScreenId] = useState(null);
   const [editingScreenForm, setEditingScreenForm] = useState(null);
   const [savingScreenId, setSavingScreenId] = useState(null);
+  const [editingGateModeId, setEditingGateModeId] = useState(null);
+  const [editingGateModeValue, setEditingGateModeValue] = useState('mixed');
   const canManage = Boolean(currentUser && (currentUser.role === "superadmin" || canAccessPermission(currentUser, "deviceDisplays")));
   const gates = Array.isArray(selectedSchool?.smartLinks?.gates) ? selectedSchool.smartLinks.gates : [];
   const screens = Array.isArray(selectedSchool?.smartLinks?.screens) ? selectedSchool.smartLinks.screens : [];
@@ -3250,7 +3252,46 @@ function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink,
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <div className="font-bold text-slate-800">{gate.name}</div>
-                        <div className="mt-1 text-xs text-slate-500">الوضع: {gate.mode === 'mixed' ? 'QR + بصمة وجه' : gate.mode === 'qr' ? 'QR فقط' : 'بصمة وجه فقط'}</div>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className={`rounded-xl px-2 py-1 text-xs font-bold ${
+                            gate.mode === 'qr' ? 'bg-sky-100 text-sky-700' :
+                            gate.mode === 'face' ? 'bg-violet-100 text-violet-700' :
+                            'bg-emerald-100 text-emerald-700'
+                          }`}>
+                            {gate.mode === 'mixed' ? 'QR + بصمة وجه' : gate.mode === 'qr' ? 'QR فقط' : 'بصمة وجه فقط'}
+                          </span>
+                          {canManage && (
+                            <button
+                              onClick={() => { setEditingGateModeId(gate.id); setEditingGateModeValue(gate.mode || 'mixed'); }}
+                              className="rounded-xl bg-slate-100 px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                            >
+                              تغيير الوضع
+                            </button>
+                          )}
+                        </div>
+                        {editingGateModeId === gate.id && (
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            {[['mixed', 'QR + بصمة وجه', 'bg-emerald-600'], ['qr', 'QR فقط', 'bg-sky-600'], ['face', 'بصمة وجه فقط', 'bg-violet-600']].map(([val, label, color]) => (
+                              <button
+                                key={val}
+                                onClick={() => setEditingGateModeValue(val)}
+                                className={`rounded-xl px-3 py-2 text-xs font-bold text-white transition ${editingGateModeValue === val ? color : 'bg-slate-300 text-slate-700'}`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                            <button
+                              onClick={async () => {
+                                await onUpdateGateLink?.(gate.id, { mode: editingGateModeValue });
+                                setEditingGateModeId(null);
+                              }}
+                              className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white"
+                            >
+                              حفظ
+                            </button>
+                            <button onClick={() => setEditingGateModeId(null)} className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">إلغاء</button>
+                          </div>
+                        )}
                       </div>
                       <button onClick={() => onDeleteGateLink?.(gate.id)} className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">حذف</button>
                     </div>
@@ -4148,7 +4189,7 @@ function PublicScreenPage({ token }) {
   );
 }
 
-function DeviceDisplaysPage({ selectedSchool, currentUser, onCreateGateLink, onDeleteGateLink, onCreateScreenLink, onDeleteScreenLink, onUpdateScreenLink }) {
+function DeviceDisplaysPage({ selectedSchool, currentUser, onCreateGateLink, onDeleteGateLink, onUpdateGateLink, onCreateScreenLink, onDeleteScreenLink, onUpdateScreenLink }) {
   return (
     <div className="space-y-6"> 
       <SectionCard title="الشاشات والبوابات" icon={ExternalLink} action={<Badge tone="blue">صفحة مستقلة للإدارة والتشغيل</Badge>}>
@@ -4175,6 +4216,7 @@ function DeviceDisplaysPage({ selectedSchool, currentUser, onCreateGateLink, onD
         currentUser={currentUser}
         onCreateGateLink={onCreateGateLink}
         onDeleteGateLink={onDeleteGateLink}
+        onUpdateGateLink={onUpdateGateLink}
         onCreateScreenLink={onCreateScreenLink}
         onDeleteScreenLink={onDeleteScreenLink}
         onUpdateScreenLink={onUpdateScreenLink}
@@ -7404,7 +7446,7 @@ function LoginPage({ settings, users, schools, onLogin, onRequestOtp, onVerifyOt
 
 }
 
-function AttendancePage({ selectedSchool, currentUser, attendanceMethod, setAttendanceMethod, scanLog, actionLog, settings, onScan, onFaceScanFile, onFaceScanDataUrl, onCreateGateLink, onDeleteGateLink, onCreateScreenLink, onDeleteScreenLink, onUpdateScreenLink, onSaveAttendanceBinding }) {
+function AttendancePage({ selectedSchool, currentUser, attendanceMethod, setAttendanceMethod, scanLog, actionLog, settings, onScan, onFaceScanFile, onFaceScanDataUrl, onCreateGateLink, onDeleteGateLink, onUpdateGateLink, onCreateScreenLink, onDeleteScreenLink, onUpdateScreenLink, onSaveAttendanceBinding }) {
   const [scanValue, setScanValue] = useState("");
   const [filter, setFilter] = useState("all");
   const [faceFile, setFaceFile] = useState(null);
@@ -8279,16 +8321,22 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {teacherPreferredDefinitions.map((item, index) => {
           const isExecuting = executingDefinitionId === String(item.id);
+          const isSelected = String(definitionId) === String(item.id);
           const isDisabled = !identifiedStudent || (executingDefinitionId && !isExecuting);
           return (
             <button
               key={item.id}
-              onClick={() => applyAction(item)}
+              onClick={() => {
+                setDefinitionId(String(item.id));
+                if (identifiedStudent) applyAction(item);
+              }}
               disabled={isDisabled || isExecuting}
               className={cx(
                 'rounded-[28px] border p-4 text-right transition shadow-sm relative overflow-hidden',
                 isExecuting
                   ? actionType === 'reward' ? 'border-emerald-500 bg-emerald-600 text-white scale-[0.98] shadow-lg' : 'border-rose-500 bg-rose-600 text-white scale-[0.98] shadow-lg'
+                  : isSelected && !executingDefinitionId
+                    ? actionType === 'reward' ? 'border-emerald-600 bg-emerald-600 text-white ring-2 ring-emerald-400 shadow-lg scale-[1.01]' : 'border-rose-600 bg-rose-600 text-white ring-2 ring-rose-400 shadow-lg scale-[1.01]'
                   : !identifiedStudent || executingDefinitionId
                     ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
                     : actionType === 'reward' ? 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100 active:scale-[0.97]' : 'border-rose-200 bg-rose-50 text-rose-900 hover:bg-rose-100 active:scale-[0.97]'
@@ -8308,8 +8356,8 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
                   <div className="mt-1 text-xs leading-6 opacity-80">{item.description || 'بدون وصف إضافي'}</div>
                 </div>
                 <div className="space-y-2 text-left">
-                  <div className="rounded-2xl bg-white/80 px-3 py-2 text-sm font-black">{item.points > 0 ? `+${item.points}` : item.points}</div>
-                  {index < 2 ? <div className="text-[11px] font-bold opacity-70">سريع</div> : null}
+                  <div className={cx('rounded-2xl px-3 py-2 text-sm font-black', isSelected && !isExecuting ? 'bg-white/30' : 'bg-white/80 text-slate-900')}>{item.points > 0 ? `+${item.points}` : item.points}</div>
+                  {isSelected && !isExecuting ? <div className="text-[11px] font-bold text-white/90">✓ محدد</div> : index < 2 ? <div className="text-[11px] font-bold opacity-70">سريع</div> : null}
                 </div>
               </div>
             </button>
@@ -11296,6 +11344,29 @@ export default function App() {
     }
   };
 
+  const handleUpdateGateLink = async (linkId, payload) => {
+    if (!selectedSchool) return { ok: false };
+    try {
+      const response = await apiRequest(`/api/schools/${selectedSchool.id}/device-links/gate/${linkId}`, { method: 'PATCH', token: getSessionToken(), body: payload });
+      const next = buildHydratedClientState(response.state || {}, loadUiState());
+      setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+      pushNotification('تحديث بوابة', `تم تحديث وضع بوابة ${response.link?.name || ''}.`);
+      return { ok: true, link: response.link };
+    } catch (error) {
+      // إذا فشل الـAPI نحدد الوضع محلياً فقط (بدون حفظ سيرفر)
+      setSchools((prev) => prev.map((school) => {
+        if (school.id !== selectedSchool.id) return school;
+        return {
+          ...school,
+          deviceLinks: (school.deviceLinks || []).map((link) =>
+            link.id === linkId ? { ...link, ...payload } : link
+          ),
+        };
+      }));
+      return { ok: true };
+    }
+  };
+
   const handleCreateScreenLink = async (payload) => {
     if (!selectedSchool) return { ok: false };
     try {
@@ -11504,7 +11575,7 @@ export default function App() {
       case "students":
         return <StudentsPage selectedSchool={selectedSchool} onAddStudent={handleAddStudent} onDeleteStudent={handleDeleteStudent} onAwardBehavior={handleAwardBehavior} onEnrollFace={handleEnrollFace} onEnrollFaceDataUrl={handleEnrollFaceDataUrl} onClearFace={handleClearFace} onDownloadStudentCard={handleDownloadStudentCard} onDownloadAllCards={handleDownloadAllCards} />;
       case "attendance":
-        return <AttendancePage selectedSchool={selectedSchool} currentUser={currentUser} attendanceMethod={attendanceMethod} setAttendanceMethod={setAttendanceMethod} scanLog={scanLog} actionLog={actionLog} settings={settings} onScan={handleScan} onFaceScanFile={handleFaceScanFile} onFaceScanDataUrl={handleFaceScanDataUrl} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} onSaveAttendanceBinding={handleSaveAttendanceBinding} />;
+        return <AttendancePage selectedSchool={selectedSchool} currentUser={currentUser} attendanceMethod={attendanceMethod} setAttendanceMethod={setAttendanceMethod} scanLog={scanLog} actionLog={actionLog} settings={settings} onScan={handleScan} onFaceScanFile={handleFaceScanFile} onFaceScanDataUrl={handleFaceScanDataUrl} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onUpdateGateLink={handleUpdateGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} onSaveAttendanceBinding={handleSaveAttendanceBinding} />;
       case "actions":
         return <StudentActionsPage selectedSchool={selectedSchool} currentUser={currentUser} settings={settings} actionLog={actionLog} onResolveStudentByBarcode={resolveStudentByBarcode} onResolveStudentByManual={resolveStudentByManual} onResolveStudentByFaceFile={resolveStudentByFaceFile} onResolveStudentByFaceDataUrl={resolveStudentByFaceDataUrl} onApplyStudentAction={handleApplyStudentAction} onRecordProgramAction={handleRecordProgramExecution} />;
       case "points":
@@ -11512,7 +11583,7 @@ export default function App() {
       case "reports":
         return <ReportsPage schools={schools} scanLog={scanLog} actionLog={actionLog} selectedSchool={selectedSchool} settings={settings} executiveReport={executiveReport} onExportAttendance={exportAttendance} onExportStudents={exportStudents} onExportSchools={exportSchools} onExportBackup={exportBackup} />;
       case "deviceDisplays":
-        return <DeviceDisplaysPage selectedSchool={selectedSchool} currentUser={currentUser} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} />;
+        return <DeviceDisplaysPage selectedSchool={selectedSchool} currentUser={currentUser} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onUpdateGateLink={handleUpdateGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} />;
       case "messages":
         return <MessagingCenterPage selectedSchool={selectedSchool} currentUser={currentUser} onSendMessage={handleSendSchoolMessage} onTestIntegration={handleTestMessagingIntegration} onSaveMessagingSettings={handleSaveMessagingSettings} onSaveMessageTemplate={handleSaveMessageTemplate} onDeleteMessageTemplate={handleDeleteMessageTemplate} onSaveMessageRule={handleSaveMessageRule} onToggleMessageRule={handleToggleMessageRule} />;
       case "schoolStructure":
