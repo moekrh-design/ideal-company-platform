@@ -1220,14 +1220,31 @@ function loadPersistedState() {
   return buildHydratedClientState(loadServerCache(), loadUiState());
 }
 
+function safeLocalStorageSetItem(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch (e) {
+    if (e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014)) {
+      // localStorage ممتلئ - نحاول مسح الـ cache القديم أولاً
+      try {
+        window.localStorage.removeItem(SERVER_CACHE_KEY);
+        window.localStorage.removeItem(STORAGE_KEY);
+        window.localStorage.setItem(key, value);
+      } catch (e2) {
+        console.warn('localStorage quota exceeded, skipping save:', key);
+      }
+    }
+  }
+}
+
 function saveUiState(payload) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(UI_STATE_KEY, JSON.stringify(payload));
+  safeLocalStorageSetItem(UI_STATE_KEY, JSON.stringify(payload));
 }
 
 function saveServerCache(payload) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(SERVER_CACHE_KEY, JSON.stringify(payload));
+  safeLocalStorageSetItem(SERVER_CACHE_KEY, JSON.stringify(payload));
 }
 
 function saveSchoolStructureViewState(payload) {
@@ -1294,7 +1311,7 @@ function getSessionToken() {
 
 function setSessionToken(token) {
   if (typeof window === "undefined") return;
-  if (token) window.localStorage.setItem(SESSION_TOKEN_KEY, token);
+  if (token) safeLocalStorageSetItem(SESSION_TOKEN_KEY, token);
   else window.localStorage.removeItem(SESSION_TOKEN_KEY);
 }
 
@@ -10898,7 +10915,7 @@ export default function App() {
   useEffect(() => {
     saveServerCache(sharedState);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...sharedState, currentUserId, selectedSchoolId, activePage, attendanceMethod }));
+      safeLocalStorageSetItem(STORAGE_KEY, JSON.stringify({ ...sharedState, currentUserId, selectedSchoolId, activePage, attendanceMethod }));
     }
   }, [sharedState, currentUserId, selectedSchoolId, activePage, attendanceMethod]);
 
