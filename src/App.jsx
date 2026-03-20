@@ -2137,6 +2137,8 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
   const selectedDeviceIdRef = useRef("");
   const [cameraReady, setCameraReady] = useState(false);
   const [showGreenFrame, setShowGreenFrame] = useState(false);
+  const [showSuccessOverlay, setShowSuccessOverlay] = useState(false); // أيقونة صح كبيرة في وسط الكاميرا
+  const [flashCount, setFlashCount] = useState(0); // عداد الوميض
   // detectionHint: { type: 'face'|'barcode', box: {x,y,w,h}|null } | null
   const [detectionHint, setDetectionHint] = useState(null);
   const detectionHintTimerRef = useRef(null);
@@ -2221,13 +2223,44 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
 
   const flashSuccessFrame = useCallback((label = "تمت القراءة بنجاح") => {
     setCameraReady(true);
-    setShowGreenFrame(true);
     setMessage(label);
     if (successTimerRef.current) window.clearTimeout(successTimerRef.current);
-    successTimerRef.current = window.setTimeout(() => {
-      setShowGreenFrame(false);
-      successTimerRef.current = null;
-    }, 1800);
+    // صوت beep بسيط عبر Web Audio API
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.25);
+    } catch { /* ignore */ }
+    // أيقونة صح كبيرة تظهر فوراً
+    setShowSuccessOverlay(true);
+    setFlashCount(0);
+    // وميض الإطار الأخضر: يومض 3 مرات
+    let count = 0;
+    const flash = () => {
+      setShowGreenFrame(prev => !prev);
+      count++;
+      if (count < 6) {
+        successTimerRef.current = window.setTimeout(flash, 200);
+      } else {
+        // بعد الوميض: يبقى أخضر لثانية ثم يختفي
+        setShowGreenFrame(true);
+        successTimerRef.current = window.setTimeout(() => {
+          setShowGreenFrame(false);
+          setShowSuccessOverlay(false);
+          successTimerRef.current = null;
+        }, 900);
+      }
+    };
+    setShowGreenFrame(true);
+    successTimerRef.current = window.setTimeout(flash, 200);
   }, []);
 
   const stopCamera = useCallback(() => {
@@ -2240,6 +2273,8 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
       window.clearTimeout(successTimerRef.current);
       successTimerRef.current = null;
     }
+    setShowSuccessOverlay(false);
+    setShowGreenFrame(false);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
@@ -2670,6 +2705,21 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
         {active ? <video ref={videoRef} className={cx(videoHeightClass, "w-full object-cover")} muted playsInline autoPlay onCanPlay={() => { if (videoRef.current?.videoWidth && videoRef.current?.videoHeight) { setCameraReady(true); clearReadyWatcher(); } }} /> : <div className={cx("flex items-center justify-center px-5 text-center text-sm text-white/80", videoHeightClass)}>افتح الكاميرا من هنا لالتقاط الوجه أو قراءة QR مباشرة من اللابتوب أو الآيباد أو الجوال.</div>}
         {/* Canvas overlay لرسم إطار الكشف حول الوجه أو الباركود */}
         {active ? <canvas ref={canvasOverlayRef} className="pointer-events-none absolute inset-0 h-full w-full" style={{ zIndex: 10 }} /> : null}
+        {/* أيقونة صح كبيرة تظهر عند نجاح القراءة */}
+        {showSuccessOverlay ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center" style={{ zIndex: 30, background: 'rgba(0,0,0,0.35)' }}>
+            <div className="flex flex-col items-center gap-3" style={{ animation: 'successPop 0.35s cubic-bezier(0.34,1.56,0.64,1) both' }}>
+              <div className="flex h-28 w-28 items-center justify-center rounded-full bg-emerald-500 shadow-2xl" style={{ boxShadow: '0 0 0 8px rgba(16,185,129,0.3), 0 0 60px rgba(16,185,129,0.6)' }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" className="h-16 w-16">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <div className="rounded-full bg-emerald-500 px-6 py-2 text-base font-black text-white shadow-xl">
+                تمت القراءة بنجاح
+              </div>
+            </div>
+          </div>
+        ) : null}
         <div className="pointer-events-none absolute inset-0" style={{ zIndex: 20 }}>
           <div className={cx("absolute inset-4 rounded-[28px] border-4 transition-all duration-200", showGreenFrame ? "border-emerald-400 shadow-[0_0_0_4px_rgba(16,185,129,0.18),0_0_35px_rgba(16,185,129,0.35)]" : cameraReady ? "border-white/70" : "border-amber-300/80 animate-pulse")} />
           <div className="absolute inset-x-0 top-4 flex justify-center">
