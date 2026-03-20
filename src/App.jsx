@@ -1244,7 +1244,14 @@ function saveUiState(payload) {
 
 function saveServerCache(payload) {
   if (typeof window === "undefined") return;
-  safeLocalStorageSetItem(SERVER_CACHE_KEY, JSON.stringify(payload));
+  // نحفظ فقط البيانات الخفيفة (settings, notifications) لتجنب QuotaExceededError على Safari iOS
+  // البيانات الضخمة (schools, users, scanLog, actionLog) تُجلب من الخادم عند كل تحميل
+  const slim = {
+    version: payload.version,
+    settings: payload.settings,
+    notifications: payload.notifications,
+  };
+  safeLocalStorageSetItem(SERVER_CACHE_KEY, JSON.stringify(slim));
 }
 
 function saveSchoolStructureViewState(payload) {
@@ -10914,9 +10921,6 @@ export default function App() {
 
   useEffect(() => {
     saveServerCache(sharedState);
-    if (typeof window !== "undefined") {
-      safeLocalStorageSetItem(STORAGE_KEY, JSON.stringify({ ...sharedState, currentUserId, selectedSchoolId, activePage, attendanceMethod }));
-    }
   }, [sharedState, currentUserId, selectedSchoolId, activePage, attendanceMethod]);
 
   useEffect(() => {

@@ -4,20 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>منصة الشركة المثالية</title>
-    <script>
-    // مسح localStorage القديم إذا كان ممتلئاً
-    (function() {
-      try {
-        var testKey = '__quota_test__';
-        localStorage.setItem(testKey, '1');
-        localStorage.removeItem(testKey);
-      } catch(e) {
-        if (e && (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014)) {
-          try { localStorage.clear(); } catch(e2) {}
-        }
-      }
-    })();
-    </script>
     <script type="module" crossorigin src="/assets/index-DplEDWHr.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/vendor-react-CQfCc3oy.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-jsqr-BTxHCHug.js">
