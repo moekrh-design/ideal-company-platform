@@ -16410,7 +16410,11 @@ export default function App() {
 
   const allowedNav = useMemo(() => navItems.filter((item) => {
     if (item.key === "schoolStructure") return currentUser?.role === "principal";
-    if (Array.isArray(item.roles) && item.roles.length && !item.roles.includes(currentUser?.role)) return false;
+    if (Array.isArray(item.roles) && item.roles.length) {
+      if (!item.roles.includes(currentUser?.role)) return false;
+      // إذا كان الدور ضمن roles المحددة، يُسمح بالوصول مباشرة
+      return true;
+    }
     return canAccessPermission(currentUser, item.permission);
   }), [currentUser]);
   const editingUser = users.find((user) => user.id === editingUserId) || null;
