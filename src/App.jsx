@@ -8,6 +8,7 @@ import {
   BarChart3,
   Bell,
   BookOpen,
+  CheckCircle,
   Building2,
   Camera,
   ClipboardCheck,
@@ -7649,7 +7650,12 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
 
   const submit = (e) => {
     e.preventDefault();
-    if (!form.name || !form.city || !form.code || !form.principalUsername || !form.principalEmail || !form.principalPassword) return;
+    if (!form.name) { window.alert('يرجى إدخال اسم المدرسة.'); return; }
+    if (!form.city) { window.alert('يرجى إدخال المدينة.'); return; }
+    if (!form.code) { window.alert('يرجى إدخال الرقم الوزاري.'); return; }
+    if (!form.principalUsername) { window.alert('يرجى إدخال اسم دخول مدير المدرسة.'); return; }
+    if (!form.principalEmail) { window.alert('يرجى إدخال البريد الإلكتروني لمدير المدرسة.'); return; }
+    if (!form.principalPassword) { window.alert('يرجى إدخال كلمة المرور الأولية.'); return; }
     onAddSchool(form);
     setForm({ name: "", city: "", code: "", manager: "", principalUsername: "", principalEmail: "", principalPassword: "123456" });
   };
@@ -10290,7 +10296,11 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
       setSelectedSpecialSubject(teacherSubjects[0]);
     }
     const definitions = getDefinitionsByType(actionType);
-    setDefinitionId(definitions[0]?.id || "");
+    // لا نُعيد تعيين definitionId إذا كان البند المختار لا يزال موجوداً في القائمة
+    setDefinitionId((prev) => {
+      const stillExists = prev && definitions.some((d) => String(d.id) === String(prev));
+      return stillExists ? prev : (definitions[0]?.id || "");
+    });
   }, [actionType, getDefinitionsByType, definitionScope, teacherSubjects, selectedSpecialSubject]);
 
   useEffect(() => {
@@ -14795,15 +14805,21 @@ const PROGRAM_SUGGESTIONS_BANK = [
 
 function PointsRewardsConfigPage({ selectedSchool, settings, currentUser, onSaveSettings }) {
   const [localSettings, setLocalSettings] = useState(settings);
+  const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | saved
 
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
 
-  const save = () => onSaveSettings({
-    ...localSettings,
-    actions: hydrateActionCatalog(localSettings.actions),
-  });
+  const save = () => {
+    setSaveStatus('saving');
+    onSaveSettings({
+      ...localSettings,
+      actions: hydrateActionCatalog(localSettings.actions),
+    });
+    setTimeout(() => setSaveStatus('saved'), 500);
+    setTimeout(() => setSaveStatus('idle'), 2500);
+  };
 
   const overview = [
     { label: 'بنود المكافآت', value: localSettings.actions?.rewards?.length || 0, tone: 'emerald' },
@@ -14814,7 +14830,7 @@ function PointsRewardsConfigPage({ selectedSchool, settings, currentUser, onSave
 
   return (
     <div className="space-y-6">
-      <SectionCard title="النقاط والمكافآت والخصومات والبرامج" icon={Trophy} action={<div className="flex gap-2"><button onClick={() => setLocalSettings(settings)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> التراجع</button><button onClick={save} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-4 py-3 font-bold text-white"><Save className="h-4 w-4" /> حفظ التعديلات</button></div>}>
+      <SectionCard title="النقاط والمكافآت والخصومات والبرامج" icon={Trophy} action={<div className="flex gap-2"><button onClick={() => setLocalSettings(settings)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> التراجع</button><button onClick={save} disabled={saveStatus === 'saving'} className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 font-bold text-white transition-colors ${saveStatus === 'saved' ? 'bg-emerald-600' : saveStatus === 'saving' ? 'bg-sky-400 cursor-wait' : 'bg-sky-700 hover:bg-sky-800'}`}>{saveStatus === 'saving' ? <><RefreshCw className="h-4 w-4 animate-spin" /> جارٍ الحفظ...</> : saveStatus === 'saved' ? <><CheckCircle className="h-4 w-4" /> تم الحفظ ✓</> : <><Save className="h-4 w-4" /> حفظ التعديلات</>}</button></div>}>
         <div className="mb-5 rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-100">
           <div className="font-black text-sky-900">وصول أسرع لبنود النقاط</div>
           <div className="mt-2 text-sm leading-7 text-sky-900">تم جمع إعدادات النقاط وبنود المكافآت والخصومات والبرامج في صفحة مستقلة داخل القائمة الجانبية حتى تكون أوضح وأسهل للمدير في الوصول والتحرير والمتابعة.</div>
