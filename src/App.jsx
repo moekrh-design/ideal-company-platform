@@ -16366,13 +16366,20 @@ export default function App() {
     }
   }, [selectedSchool, schools]);
 
+  const lessonSessionNavigatedRef = React.useRef(false);
   useEffect(() => {
     if (!currentUser || !lessonSessionIdFromUrl) return;
     if (!["teacher", "principal", "supervisor", "superadmin"].includes(String(currentUser.role || ""))) return;
-    if (activePage !== "lessonAttendanceSessions") {
+    if (!lessonSessionNavigatedRef.current) {
+      lessonSessionNavigatedRef.current = true;
       setActivePage("lessonAttendanceSessions");
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("lessonSession");
+        window.history.replaceState({}, "", url.toString());
+      } catch (e) {}
     }
-  }, [currentUser, lessonSessionIdFromUrl, activePage]);
+  }, [currentUser, lessonSessionIdFromUrl]);
 
   useEffect(() => {
     if (!currentUser || !leavePassIdFromUrl) return;
@@ -16423,7 +16430,12 @@ export default function App() {
         if (!sessionUser) setSessionToken("");
         setCurrentUserId(sessionUser?.id || null);
         setSelectedSchoolId(sessionUser?.role && sessionUser.role !== "superadmin" ? sessionUser.schoolId : (uiState.selectedSchoolId || next.selectedSchoolId));
-        setActivePage(sessionUser ? (uiState.activePage || getDefaultLandingPage(sessionUser)) : "dashboard");
+        const savedPage = uiState.activePage || "";
+        const hasLessonUrl = getLessonSessionIdFromLocation();
+        const resolvedPage = (savedPage === "lessonAttendanceSessions" && !hasLessonUrl)
+          ? getDefaultLandingPage(sessionUser)
+          : (savedPage || getDefaultLandingPage(sessionUser));
+        setActivePage(sessionUser ? resolvedPage : "dashboard");
         setAttendanceMethod(uiState.attendanceMethod || "barcode");
         setSyncStatus(sessionUser ? "online" : "idle");
       } catch (error) {
