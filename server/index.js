@@ -4444,10 +4444,8 @@ const server = http.createServer(async (req, res) => {
 
 
     if ((reqUrl.pathname === '/admin/parent-primary-requests' || reqUrl.pathname === '/admin/parent-primary-requests/') && req.method === 'GET') {
-      const actor = await getUserFromToken(token);
-      if (!actor || !['superadmin','principal','supervisor'].includes(String(actor.role || '').trim())) {
-        return sendText(res, 403, 'غير مصرح لك بالوصول إلى هذه الصفحة.', 'text/plain; charset=utf-8');
-      }
+      // نعرض صفحة HTML دون التحقق من الـ token هنا
+      // التحقق يتم في الـ API (/api/admin/parent-primary-requests) عند تحميل البيانات
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
       res.end(renderParentRequestsAdminHtml());
       return;

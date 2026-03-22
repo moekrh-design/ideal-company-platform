@@ -227,6 +227,13 @@ function schoolHasStructureClassrooms(school) {
   return Array.isArray(school?.structure?.classrooms) && school.structure.classrooms.length > 0;
 }
 
+function getStudentCompanyName(student, school) {
+  if (!student) return '';
+  if (student.source === 'structure') {
+    return student.companyName || student.classroomName || student.className || '';
+  }
+  return school?.companies?.find((item) => item.id === student.companyId)?.name || student.companyName || student.className || '';
+}
 function getStudentGroupingLabel(student, school) {
   if (!student) return '—';
   if (student.source === 'structure') {
@@ -7106,7 +7113,7 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
             <div className="mt-4 flex items-center gap-2 text-xs font-bold text-slate-500"><span className="rounded-full bg-slate-100 px-3 py-1">{parentPortalDashboard.mode === 'manual' ? 'يدوي' : 'تلقائي'}</span>{parentPortalDashboard.loading ? <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700">تحديث...</span> : null}</div>
           </div>
           <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
-            <div className="flex items-center justify-between gap-3"><Badge tone="amber">طلبات التحديث</Badge><RefreshCcw className="h-5 w-5 text-slate-400" /></div>
+            <div className="flex items-center justify-between gap-3"><Badge tone="amber">طلبات التحديث</Badge><RefreshCw className="h-5 w-5 text-slate-400" /></div>
             <div className="mt-4 text-3xl font-black text-slate-900">{parentPortalDashboard.pending}</div>
             <div className="mt-2 text-sm leading-7 text-slate-500">طلبات بانتظار المراجعة أو المتابعة حسب السياسة الحالية.</div>
             <div className="mt-4 text-xs font-bold text-slate-500">اعتمد اليوم: <span className="text-slate-800">{parentPortalDashboard.approvedToday}</span></div>
@@ -7123,7 +7130,7 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
             <div className="mt-2 text-sm leading-7 text-slate-500">{parentPortalDashboard.lastAlert?.action === 'auto-approved' ? 'اعتماد تلقائي' : parentPortalDashboard.lastAlert?.action === 'rejected' ? 'رفض/تراجع' : parentPortalDashboard.lastAlert?.action === 'approved' ? 'اعتماد يدوي' : 'متابعة إدارية'}</div>
             <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold"> 
               <button type="button" onClick={() => onNavigate?.('settings')} className="rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-slate-200">إعدادات البوابة</button>
-              <button type="button" onClick={() => window.open('/admin/parent-primary-requests', '_blank', 'noopener,noreferrer')} className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 hover:bg-sky-100">عرض الطلبات</button>
+              <button type="button" onClick={() => window.open(`/admin/parent-primary-requests?token=${encodeURIComponent(getSessionToken())}`, '_blank', 'noopener,noreferrer')} className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 hover:bg-sky-100">عرض الطلبات</button>
             </div>
           </div>
         </div>
@@ -11523,6 +11530,15 @@ function PointsPage({ selectedSchool, settings }) {
   );
 }
 
+function getLessonSessionTeacherTargets(session, schoolUsers) {
+  if (!session || !Array.isArray(schoolUsers)) return [];
+  const teachers = schoolUsers.filter((user) => user.role === 'teacher' && String(user.status || 'نشط') === 'نشط');
+  if (Array.isArray(session.targetTeacherIds) && session.targetTeacherIds.length > 0) {
+    const ids = session.targetTeacherIds.map((id) => String(id));
+    return teachers.filter((user) => ids.includes(String(user.id)));
+  }
+  return teachers;
+}
 function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, onCreateLeavePass, onSendLeavePass, onMarkViewed, onUpdateLeavePassStatus, viewMode = "main" }) {
   const schoolUsers = useMemo(() => (users || []).filter((user) => Number(user.schoolId) === Number(selectedSchool?.id)), [users, selectedSchool]);
   const teacherUsers = useMemo(() => schoolUsers.filter((user) => String(user.role || '') === 'teacher' && String(user.status || 'نشط') === 'نشط'), [schoolUsers]);
@@ -11733,9 +11749,13 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
       {canCreate && (
         <SectionCard title="إنشاء استئذان جديد" icon={Plus} description="اختر الطالب والمعلم والوجهة، ثم أنشئ الطلب ليظهر معه رابط خاص يمكن مشاركته مع المعلم.">
           <div className="grid gap-4 lg:grid-cols-2">
-            <Select label="الطالب" value={form.studentId} onChange={(e) => setForm((prev) => ({ ...prev, studentId: e.target.value }))}>
-              <option value="">اختر الطالب</option>
-              {students.map((student) => <option key={student.id} value={student.id}>{student.name} — {getStudentGroupingLabel(student, selectedSchool)}</option>)}
+            <Select label="الفصل" value={form.classFilter || ''} onChange={(e) => setForm((prev) => ({ ...prev, classFilter: e.target.value, studentId: '' }))}>
+              <option value="">اختر الفصل أولاً</option>
+              {[...new Set(students.map((s) => getStudentGroupingLabel(s, selectedSchool)).filter(Boolean))].sort().map((cls) => <option key={cls} value={cls}>{cls}</option>)}
+            </Select>
+            <Select label="الطالب" value={form.studentId} onChange={(e) => setForm((prev) => ({ ...prev, studentId: e.target.value }))} disabled={!form.classFilter}>
+              <option value="">{form.classFilter ? 'اختر الطالب' : 'اختر الفصل أولاً'}</option>
+              {(form.classFilter ? students.filter((s) => getStudentGroupingLabel(s, selectedSchool) === form.classFilter) : students).map((student) => <option key={student.id} value={student.id}>{student.name} — {getStudentGroupingLabel(student, selectedSchool)}</option>)}
             </Select>
             <Select label="المعلم المستهدف" value={form.teacherUserId} onChange={(e) => setForm((prev) => ({ ...prev, teacherUserId: e.target.value }))}>
               <option value="">اختر المعلم</option>
@@ -12926,98 +12946,6 @@ function ReportsPage({ schools, scanLog, actionLog, gateSyncEvents = [], selecte
     return '';
   };
 
-  const currentPrintSummaryCards = useMemo(() => {
-    if (reportTab === 'attendance') return [
-      { label: 'إجمالي الطلاب', value: attendanceRows.length, tone: 'tone-blue' },
-      { label: 'حاضرون', value: attendanceRows.filter((row) => row.status === 'present').length, tone: 'tone-green' },
-      { label: 'متأخرون', value: attendanceRows.filter((row) => row.status === 'late').length, tone: 'tone-amber' },
-      { label: 'غير ممسوحين / غياب', value: attendanceRows.filter((row) => row.status === 'absent').length, tone: 'tone-rose' },
-    ];
-    if (reportTab === 'behavior') return [
-      { label: 'السجلات', value: behaviorRows.length, tone: 'tone-blue' },
-      { label: 'إيجابي', value: behaviorRows.filter((row) => Number(row.rewards || 0) > 0).length, tone: 'tone-green' },
-      { label: 'سلبي', value: behaviorRows.filter((row) => Number(row.violations || 0) > 0).length, tone: 'tone-rose' },
-      { label: 'برامج', value: behaviorRows.reduce((sum, row) => sum + Number(row.programs || 0), 0), tone: 'tone-violet' },
-    ];
-    if (reportTab === 'programs') return [
-      { label: 'البرامج', value: programRows.length, tone: 'tone-blue' },
-      { label: 'إجمالي التنفيذ', value: programRows.reduce((sum, row) => sum + Number(row.count || 0), 0), tone: 'tone-green' },
-      { label: 'الطلاب المستفيدون', value: programRows.reduce((sum, row) => sum + Number(row.studentsCount || 0), 0), tone: 'tone-violet' },
-      { label: 'المعلمون المشاركون', value: programRows.reduce((sum, row) => sum + Number(row.teachersCount || 0), 0), tone: 'tone-amber' },
-    ];
-    if (reportTab === 'teachers') return [
-      { label: 'المعلمون', value: teacherRows.length, tone: 'tone-blue' },
-      { label: 'المكافآت', value: teacherRows.reduce((sum, row) => sum + Number(row.rewards || 0), 0), tone: 'tone-green' },
-      { label: 'الخصومات', value: teacherRows.reduce((sum, row) => sum + Number(row.violations || 0), 0), tone: 'tone-rose' },
-      { label: 'تحضير الحصص', value: teacherRows.reduce((sum, row) => sum + Number(row.submittedLessons || 0), 0), tone: 'tone-amber' },
-    ];
-    if (reportTab === 'students') return [
-      { label: 'الطلاب', value: studentComprehensiveRows.length, tone: 'tone-blue' },
-      { label: 'مجموع النقاط', value: studentComprehensiveRows.reduce((sum, row) => sum + Number(row.points || 0), 0), tone: 'tone-violet' },
-      { label: 'المكافآت', value: studentComprehensiveRows.reduce((sum, row) => sum + Number(row.rewards || 0), 0), tone: 'tone-green' },
-      { label: 'الخصومات', value: studentComprehensiveRows.reduce((sum, row) => sum + Number(row.violations || 0), 0), tone: 'tone-rose' },
-    ];
-    if (reportTab === 'store') return [
-      { label: 'طلبات المتجر', value: storeRequestRows.length, tone: 'tone-blue' },
-      { label: 'بانتظار الاعتماد', value: storeRequestRows.filter((row) => String(row.statusLabel || '').includes('انتظار')).length, tone: 'tone-amber' },
-      { label: 'تم التسليم', value: storeRequestRows.filter((row) => String(row.statusLabel || '').includes('تم')).length, tone: 'tone-green' },
-      { label: 'الجوائز النشطة', value: storeItemRows.filter((row) => String(row.statusLabel || '').includes('معتمدة')).length, tone: 'tone-violet' },
-    ];
-    if (reportTab === 'lessons') return [
-      { label: 'جلسات التحضير', value: lessonRows.length, tone: 'tone-blue' },
-      { label: 'معتمدة', value: lessonRows.filter((row) => String(row.acknowledged || '').includes('نعم')).length, tone: 'tone-green' },
-      { label: 'غير معتمدة', value: lessonRows.filter((row) => !String(row.acknowledged || '').includes('نعم')).length, tone: 'tone-amber' },
-      { label: 'إجمالي الغياب الحصصي', value: lessonRows.reduce((sum, row) => sum + Number(row.absentCount || 0), 0), tone: 'tone-rose' },
-    ];
-    if (reportTab === 'gateSync') return [
-      { label: 'إجمالي سجلات المزامنة', value: schoolGateSyncEvents.length, tone: 'tone-blue' },
-      { label: 'تمت', value: schoolGateSyncEvents.filter((row) => row.status === 'synced').length, tone: 'tone-green' },
-      { label: 'مكرر', value: schoolGateSyncEvents.filter((row) => row.status === 'duplicate').length, tone: 'tone-violet' },
-      { label: 'بانتظار / مرفوض', value: `${schoolGateSyncEvents.filter((row) => row.status === 'pending').length} / ${schoolGateSyncEvents.filter((row) => ['rejected','error'].includes(row.status)).length}`, tone: 'tone-amber' },
-    ];
-    if (reportTab === 'leavePass') return [
-      { label: 'طلبات الاستئذان', value: leavePassRows.length, tone: 'tone-blue' },
-      { label: 'بانتظار التنفيذ', value: leavePassRows.filter((row) => ['created','sent-system','sent-manual'].includes(String(row.status || ''))).length, tone: 'tone-amber' },
-      { label: 'اطلع المعلم', value: leavePassRows.filter((row) => String(row.status || '') === 'viewed').length, tone: 'tone-sky' },
-      { label: 'اعتمادات الجهة', value: leavePassRows.filter((row) => ['approved-agent','approved-counselor','released-guardian'].includes(String(row.status || ''))).length, tone: 'tone-blue' },
-      { label: 'تم التنفيذ', value: leavePassRows.filter((row) => String(row.status || '') === 'completed').length, tone: 'tone-green' },
-    ];
-    return [
-      { label: 'السجلات', value: currentReportMeta.rows?.length || 0, tone: 'tone-blue' },
-    ];
-  }, [reportTab, attendanceRows, behaviorRows, programRows, teacherRows, studentComprehensiveRows, storeRequestRows, storeItemRows, lessonRows, leavePassRows, schoolGateSyncEvents, currentReportMeta.rows]);
-
-  const currentPrintLegend = useMemo(() => {
-    if (reportTab === 'attendance') return [
-      { label: 'أخضر = حاضر', tone: 'pill-green' },
-      { label: 'أصفر = متأخر', tone: 'pill-amber' },
-      { label: 'وردي = غياب / غير ممسوح', tone: 'pill-rose' },
-    ];
-    if (reportTab === 'behavior' || reportTab === 'students') return [
-      { label: 'أخضر = جانب إيجابي', tone: 'pill-green' },
-      { label: 'وردي = جانب سلبي', tone: 'pill-rose' },
-      { label: 'بنفسجي = نقاط أو تميّز', tone: 'pill-violet' },
-    ];
-    if (reportTab === 'store') return [
-      { label: 'أصفر = بانتظار', tone: 'pill-amber' },
-      { label: 'أخضر = تم', tone: 'pill-green' },
-      { label: 'وردي = مرفوض', tone: 'pill-rose' },
-    ];
-    if (reportTab === 'gateSync') return [
-      { label: 'أخضر = تمت', tone: 'pill-green' },
-      { label: 'أزرق = مكرر', tone: 'pill-blue' },
-      { label: 'أصفر = بانتظار', tone: 'pill-amber' },
-      { label: 'وردي = مرفوض / خطأ', tone: 'pill-rose' },
-    ];
-    if (reportTab === 'leavePass') return [
-      { label: 'أصفر = جديد أو مرسل', tone: 'pill-amber' },
-      { label: 'أزرق = اطلع المعلم', tone: 'pill-blue' },
-      { label: 'أخضر = تم التنفيذ', tone: 'pill-green' },
-      { label: 'وردي = ملغي', tone: 'pill-rose' },
-    ];
-    return [];
-  }, [reportTab]);
-
   const currentReportMeta = useMemo(() => {
     if (reportTab === 'attendance') return { title: 'تقرير الحضور والتأخر', rows: attendanceRows, columns: [
       { key: 'studentName', label: 'الطالب' },
@@ -13112,6 +13040,98 @@ function ReportsPage({ schools, scanLog, actionLog, gateSyncEvents = [], selecte
       { key: 'submittedAt', label: 'وقت الاعتماد' },
     ] };
   }, [reportTab, attendanceRows, behaviorRows, programRows, teacherRows, studentComprehensiveRows, parentDetailedRows, storeRequestRows, executiveReportRows, lessonRows, leavePassRows, schoolGateSyncEvents, matchesReportDate]);
+  const currentPrintSummaryCards = useMemo(() => {
+    if (reportTab === 'attendance') return [
+      { label: 'إجمالي الطلاب', value: attendanceRows.length, tone: 'tone-blue' },
+      { label: 'حاضرون', value: attendanceRows.filter((row) => row.status === 'present').length, tone: 'tone-green' },
+      { label: 'متأخرون', value: attendanceRows.filter((row) => row.status === 'late').length, tone: 'tone-amber' },
+      { label: 'غير ممسوحين / غياب', value: attendanceRows.filter((row) => row.status === 'absent').length, tone: 'tone-rose' },
+    ];
+    if (reportTab === 'behavior') return [
+      { label: 'السجلات', value: behaviorRows.length, tone: 'tone-blue' },
+      { label: 'إيجابي', value: behaviorRows.filter((row) => Number(row.rewards || 0) > 0).length, tone: 'tone-green' },
+      { label: 'سلبي', value: behaviorRows.filter((row) => Number(row.violations || 0) > 0).length, tone: 'tone-rose' },
+      { label: 'برامج', value: behaviorRows.reduce((sum, row) => sum + Number(row.programs || 0), 0), tone: 'tone-violet' },
+    ];
+    if (reportTab === 'programs') return [
+      { label: 'البرامج', value: programRows.length, tone: 'tone-blue' },
+      { label: 'إجمالي التنفيذ', value: programRows.reduce((sum, row) => sum + Number(row.count || 0), 0), tone: 'tone-green' },
+      { label: 'الطلاب المستفيدون', value: programRows.reduce((sum, row) => sum + Number(row.studentsCount || 0), 0), tone: 'tone-violet' },
+      { label: 'المعلمون المشاركون', value: programRows.reduce((sum, row) => sum + Number(row.teachersCount || 0), 0), tone: 'tone-amber' },
+    ];
+    if (reportTab === 'teachers') return [
+      { label: 'المعلمون', value: teacherRows.length, tone: 'tone-blue' },
+      { label: 'المكافآت', value: teacherRows.reduce((sum, row) => sum + Number(row.rewards || 0), 0), tone: 'tone-green' },
+      { label: 'الخصومات', value: teacherRows.reduce((sum, row) => sum + Number(row.violations || 0), 0), tone: 'tone-rose' },
+      { label: 'تحضير الحصص', value: teacherRows.reduce((sum, row) => sum + Number(row.submittedLessons || 0), 0), tone: 'tone-amber' },
+    ];
+    if (reportTab === 'students') return [
+      { label: 'الطلاب', value: studentComprehensiveRows.length, tone: 'tone-blue' },
+      { label: 'مجموع النقاط', value: studentComprehensiveRows.reduce((sum, row) => sum + Number(row.points || 0), 0), tone: 'tone-violet' },
+      { label: 'المكافآت', value: studentComprehensiveRows.reduce((sum, row) => sum + Number(row.rewards || 0), 0), tone: 'tone-green' },
+      { label: 'الخصومات', value: studentComprehensiveRows.reduce((sum, row) => sum + Number(row.violations || 0), 0), tone: 'tone-rose' },
+    ];
+    if (reportTab === 'store') return [
+      { label: 'طلبات المتجر', value: storeRequestRows.length, tone: 'tone-blue' },
+      { label: 'بانتظار الاعتماد', value: storeRequestRows.filter((row) => String(row.statusLabel || '').includes('انتظار')).length, tone: 'tone-amber' },
+      { label: 'تم التسليم', value: storeRequestRows.filter((row) => String(row.statusLabel || '').includes('تم')).length, tone: 'tone-green' },
+      { label: 'الجوائز النشطة', value: storeItemRows.filter((row) => String(row.statusLabel || '').includes('معتمدة')).length, tone: 'tone-violet' },
+    ];
+    if (reportTab === 'lessons') return [
+      { label: 'جلسات التحضير', value: lessonRows.length, tone: 'tone-blue' },
+      { label: 'معتمدة', value: lessonRows.filter((row) => String(row.acknowledged || '').includes('نعم')).length, tone: 'tone-green' },
+      { label: 'غير معتمدة', value: lessonRows.filter((row) => !String(row.acknowledged || '').includes('نعم')).length, tone: 'tone-amber' },
+      { label: 'إجمالي الغياب الحصصي', value: lessonRows.reduce((sum, row) => sum + Number(row.absentCount || 0), 0), tone: 'tone-rose' },
+    ];
+    if (reportTab === 'gateSync') return [
+      { label: 'إجمالي سجلات المزامنة', value: schoolGateSyncEvents.length, tone: 'tone-blue' },
+      { label: 'تمت', value: schoolGateSyncEvents.filter((row) => row.status === 'synced').length, tone: 'tone-green' },
+      { label: 'مكرر', value: schoolGateSyncEvents.filter((row) => row.status === 'duplicate').length, tone: 'tone-violet' },
+      { label: 'بانتظار / مرفوض', value: `${schoolGateSyncEvents.filter((row) => row.status === 'pending').length} / ${schoolGateSyncEvents.filter((row) => ['rejected','error'].includes(row.status)).length}`, tone: 'tone-amber' },
+    ];
+    if (reportTab === 'leavePass') return [
+      { label: 'طلبات الاستئذان', value: leavePassRows.length, tone: 'tone-blue' },
+      { label: 'بانتظار التنفيذ', value: leavePassRows.filter((row) => ['created','sent-system','sent-manual'].includes(String(row.status || ''))).length, tone: 'tone-amber' },
+      { label: 'اطلع المعلم', value: leavePassRows.filter((row) => String(row.status || '') === 'viewed').length, tone: 'tone-sky' },
+      { label: 'اعتمادات الجهة', value: leavePassRows.filter((row) => ['approved-agent','approved-counselor','released-guardian'].includes(String(row.status || ''))).length, tone: 'tone-blue' },
+      { label: 'تم التنفيذ', value: leavePassRows.filter((row) => String(row.status || '') === 'completed').length, tone: 'tone-green' },
+    ];
+    return [
+      { label: 'السجلات', value: currentReportMeta?.rows?.length || 0, tone: 'tone-blue' },
+    ];
+  }, [reportTab, attendanceRows, behaviorRows, programRows, teacherRows, studentComprehensiveRows, storeRequestRows, storeItemRows, lessonRows, leavePassRows, schoolGateSyncEvents, currentReportMeta]);
+
+  const currentPrintLegend = useMemo(() => {
+    if (reportTab === 'attendance') return [
+      { label: 'أخضر = حاضر', tone: 'pill-green' },
+      { label: 'أصفر = متأخر', tone: 'pill-amber' },
+      { label: 'وردي = غياب / غير ممسوح', tone: 'pill-rose' },
+    ];
+    if (reportTab === 'behavior' || reportTab === 'students') return [
+      { label: 'أخضر = جانب إيجابي', tone: 'pill-green' },
+      { label: 'وردي = جانب سلبي', tone: 'pill-rose' },
+      { label: 'بنفسجي = نقاط أو تميّز', tone: 'pill-violet' },
+    ];
+    if (reportTab === 'store') return [
+      { label: 'أصفر = بانتظار', tone: 'pill-amber' },
+      { label: 'أخضر = تم', tone: 'pill-green' },
+      { label: 'وردي = مرفوض', tone: 'pill-rose' },
+    ];
+    if (reportTab === 'gateSync') return [
+      { label: 'أخضر = تمت', tone: 'pill-green' },
+      { label: 'أزرق = مكرر', tone: 'pill-blue' },
+      { label: 'أصفر = بانتظار', tone: 'pill-amber' },
+      { label: 'وردي = مرفوض / خطأ', tone: 'pill-rose' },
+    ];
+    if (reportTab === 'leavePass') return [
+      { label: 'أصفر = جديد أو مرسل', tone: 'pill-amber' },
+      { label: 'أزرق = اطلع المعلم', tone: 'pill-blue' },
+      { label: 'أخضر = تم التنفيذ', tone: 'pill-green' },
+      { label: 'وردي = ملغي', tone: 'pill-rose' },
+    ];
+    return [];
+  }, [reportTab]);
+
 
   const exportCurrentReport = (format = 'xlsx') => {
     const rows = currentReportMeta.rows || [];
@@ -14440,7 +14460,7 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => window.open('/parent', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100">فتح بوابة ولي الأمر</button>
-                  <button type="button" onClick={() => window.open('/admin/parent-primary-requests', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800">فتح شاشة الطلبات الكاملة</button>
+                  <button type="button" onClick={() => window.open(`/admin/parent-primary-requests?token=${encodeURIComponent(getSessionToken())}`, '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800">فتح شاشة الطلبات الكاملة</button>
                 </div>
               </div>
 
@@ -15275,10 +15295,17 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
           <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">الرصيد بعد الطلب</div><div className="mt-1 text-sm font-black text-emerald-700">{selectedRedemptionStudent && selectedRedemptionItem ? Math.max(0, Number(selectedRedemptionStudent.points || 0) - Number(selectedRedemptionItem.pointsCost || 0)) : '—'}</div><div className="mt-1 text-xs text-slate-500">تقديري قبل الاعتماد النهائي</div></div>
         </div> : null}
       </div>
+      <div className="mb-3 grid gap-3 md:grid-cols-2">
+        <select value={redemptionDraft.classFilter || ''} onChange={(e) => setRedemptionDraft((prev) => ({ ...prev, classFilter: e.target.value, studentId: '' }))} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none">
+          <option value="">اختر الصف أولاً</option>
+          {[...new Set(students.map((s) => s.className || s.companyName || 'بدون فصل').filter(Boolean))].sort().map((cls) => <option key={cls} value={cls}>{cls}</option>)}
+        </select>
+        <div className="text-xs text-rose-600 flex items-center font-bold">يجب اختيار الصف أولاً لتفعيل قائمة الطلاب</div>
+      </div>
       <div className="grid gap-4 lg:grid-cols-[1fr,1fr,1.2fr,auto]">
-        <select value={redemptionDraft.studentId} onChange={(e) => setRedemptionDraft((prev) => ({ ...prev, studentId: e.target.value }))} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none">
-          <option value="">اختر الطالب</option>
-          {students.map((student) => <option key={student.id} value={student.id}>{student.name} — {student.className || student.companyName || 'بدون فصل'} — {student.points || 0} نقطة</option>)}
+        <select value={redemptionDraft.studentId} onChange={(e) => setRedemptionDraft((prev) => ({ ...prev, studentId: e.target.value }))} disabled={!redemptionDraft.classFilter} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+          <option value="">{redemptionDraft.classFilter ? 'اختر الطالب' : 'اختر الصف أولاً'}</option>
+          {(redemptionDraft.classFilter ? students.filter((s) => (s.className || s.companyName || 'بدون فصل') === redemptionDraft.classFilter) : []).map((student) => <option key={student.id} value={student.id}>{student.name} — {student.className || student.companyName || 'بدون فصل'} — {student.points || 0} نقطة</option>)}
         </select>
         <select value={redemptionDraft.itemId} onChange={(e) => setRedemptionDraft((prev) => ({ ...prev, itemId: e.target.value }))} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none">
           <option value="">اختر الجائزة</option>
