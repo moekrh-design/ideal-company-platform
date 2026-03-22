@@ -2386,6 +2386,13 @@ function computeLessonAttendanceSessionSummary(session, school, schoolUsers = []
     totalAbsent: submissions.reduce((sum, item) => sum + Number(item.absentCount || 0), 0),
     totalStudents: submissions.reduce((sum, item) => sum + Number(item.totalStudents || 0), 0),
     absentRows,
+    classRows: submissions.map((item) => ({
+      name: item.className || '—',
+      present: Number(item.presentCount || 0),
+      absent: Number(item.absentCount || 0),
+    })),
+    openedTeachers: submissions.filter((item) => item.opened).length,
+    sentTeachers: submittedTeacherIds.size,
   };
 }
 
@@ -12188,7 +12195,7 @@ ${buildLessonSessionLink(selectedSession.id)}`)} className="rounded-2xl bg-white
                         <div className="rounded-[1.6rem] bg-white p-4 ring-1 ring-slate-200">
                           <div className="mb-3 text-sm font-black text-slate-800">توزيع الغياب حسب الفصول</div>
                           <ResponsiveContainer width="100%" height={240}>
-                            <BarChart data={selectedSessionSummary.classRows.length ? selectedSessionSummary.classRows : [{ name: 'لا توجد بيانات', absent: 0 }]}>
+                            <BarChart data={(selectedSessionSummary.classRows || []).length ? selectedSessionSummary.classRows : [{ name: 'لا توجد بيانات', absent: 0 }]}>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                               <XAxis dataKey="name" axisLine={false} tickLine={false} />
                               <YAxis allowDecimals={false} axisLine={false} tickLine={false} />
