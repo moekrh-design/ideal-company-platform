@@ -756,7 +756,7 @@ const permissionDefinitions = [
   { key: "students", label: "الطلاب" },
   { key: "attendance", label: "الحضور الذكي" },
   { key: "actions", label: "إجراءات الطلاب" },
-  { key: "points", label: "النقاط والترتيب" },
+  { key: "points", label: "ترتيب الفصول" },
   { key: "reports", label: "مركز التقارير" },
   { key: "deviceDisplays", label: "الشاشات والبوابات" },
   { key: "messages", label: "الرسائل والتنبيهات" },
@@ -784,7 +784,7 @@ const navItems = [
   { key: "attendance", label: "الحضور الذكي", icon: ScanLine, permission: "attendance" },
   { key: "lessonAttendanceSessions", label: "تحضير الحصص", icon: ClipboardList, permission: "actions", roles: ["superadmin", "principal", "supervisor", "teacher"] },
   { key: "actions", label: "إجراءات الطلاب", icon: ClipboardCheck, permission: "actions" },
-  { key: "points", label: "النقاط والترتيب", icon: Trophy, permission: "points" },
+  { key: "points", label: "ترتيب الفصول", icon: Trophy, permission: "points" },
   { key: "reports", label: "مركز التقارير", icon: LineChart, permission: "reports" },
   { key: "deviceDisplays", label: "الشاشات والبوابات", icon: ExternalLink, permission: "deviceDisplays" },
   { key: "messages", label: "الرسائل والتنبيهات", icon: Bell, permission: "messages" },
@@ -11542,7 +11542,7 @@ function PointsPage({ selectedSchool, settings }) {
 
   return (
     <div className="space-y-6">
-      <SectionCard title="النقاط والترتيب" icon={Trophy}>
+      <SectionCard title="ترتيب الفصول" icon={Trophy}>
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
           <div className="space-y-6 xl:col-span-2">
             <DataTable columns={columns} rows={rankedCompanies} />
@@ -12261,7 +12261,7 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
                                     {(() => {
                                       const hasSubmitted = (selectedSession.submissions || []).some((item) => String(item.teacherId) === String(teacher.id));
                                       if (invite?.sentAt) return <Badge tone="violet">أرسل</Badge>;
-                                      if (hasSubmitted) return <Badge tone="sky">حضر مباشرة</Badge>;
+                                      if (hasSubmitted) return <Badge tone="sky">تم</Badge>;
                                       return <Badge tone="slate">لم يرسل</Badge>;
                                     })()}
                                     {invite?.openedAt ? <Badge tone="blue">فتح الرابط</Badge> : null}
