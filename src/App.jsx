@@ -11955,6 +11955,7 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
   const [teacherAbsentIds, setTeacherAbsentIds] = useState([]);
   const [teacherAcknowledgement, setTeacherAcknowledgement] = useState(false);
   const [teacherStatus, setTeacherStatus] = useState('');
+  const [submitSuccess, setSubmitSuccess] = useState(false);
   const [targetTeacherIds, setTargetTeacherIds] = useState([]);
   const [sendStatus, setSendStatus] = useState('');
   const [customMessage, setCustomMessage] = useState('');
@@ -12039,6 +12040,7 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
     if (!teacherAcknowledgement) return setTeacherStatus('يلزم إقرار المعلم بصحة التحضير قبل الحفظ.');
     const result = onSubmitSession({ sessionId: selectedSession.id, classKey: teacherClassKey, acknowledgement: teacherAcknowledgement, absentStudentIds: teacherAbsentIds });
     setTeacherStatus(result?.message || (result?.ok ? 'تم الحفظ.' : 'تعذر الحفظ.'));
+    if (result?.ok) { setSubmitSuccess(true); setTimeout(() => setSubmitSuccess(false), 2500); }
   };
 
   const handleSendInvitesNow = async () => {
@@ -12190,8 +12192,6 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={() => navigator.clipboard?.writeText(buildLessonSessionLink(selectedSession.id))} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200">نسخ الرابط</button>
-                      <button onClick={handleCopyMessage} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200">نسخ/تخصيص الرسالة</button>
                       {isManager ? <button onClick={() => onCloseSession?.(selectedSession.id, selectedSession.status === 'closed' ? 'open' : 'closed')} className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white">{selectedSession.status === 'closed' ? 'إعادة فتح' : 'إغلاق الجلسة'}</button> : null}
                       {isManager ? <button onClick={() => { if (window.confirm('هل أنت متأكد من حذف هذه الجلسة؟ لا يمكن التراجع عن هذا الإجراء.')) { onDeleteSession?.(selectedSession.id); setSelectedSessionId(''); } }} className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-black text-white">حذف الجلسة</button> : null}
                       <button onClick={exportSessionSummary} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">CSV الملخص</button>
@@ -12348,7 +12348,7 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
                             <span>أقر بصحة التحضير لهذه الحصة وأن البيانات المدخلة مطابقة لواقع الفصل.</span>
                           </label>
                           <div className="flex flex-wrap items-center gap-3">
-                            <button onClick={handleTeacherSubmit} className="rounded-2xl bg-sky-700 px-5 py-3 text-sm font-black text-white">اعتماد التحضير</button>
+                            <button onClick={handleTeacherSubmit} className={`rounded-2xl px-5 py-3 text-sm font-black text-white transition-all duration-300 ${submitSuccess ? "bg-emerald-600 scale-105 shadow-lg shadow-emerald-200" : "bg-sky-700"}`}>{submitSuccess ? "✓ تم الاعتماد بنجاح!" : "اعتماد التحضير"}</button>
                             {teacherStatus ? <Badge tone={/تم/.test(teacherStatus) ? 'green' : 'amber'}>{teacherStatus}</Badge> : null}
                             {existingTeacherSubmission ? <Badge tone="blue">آخر حفظ: {new Date(existingTeacherSubmission.submittedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</Badge> : null}
                           </div>
@@ -16471,7 +16471,8 @@ export default function App() {
         const apiAlerts = Array.isArray(response?.alerts) ? response.alerts : [];
         const pending = requests.filter((request) => String(request?.status || '') === 'pending').length;
         const autoApproved = apiAlerts.filter((alert) => /اعتماد تلقائي|تلقائيًا|تلقائي/.test(String(alert?.title || '') + ' ' + String(alert?.body || ''))).length;
-        const localItems = (notifications || []).filter((note) => /فشل|تعذر|ولي الأمر|أولياء الأمور|الرقم الأساسي|بوابة ولي الأمر/.test(String(note?.title || '') + ' ' + String(note?.body || ''))).slice(0, 4).map((note, index) => ({
+        const teacherNotifs = String(currentUser?.role || '') === 'teacher' ? (notifications || []).filter((note) => note?.forTeacherIds?.map(String).includes(String(currentUser?.id || ''))) : [];
+        const localItems = [...teacherNotifs, ...(notifications || []).filter((note) => /فشل|تعذر|ولي الأمر|أولياء الأمور|الرقم الأساسي|بوابة ولي الأمر/.test(String(note?.title || '') + ' ' + String(note?.body || '')))].slice(0, 6).map((note, index) => ({
           id: `local-${note?.id || index}`,
           title: note?.title || 'تنبيه',
           body: note?.body || '',
@@ -16594,19 +16595,34 @@ export default function App() {
     const parentPending = Number(parentPortalDashboard?.pending || parentPortalConfig?.pendingRequests || headerAlertsState?.pending || 0);
     const parentAttention = Number(headerAlertsState?.failed || 0);
     const headerCount = Number(headerAlertsState?.count || 0);
+    // عداد التنبيهات المخصصة للمعلم
+    const isTeacher = String(currentUser?.role || '') === 'teacher';
+    const teacherNotifCount = isTeacher ? (notifications || []).filter((note) => {
+      if (!note?.forTeacherIds) return false;
+      return note.forTeacherIds.map(String).includes(String(currentUser?.id || ''));
+    }).length : 0;
     return {
       messages: hasParentSignal ? {
         value: headerCount > 99 ? '99+' : String(headerCount || 0),
         tone: parentAttention > 0 ? 'rose' : parentPending > 0 ? 'amber' : headerCount > 0 ? 'sky' : 'slate',
         hidden: headerCount <= 0,
-      } : null,
+      } : (isTeacher && teacherNotifCount > 0 ? {
+        value: teacherNotifCount > 99 ? '99+' : String(teacherNotifCount),
+        tone: 'sky',
+        hidden: false,
+      } : null),
       settings: canViewParentPortal ? {
         value: parentPending > 99 ? '99+' : String(parentPending || 0),
         tone: parentPending > 0 ? 'amber' : (parentPortalConfig?.enabled === false ? 'slate' : 'green'),
         hidden: parentPending <= 0 && parentPortalConfig?.enabled !== false,
       } : null,
+      lessonAttendanceSessions: isTeacher && teacherNotifCount > 0 ? {
+        value: teacherNotifCount > 99 ? '99+' : String(teacherNotifCount),
+        tone: 'sky',
+        hidden: false,
+      } : null,
     };
-  }, [currentUser?.role, canViewParentPortal, parentPortalDashboard?.pending, parentPortalConfig?.pendingRequests, parentPortalConfig?.enabled, headerAlertsState?.pending, headerAlertsState?.failed, headerAlertsState?.count]);
+  }, [currentUser?.role, currentUser?.id, notifications, canViewParentPortal, parentPortalDashboard?.pending, parentPortalConfig?.pendingRequests, parentPortalConfig?.enabled, headerAlertsState?.pending, headerAlertsState?.failed, headerAlertsState?.count]);
 
   const handleLogout = async () => {
     if (!currentUser) return;
@@ -18199,6 +18215,16 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
       }),
     })));
     pushNotification('الاستئذان', `تم إشعار ${targetLabel} بخصوص الطالب ${leavePass.studentName}.`);
+    // إضافة تنبيه للمعلم عند إرسال الاستئذان له
+    if (target === 'teacher') {
+      const teacherUser = (users || []).find((u) => Number(u.schoolId) === Number(selectedSchool.id) && String(u.role) === 'teacher' && (String(u.id) === String(leavePass.teacherId) || u.name === leavePass.teacherName));
+      if (teacherUser) {
+        setNotifications((prev) => [
+          { id: Date.now(), title: 'استئذان طالب', body: `طلب استئذان للطالب ${leavePass.studentName} من ${leavePass.className || leavePass.companyName || 'فصله'}. افتح صفحة الاستئذان للمراجعة.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [teacherUser.id] },
+          ...prev,
+        ].slice(0, 30));
+      }
+    }
     return { ok: true, message: target === 'teacher' ? 'تم إرسال رابط الاستئذان إلى المعلم عبر النظام.' : `تم إشعار ${targetLabel} بنجاح.` };
   };
 
