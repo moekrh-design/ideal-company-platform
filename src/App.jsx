@@ -15235,94 +15235,116 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
     printHtmlContent(`تقرير متجر النقاط — ${selectedSchool?.name || 'المدرسة'}`, `<h1>تقرير متجر النقاط</h1><div class="meta">${selectedSchool?.name || 'المدرسة'} • ${formatDateTime(new Date().toISOString())}</div><div class="stats">${statsHtml}</div><h1 style="font-size:20px;margin-top:24px">أبرز المتبرعين</h1><table><thead><tr><th>المتبرع</th><th>النوع</th><th>عدد الجوائز</th><th>الكمية الأصلية</th><th>المتبقي</th><th>المسلّم</th></tr></thead><tbody>${donorRowsHtml || '<tr><td colspan="6">لا توجد بيانات.</td></tr>'}</tbody></table><h1 style="font-size:20px;margin-top:24px">أكثر الجوائز نشاطًا</h1><table><thead><tr><th>الجائزة</th><th>المتبرع</th><th>الكمية</th><th>المتبقي</th><th>النقاط</th><th>الطلبات</th><th>التسليمات</th></tr></thead><tbody>${itemRowsHtml || '<tr><td colspan="7">لا توجد بيانات.</td></tr>'}</tbody></table>`);
   };
 
+  const [storeTab, setStoreTab] = useState('items');
+  const storeTabs = [
+    { key: 'items', label: 'المعروضات', icon: Gift, badge: summary.activeItems },
+    { key: 'add', label: 'إضافة جائزة', icon: Plus },
+    { key: 'inventory', label: 'المخزون والاعتماد', icon: PackageCheck, badge: awaitingReceiptItems.length || undefined },
+    { key: 'redemptions', label: 'طلبات الاستبدال', icon: ShoppingCart, badge: pendingRedemptions.length || undefined },
+    { key: 'proposals', label: 'مقترحات أولياء الأمور', icon: Users, badge: pendingProposals.length || undefined },
+    { key: 'reports', label: 'التقارير', icon: BarChart3 },
+  ];
+
   return <div className="space-y-6">
-    <SectionCard title="متجر النقاط" icon={Gift}>
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">إجمالي الجوائز</div><div className="mt-2 text-3xl font-black text-slate-900">{summary.totalItems}</div></div>
-        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">بانتظار الاستلام</div><div className="mt-2 text-3xl font-black text-amber-700">{summary.awaitingReceipt}</div></div>
-        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">بانتظار اعتماد المدير</div><div className="mt-2 text-3xl font-black text-sky-700">{summary.pendingActivation}</div></div>
-        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الجوائز المعروضة</div><div className="mt-2 text-3xl font-black text-emerald-700">{summary.activeItems}</div></div>
-        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">المتبرعون</div><div className="mt-2 text-3xl font-black text-violet-700">{summary.donorCount}</div></div>
-        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">المخزون المتبقي</div><div className="mt-2 text-3xl font-black text-slate-900">{summary.remainingQuantity}</div></div>
-      </div>
-    </SectionCard>
-
-    <SectionCard title="تنبيهات المتجر" icon={Bell}>
-      <div className="grid gap-4 lg:grid-cols-[0.8fr,1.2fr]">
-        <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-2">
-          <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">آخر التنبيهات</div><div className="mt-2 text-3xl font-black text-slate-900">{rewardNotifications.length}</div></div>
-          <div className="rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-200"><div className="text-xs font-bold text-emerald-700">طلبات بانتظار الاعتماد</div><div className="mt-2 text-3xl font-black text-emerald-700">{pendingRedemptions.length}</div></div>
-          <div className="rounded-3xl bg-sky-50 p-4 ring-1 ring-sky-200"><div className="text-xs font-bold text-sky-700">بانتظار التسليم</div><div className="mt-2 text-3xl font-black text-sky-700">{approvedRedemptions.length}</div></div>
-          <div className="rounded-3xl bg-violet-50 p-4 ring-1 ring-violet-200"><div className="text-xs font-bold text-violet-700">تم التسليم</div><div className="mt-2 text-3xl font-black text-violet-700">{deliveredRedemptions.length}</div></div>
-        </div>
-        <div className="space-y-3">
-          {rewardNotifications.length ? rewardNotifications.map((note) => (
-            <div key={note.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3"><div className="text-sm font-black text-slate-900">{note.title}</div><Badge tone={note.type?.includes('rejected') ? 'rose' : note.type?.includes('approved') || note.type?.includes('activated') || note.type?.includes('delivered') ? 'green' : 'blue'}>{note.itemTitle || 'تنبيه متجر'}</Badge></div>
-              <div className="mt-2 text-sm leading-7 text-slate-600">{note.body || 'تم تحديث إجراء في متجر النقاط.'}</div>
-              <div className="mt-2 text-xs text-slate-400">{note.createdByName || 'النظام'} • {formatDateTime(note.createdAt)}</div>
-            </div>
-          )) : <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد تنبيهات حديثة في متجر النقاط.</div>}
-        </div>
-      </div>
-    </SectionCard>
-
-    <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-      <SectionCard title="إضافة جائزة للمخزون" icon={Plus}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Input label="اسم الجائزة" value={draft.title} onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))} placeholder="مثال: كوبون مقصف" />
-          <Input label="الكمية" type="number" value={draft.quantity} onChange={(e) => setDraft((prev) => ({ ...prev, quantity: e.target.value }))} />
-          <label className="grid gap-2 text-sm font-bold text-slate-700">الجهة المقدمة
-            <select value={draft.sourceType} onChange={(e) => setDraft((prev) => ({ ...prev, sourceType: e.target.value }))} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none">
-              <option value="school">إدارة المدرسة</option>
-              <option value="external">متبرع خارجي</option>
-            </select>
-          </label>
-          <Input label="اسم المتبرع أو الجهة" value={draft.donorName} onChange={(e) => setDraft((prev) => ({ ...prev, donorName: e.target.value }))} placeholder="اختياري" />
-          <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200 md:col-span-2"><input type="checkbox" checked={Boolean(draft.showDonorName)} onChange={(e) => setDraft((prev) => ({ ...prev, showDonorName: e.target.checked }))} /><span className="font-bold text-slate-700">إظهار اسم المتبرع داخل المتجر عند الاعتماد</span></label>
-          <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200"><input type="checkbox" checked={Boolean(draft.showOnScreens)} onChange={(e) => setDraft((prev) => ({ ...prev, showOnScreens: e.target.checked }))} /><span className="font-bold text-slate-700">إتاحة الجائزة للشاشات عند الاعتماد</span></label>
-          <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200"><input type="checkbox" checked={Boolean(draft.featured)} onChange={(e) => setDraft((prev) => ({ ...prev, featured: e.target.checked }))} /><span className="font-bold text-slate-700">تمييز الجائزة كجائزة مهمة</span></label>
-          <Input label="أولوية العرض في الشاشات" type="number" value={draft.displayPriority} onChange={(e) => setDraft((prev) => ({ ...prev, displayPriority: e.target.value }))} />
-          <label className="grid gap-2 text-sm font-bold text-slate-700 md:col-span-2">صورة الجائزة
-            <input type="file" accept="image/*" onChange={async (e) => { const file = e.target.files?.[0]; if (file) await handleImage(file); e.target.value=''; }} className="rounded-2xl border border-slate-300 bg-white px-4 py-3" />
-          </label>
-          {draft.image ? <img src={draft.image} alt="preview" className="h-40 w-full rounded-3xl object-cover ring-1 ring-slate-200 md:col-span-2" /> : null}
-          <label className="grid gap-2 text-sm font-bold text-slate-700 md:col-span-2">وصف أو ملاحظة
-            <textarea value={draft.note} onChange={(e) => setDraft((prev) => ({ ...prev, note: e.target.value }))} className="min-h-[110px] rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm" placeholder="مثال: تم التبرع بها للشراكة المجتمعية، وتنتظر الاستلام الفعلي ثم تحديد النقاط." />
-          </label>
-          <div className="md:col-span-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold leading-7 text-amber-800 ring-1 ring-amber-100">النقاط لا تُحدد هنا. بعد التأكد من استلام الجائزة فعليًا، يقوم مدير المدرسة بتحديد النقاط ثم اعتمادها للمتجر.</div>
-          <button type="button" onClick={submit} className="md:col-span-2 rounded-2xl bg-emerald-700 px-5 py-3 font-bold text-white">حفظ الجائزة في المخزون</button>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="مقترحات أولياء الأمور" icon={Users}>
-        <div className="space-y-4">
-          {pendingProposals.map((proposal) => <div key={proposal.id} className="rounded-3xl border border-amber-200 bg-amber-50/60 p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="text-lg font-black text-slate-900">{proposal.title}</div>
-                <div className="text-sm text-slate-500">{proposal.guardianName || 'ولي الأمر'} • {proposal.mobileMasked || proposal.mobile || ''} • {proposal.createdAt ? new Date(proposal.createdAt).toLocaleString('ar-SA') : ''}</div>
-                <div className="text-sm text-slate-600">{proposal.note || 'بدون وصف إضافي'}</div>
-              </div>
-              <div className="text-left">
-                <Badge tone="amber">{proposal.quantity || 1} قطعة</Badge>
-                <div className="mt-2 text-xs font-bold text-slate-500">الاسم الظاهر: {proposal.showDonorName !== false ? (proposal.donorName || proposal.guardianName || 'ولي الأمر') : 'مخفي'}</div>
-              </div>
-            </div>
-            {proposal.image ? <img src={proposal.image} alt={proposal.title} className="mt-4 h-44 w-full rounded-3xl object-cover ring-1 ring-amber-200" /> : null}
-            <div className="mt-4 grid gap-3 md:grid-cols-[1fr,auto,auto]">
-              <Input label="ملاحظة المدير" value={proposalDecisionNotes[proposal.id] || ''} onChange={(e) => setProposalDecisionNotes((prev) => ({ ...prev, [proposal.id]: e.target.value }))} placeholder="مثال: يتم انتظار الاستلام من ولي الأمر قبل إدخالها للمتجر" />
-              <button type="button" onClick={() => onDecideProposal?.(proposal.id, 'approved', proposalDecisionNotes[proposal.id] || '')} className="rounded-2xl bg-emerald-700 px-5 py-3 font-bold text-white">قبول وتحويل للمخزون</button>
-              <button type="button" onClick={() => onDecideProposal?.(proposal.id, 'rejected', proposalDecisionNotes[proposal.id] || '')} className="rounded-2xl border border-rose-200 bg-white px-5 py-3 font-bold text-rose-700">رفض</button>
-            </div>
-          </div>)}
-          {!pendingProposals.length ? <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد مقترحات بانتظار الاعتماد.</div> : null}
-        </div>
-      </SectionCard>
+    {/* ملخص أعلى الصفحة */}
+    <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">إجمالي الجوائز</div><div className="mt-1 text-2xl font-black text-slate-900">{summary.totalItems}</div></div>
+      <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">بانتظار الاستلام</div><div className="mt-1 text-2xl font-black text-amber-700">{summary.awaitingReceipt}</div></div>
+      <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">بانتظار الاعتماد</div><div className="mt-1 text-2xl font-black text-sky-700">{summary.pendingActivation}</div></div>
+      <div className="rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-200"><div className="text-xs text-emerald-700 font-bold">الجوائز المعروضة</div><div className="mt-1 text-2xl font-black text-emerald-700">{summary.activeItems}</div></div>
+      <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">المتبرعون</div><div className="mt-1 text-2xl font-black text-violet-700">{summary.donorCount}</div></div>
+      <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">المخزون المتبقي</div><div className="mt-1 text-2xl font-black text-slate-900">{summary.remainingQuantity}</div></div>
     </div>
 
-    <SectionCard title="المخزون بانتظار الاستلام أو الاعتماد" icon={PackageCheck}>
-      <div className="grid gap-4 lg:grid-cols-2">
+    {/* التبويبات العلوية */}
+    <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-0">
+      {storeTabs.map((tab) => (
+        <button
+          key={tab.key}
+          onClick={() => setStoreTab(tab.key)}
+          className={`inline-flex items-center gap-2 rounded-t-2xl px-5 py-3 text-sm font-bold transition-all ${
+            storeTab === tab.key
+              ? 'bg-white text-sky-700 ring-1 ring-slate-200 ring-b-0 border-b-2 border-sky-600'
+              : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+          }`}
+        >
+          <tab.icon className="h-4 w-4" />
+          {tab.label}
+          {tab.badge ? <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-black text-white">{tab.badge}</span> : null}
+        </button>
+      ))}
+    </div>
+
+    {/* تبويب المعروضات */}
+    {storeTab === 'items' && <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {approvedItems.map((item) => <div key={item.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="aspect-[16/10] bg-slate-100">{item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400">بدون صورة</div>}</div>
+          <div className="space-y-3 p-4">
+            <div className="flex items-start justify-between gap-3"><div><div className="font-black text-slate-900">{item.title}</div><div className="mt-1 text-xs text-slate-500">{getRewardStoreDonorLabel(item)} • {item.remainingQuantity}/{item.quantity} متبقي</div></div><Badge tone="green">{item.pointsCost} نقطة</Badge></div>
+            {item.note ? <p className="text-sm leading-7 text-slate-600">{item.note}</p> : null}
+            <div className="flex flex-wrap gap-2 text-xs">{item.featured ? <span className="rounded-full bg-amber-100 px-3 py-1 font-black text-amber-800">مهمة</span> : null}{item.showOnScreens !== false ? <span className="rounded-full bg-sky-100 px-3 py-1 font-black text-sky-800">تظهر في الشاشات</span> : <span className="rounded-full bg-slate-200 px-3 py-1 font-black text-slate-700">مخفية عن الشاشات</span>}<span className="rounded-full bg-slate-100 px-3 py-1 font-black text-slate-700">أولوية {formatEnglishDigits(item.displayPriority || 0)}</span></div>
+            <div className="grid gap-2 md:grid-cols-3">
+              <label className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"><input type="checkbox" checked={item.showOnScreens !== false} onChange={(e) => onUpdateRewardItemMeta?.(item.id, { showOnScreens: e.target.checked })} />عرض في الشاشات</label>
+              <label className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"><input type="checkbox" checked={item.featured === true} onChange={(e) => onUpdateRewardItemMeta?.(item.id, { featured: e.target.checked })} />مهمة</label>
+              <Input label="أولوية العرض" type="number" value={item.displayPriority || 0} onChange={(e) => onUpdateRewardItemMeta?.(item.id, { displayPriority: e.target.value })} />
+            </div>
+            <div className="flex gap-2"><button type="button" onClick={() => onDeleteItem?.(item.id)} className="rounded-2xl border border-rose-200 px-4 py-2 text-sm font-bold text-rose-700">حذف</button></div>
+          </div>
+        </div>)}
+        {!approvedItems.length ? <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500 col-span-3">لا توجد جوائز معتمدة في المتجر حتى الآن.</div> : null}
+      </div>
+      {depletedItems.length ? <div><div className="mb-3 text-sm font-bold text-slate-500">جوائز منتهية الكمية</div><div className="grid gap-3 md:grid-cols-2">{depletedItems.map((item) => <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"><div className="font-black text-slate-800">{item.title}</div><div className="mt-1 text-slate-500">{getRewardStoreDonorLabel(item)} • الكمية الأصلية {item.quantity}</div></div>)}</div></div> : null}
+      {/* تنبيهات المتجر */}
+      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+        <div className="mb-3 flex items-center gap-2 text-sm font-black text-slate-700"><Bell className="h-4 w-4" /> آخر تنبيهات المتجر</div>
+        <div className="grid gap-3 md:grid-cols-4 mb-4">
+          <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200 text-center"><div className="text-xs text-slate-500">آخر التنبيهات</div><div className="mt-1 text-xl font-black text-slate-900">{rewardNotifications.length}</div></div>
+          <div className="rounded-2xl bg-emerald-50 p-3 ring-1 ring-emerald-200 text-center"><div className="text-xs text-emerald-700 font-bold">بانتظار الاعتماد</div><div className="mt-1 text-xl font-black text-emerald-700">{pendingRedemptions.length}</div></div>
+          <div className="rounded-2xl bg-sky-50 p-3 ring-1 ring-sky-200 text-center"><div className="text-xs text-sky-700 font-bold">بانتظار التسليم</div><div className="mt-1 text-xl font-black text-sky-700">{approvedRedemptions.length}</div></div>
+          <div className="rounded-2xl bg-violet-50 p-3 ring-1 ring-violet-200 text-center"><div className="text-xs text-violet-700 font-bold">تم التسليم</div><div className="mt-1 text-xl font-black text-violet-700">{deliveredRedemptions.length}</div></div>
+        </div>
+        <div className="space-y-2 max-h-64 overflow-auto">
+          {rewardNotifications.length ? rewardNotifications.map((note) => (
+            <div key={note.id} className="rounded-2xl border border-slate-200 bg-white p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-black text-slate-900">{note.title}</div><Badge tone={note.type?.includes('rejected') ? 'rose' : note.type?.includes('approved') || note.type?.includes('activated') || note.type?.includes('delivered') ? 'green' : 'blue'}>{note.itemTitle || 'تنبيه متجر'}</Badge></div>
+              <div className="mt-1 text-xs text-slate-500">{note.createdByName || 'النظام'} • {formatDateTime(note.createdAt)}</div>
+            </div>
+          )) : <div className="text-sm text-slate-500">لا توجد تنبيهات حديثة.</div>}
+        </div>
+      </div>
+    </div>}
+
+    {/* تبويب إضافة جائزة */}
+    {storeTab === 'add' && <div className="grid gap-4 md:grid-cols-2">
+      <Input label="اسم الجائزة" value={draft.title} onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))} placeholder="مثال: كوبون مقصف" />
+      <Input label="الكمية" type="number" value={draft.quantity} onChange={(e) => setDraft((prev) => ({ ...prev, quantity: e.target.value }))} />
+      <label className="grid gap-2 text-sm font-bold text-slate-700">الجهة المقدمة
+        <select value={draft.sourceType} onChange={(e) => setDraft((prev) => ({ ...prev, sourceType: e.target.value }))} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none">
+          <option value="school">إدارة المدرسة</option>
+          <option value="external">متبرع خارجي</option>
+        </select>
+      </label>
+      <Input label="اسم المتبرع أو الجهة" value={draft.donorName} onChange={(e) => setDraft((prev) => ({ ...prev, donorName: e.target.value }))} placeholder="اختياري" />
+      <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200 md:col-span-2"><input type="checkbox" checked={Boolean(draft.showDonorName)} onChange={(e) => setDraft((prev) => ({ ...prev, showDonorName: e.target.checked }))} /><span className="font-bold text-slate-700">إظهار اسم المتبرع داخل المتجر عند الاعتماد</span></label>
+      <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200"><input type="checkbox" checked={Boolean(draft.showOnScreens)} onChange={(e) => setDraft((prev) => ({ ...prev, showOnScreens: e.target.checked }))} /><span className="font-bold text-slate-700">إتاحة الجائزة للشاشات عند الاعتماد</span></label>
+      <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200"><input type="checkbox" checked={Boolean(draft.featured)} onChange={(e) => setDraft((prev) => ({ ...prev, featured: e.target.checked }))} /><span className="font-bold text-slate-700">تمييز الجائزة كجائزة مهمة</span></label>
+      <Input label="أولوية العرض في الشاشات" type="number" value={draft.displayPriority} onChange={(e) => setDraft((prev) => ({ ...prev, displayPriority: e.target.value }))} />
+      <label className="grid gap-2 text-sm font-bold text-slate-700 md:col-span-2">صورة الجائزة
+        <input type="file" accept="image/*" onChange={async (e) => { const file = e.target.files?.[0]; if (file) await handleImage(file); e.target.value=''; }} className="rounded-2xl border border-slate-300 bg-white px-4 py-3" />
+      </label>
+      <label className="grid gap-2 text-sm font-bold text-slate-700 md:col-span-2">ملاحظة
+        <textarea value={draft.note} onChange={(e) => setDraft((prev) => ({ ...prev, note: e.target.value }))} className="min-h-[110px] rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm" placeholder="مثال: تم التبرع بها للشراكة المجتمعية، وتنتظر الاستلام الفعلي ثم تحديد النقاط." />
+      </label>
+      <div className="md:col-span-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold leading-7 text-amber-800 ring-1 ring-amber-100">النقاط لا تُحدد هنا. بعد التأكد من استلام الجائزة فعليًا، يقوم مدير المدرسة بتحديد النقاط ثم اعتمادها للمتجر.</div>
+      <button type="button" onClick={submit} className="md:col-span-2 rounded-2xl bg-emerald-700 px-5 py-3 font-bold text-white">حفظ الجائزة في المخزون</button>
+    </div>}
+
+    {/* تبويب المخزون والاعتماد */}
+    {storeTab === 'inventory' && <div className="space-y-6">
+      <div>
+        <div className="mb-3 text-sm font-bold text-slate-700">المخزون بانتظار الاستلام أو الاعتماد</div>
+        <div className="grid gap-4 lg:grid-cols-2">
         {awaitingReceiptItems.map((item) => <div key={item.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -15345,11 +15367,11 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
           </div>
         </div>)}
         {!awaitingReceiptItems.length ? <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد عناصر بانتظار الاستلام أو الاعتماد.</div> : null}
+        </div>
       </div>
-    </SectionCard>
-
-    <SectionCard title="جوائز المتجر المعتمدة" icon={Gift}>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div>
+        <div className="mb-3 text-sm font-bold text-slate-700">جوائز المتجر المعتمدة</div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {approvedItems.map((item) => <div key={item.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="aspect-[16/10] bg-slate-100">{item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400">بدون صورة</div>}</div>
           <div className="space-y-3 p-4">
@@ -15365,12 +15387,13 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
           </div>
         </div>)}
         {!approvedItems.length ? <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد جوائز معتمدة في المتجر حتى الآن.</div> : null}
+        </div>
       </div>
-      {depletedItems.length ? <div className="mt-6"><div className="mb-3 text-sm font-bold text-slate-500">جوائز منتهية الكمية</div><div className="grid gap-3 md:grid-cols-2">{depletedItems.map((item) => <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"><div className="font-black text-slate-800">{item.title}</div><div className="mt-1 text-slate-500">{getRewardStoreDonorLabel(item)} • الكمية الأصلية {item.quantity}</div></div>)}</div></div> : null}
-    </SectionCard>
+      {depletedItems.length ? <div className="mt-4"><div className="mb-3 text-sm font-bold text-slate-500">جوائز منتهية الكمية</div><div className="grid gap-3 md:grid-cols-2">{depletedItems.map((item) => <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"><div className="font-black text-slate-800">{item.title}</div><div className="mt-1 text-slate-500">{getRewardStoreDonorLabel(item)} • الكمية الأصلية {item.quantity}</div></div>)}</div></div> : null}
+    </div>}
 
-    <SectionCard title="طلب استبدال لطالب أو عبر موظف مفوض" icon={ShoppingCart}>
-      <div className="mb-4 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+    {storeTab === 'redemptions' && <div className="space-y-6">
+      <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-sm font-black text-slate-800">مسار الطلب من داخل المدرسة</div>
@@ -15410,10 +15433,38 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
       {approvedRedemptions.length ? <div className="mt-6"><div className="mb-3 text-sm font-bold text-slate-500">طلبات معتمدة بانتظار التسليم</div><div className="grid gap-3">{approvedRedemptions.slice(0,6).map((request) => <div key={request.id} className="rounded-3xl border border-emerald-200 bg-emerald-50/60 p-4"><div className="flex items-center justify-between gap-3"><div><div className="font-black text-slate-900">{request.itemTitle} • {request.studentName}</div><div className="mt-1 text-sm text-slate-500">{request.pointsCost} نقطة • تم الاعتماد {request.decisionAt ? formatDateTime(request.decisionAt) : ''}</div></div><Badge tone="green">بانتظار التسليم</Badge></div><div className="mt-3 grid gap-3 md:grid-cols-[1fr,auto]"><Input label="ملاحظة التسليم" value={redemptionDecisionNotes[request.id] || ''} onChange={(e) => setRedemptionDecisionNotes((prev) => ({ ...prev, [request.id]: e.target.value }))} placeholder="مثال: تم التسليم في الطابور الصباحي" /><button type="button" onClick={() => onDecideRedemption?.(request.id, 'delivered', redemptionDecisionNotes[request.id] || '')} className="rounded-2xl bg-violet-700 px-5 py-3 font-bold text-white">تأكيد التسليم</button></div></div>)}</div></div> : null}
       {deliveredRedemptions.length ? <div className="mt-6"><div className="mb-3 text-sm font-bold text-slate-500">آخر الجوائز المسلّمة</div><div className="grid gap-3">{deliveredRedemptions.slice(0,6).map((request) => <div key={request.id} className="rounded-2xl border border-violet-200 bg-violet-50/60 px-4 py-3 text-sm"><div className="flex items-center justify-between gap-3"><div className="font-bold text-slate-800">{request.itemTitle} • {request.studentName}</div><Badge tone="violet">تم التسليم</Badge></div><div className="mt-1 text-slate-500">{request.deliveryNote || request.decisionNote || request.note || '—'}</div></div>)}</div></div> : null}
       {processedRedemptions.length ? <div className="mt-6"><div className="mb-3 text-sm font-bold text-slate-500">آخر الطلبات المرفوضة</div><div className="grid gap-3">{processedRedemptions.slice(0,6).map((request) => <div key={request.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"><div className="flex items-center justify-between gap-3"><div className="font-bold text-slate-800">{request.itemTitle} • {request.studentName}</div><Badge tone="rose">مرفوض</Badge></div><div className="mt-1 text-slate-500">{request.decisionNote || request.note || '—'}</div></div>)}</div></div> : null}
-    </SectionCard>
+    </div>}
 
+    {storeTab === 'proposals' && <div className="space-y-4">
+      {pendingProposals.map((proposal) => <div key={proposal.id} className="rounded-3xl border border-amber-200 bg-amber-50/60 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="text-lg font-black text-slate-900">{proposal.title}</div>
+            <div className="text-sm text-slate-500">{proposal.guardianName || 'ولي الأمر'} • {proposal.mobileMasked || proposal.mobile || ''} • {proposal.createdAt ? new Date(proposal.createdAt).toLocaleString('ar-SA') : ''}</div>
+            <div className="text-sm text-slate-600">{proposal.note || 'بدون وصف إضافي'}</div>
+          </div>
+          <div className="text-left">
+            <Badge tone="amber">{proposal.quantity || 1} قطعة</Badge>
+            <div className="mt-2 text-xs font-bold text-slate-500">الاسم الظاهر: {proposal.showDonorName !== false ? (proposal.donorName || proposal.guardianName || 'ولي الأمر') : 'مخفي'}</div>
+          </div>
+        </div>
+        {proposal.image ? <img src={proposal.image} alt={proposal.title} className="mt-4 h-44 w-full rounded-3xl object-cover ring-1 ring-amber-200" /> : null}
+        <div className="mt-4 grid gap-3 md:grid-cols-[1fr,auto,auto]">
+          <Input label="ملاحظة المدير" value={proposalDecisionNotes[proposal.id] || ''} onChange={(e) => setProposalDecisionNotes((prev) => ({ ...prev, [proposal.id]: e.target.value }))} placeholder="مثال: يتم انتظار الاستلام من ولي الأمر قبل إدخالها للمتجر" />
+          <button type="button" onClick={() => onDecideProposal?.(proposal.id, 'approved', proposalDecisionNotes[proposal.id] || '')} className="rounded-2xl bg-emerald-700 px-5 py-3 font-bold text-white">قبول وتحويل للمخزون</button>
+          <button type="button" onClick={() => onDecideProposal?.(proposal.id, 'rejected', proposalDecisionNotes[proposal.id] || '')} className="rounded-2xl border border-rose-200 bg-white px-5 py-3 font-bold text-rose-700">رفض</button>
+        </div>
+      </div>)}
+      {!pendingProposals.length ? <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد مقترحات بانتظار الاعتماد.</div> : null}
+      {decidedProposals.length ? <div className="mt-4"><div className="mb-3 text-sm font-bold text-slate-500">آخر المقترحات المعالجة</div><div className="grid gap-3">{decidedProposals.slice(0,6).map((proposal) => <div key={proposal.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"><div className="flex items-center justify-between gap-3"><div className="font-bold text-slate-800">{proposal.title}</div><Badge tone={proposal.status === 'approved' ? 'green' : 'rose'}>{proposal.status === 'approved' ? 'مقبول للمخزون' : 'مرفوض'}</Badge></div><div className="mt-1 text-slate-500">{proposal.decisionNote || proposal.note || '—'}</div></div>)}</div></div> : null}
+    </div>}
 
-    <SectionCard title="تقارير المتجر والرسوم البيانية" icon={BarChart3} action={<div className="flex flex-wrap items-center gap-2"><button onClick={printStoreExecutiveReport} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button><button onClick={() => exportStoreDataset('items', 'xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel الجوائز</button><button onClick={() => exportStoreDataset('requests', 'csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV الطلبات</button></div>}>
+    {storeTab === 'reports' && <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <button onClick={printStoreExecutiveReport} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button>
+        <button onClick={() => exportStoreDataset('items', 'xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel الجوائز</button>
+        <button onClick={() => exportStoreDataset('requests', 'csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV الطلبات</button>
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-5">
           <div className="text-lg font-black text-slate-900">مصادر الجوائز</div>
@@ -15481,9 +15532,8 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
           </div>
         </div>
       </div>
-    </SectionCard>
+    </div>}
 
-    {decidedProposals.length ? <SectionCard title="آخر المقترحات المعالجة" icon={ClipboardList}><div className="grid gap-3">{decidedProposals.slice(0,6).map((proposal) => <div key={proposal.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"><div className="flex items-center justify-between gap-3"><div className="font-bold text-slate-800">{proposal.title}</div><Badge tone={proposal.status === 'approved' ? 'green' : 'rose'}>{proposal.status === 'approved' ? 'مقبول للمخزون' : 'مرفوض'}</Badge></div><div className="mt-1 text-slate-500">{proposal.decisionNote || proposal.note || '—'}</div></div>)}</div></SectionCard> : null}
   </div>;
 }
 
