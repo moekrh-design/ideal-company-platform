@@ -54,6 +54,9 @@ import {
   Printer,
   Unlink2,
   UserCheck,
+  Phone,
+  School2,
+  Sparkles,
 } from "lucide-react";
 import {
   Bar,
