@@ -1450,6 +1450,7 @@ function hydrateActionCatalog(actions) {
   };
 
   const mapItems = (items, fallback, mode) => (Array.isArray(items) && items.length ? items : fallback).map((item, index) => ({
+    ...item,
     id: item.id || `${mode}-${index + 1}`,
     title: item.title || `${labels[mode]} ${index + 1}`,
     points: normalizePoints(mode, item.points),
@@ -16661,6 +16662,29 @@ export default function App() {
     loadHeaderAlerts();
     return () => { cancelled = true; };
   }, [currentUser, selectedSchool?.id, notifications]);
+
+  // polling تلقائي كل دقيقتين لجلب آخر إعدادات من السيرفر
+  useEffect(() => {
+    if (!currentUser) return;
+    const pollSettings = async () => {
+      const token = getSessionToken();
+      if (!token) return;
+      try {
+        const response = await apiRequest("/api/bootstrap", { token });
+        if (!response?.state?.settings) return;
+        const newSettings = buildHydratedClientState(response.state || {}, loadUiState()).settings;
+        setSettings((prev) => {
+          // نتحقق إذا تغيرت البنود فعلاً قبل التحديث
+          const prevActions = JSON.stringify(prev?.actions || {});
+          const nextActions = JSON.stringify(newSettings?.actions || {});
+          if (prevActions !== nextActions) return newSettings;
+          return prev;
+        });
+      } catch {}
+    };
+    const intervalId = setInterval(pollSettings, 2 * 60 * 1000); // كل دقيقتين
+    return () => clearInterval(intervalId);
+  }, [currentUser]);
 
   useEffect(() => {
     if (!bootstrappedRef.current || !currentUser) return;
