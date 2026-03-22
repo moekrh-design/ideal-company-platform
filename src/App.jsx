@@ -9912,14 +9912,10 @@ function AttendancePage({ selectedSchool, currentUser, attendanceMethod, setAtte
   const attendanceSource = useMemo(() => getAttendanceStudentsSource(selectedSchool), [selectedSchool]);
   const attendanceStudents = attendanceSource.students || [];
   const manualClassrooms = useMemo(() => {
-    if (hasStructureSource) {
-      const classrooms = Array.isArray(selectedSchool?.structure?.classrooms) ? selectedSchool.structure.classrooms : [];
-      return classrooms.map((c) => ({ id: String(c.id), name: c.name || c.gradeLabel || 'فصل' }));
-    }
     const map = {};
     (attendanceStudents).forEach((s) => { if (s.classroomId && !map[s.classroomId]) map[s.classroomId] = s.classroomName || s.className || 'فصل'; });
     return Object.entries(map).map(([id, name]) => ({ id, name }));
-  }, [hasStructureSource, selectedSchool, attendanceStudents]);
+  }, [attendanceStudents]);
   const manualStudentsInClass = useMemo(() => {
     if (!manualClassroomId) return [];
     return attendanceStudents.filter((s) => String(s.classroomId) === String(manualClassroomId));
