@@ -58,6 +58,11 @@ async function dbQueryOne(text, params = []) {
   return rows[0] || null;
 }
 
+// Helper: run a query and return all rows (alias for dbQuery)
+async function dbQueryAll(text, params = []) {
+  return dbQuery(text, params);
+}
+
 // Helper: run a query with no return value
 async function dbRun(text, params = []) {
   await dbQuery(text, params);
@@ -144,6 +149,11 @@ function nowIso() {
 
 function todayStamp() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// alias for todayStamp
+function todayIso() {
+  return todayStamp();
 }
 
 function safeBackupSlug(value = 'school') {
@@ -1165,6 +1175,11 @@ async function listParentPrimaryChangeAlerts(schoolId) {
   return Array.isArray(payload?.items) ? payload.items : [];
 }
 
+// alias for listParentPrimaryChangeAlerts
+async function getParentPrimaryChangeAlerts(schoolId) {
+  return listParentPrimaryChangeAlerts(schoolId);
+}
+
 async function resolveParentPrimaryChangePolicyForProfile(profile) {
   const schoolId = Number(profile?.students?.[0]?.schoolId) || 0;
   return getParentPrimaryChangePolicy(schoolId);
@@ -1961,6 +1976,13 @@ function sanitizeUser(user) {
   return safe;
 }
 
+// Helper: extract actor from HTTP request Authorization header
+async function getActorFromRequest(req) {
+  const token = parseAuthToken(req);
+  if (!token) return null;
+  return getUserFromToken(token);
+}
+
 async function getUserFromToken(token) {
   const session = await getSession(token);
   if (!session) return null;
@@ -2545,6 +2567,58 @@ async function sendSmsMessage(config, to, text) {
   try { data = rawText ? JSON.parse(rawText) : {}; } catch { data = { rawText }; }
   if (!response.ok) throw new Error(data?.message || rawText || 'فشل إرسال SMS.');
   return { providerMessageId: data?.id || data?.messageId || '', raw: data };
+}
+
+// alias for readJsonBody
+async function parseJsonBody(req) {
+  return readJsonBody(req);
+}
+
+// Hydrate messaging center from school messaging config
+function hydrateMessagingCenter(messaging) {
+  if (!messaging) return { settings: { channels: {} }, integration: {} };
+  return {
+    settings: messaging.settings || { channels: {} },
+    integration: messaging.integration || {},
+  };
+}
+
+// Get parent portal policy meta (global alerts)
+async function getParentPortalPolicyMeta() {
+  const payload = await appMetaGetJson('parent_portal_policy_meta');
+  return payload || { alerts: [] };
+}
+
+// Try to send OTP via a channel (SMS/WhatsApp)
+async function trySendOtpToChannel({ channel, recipient, message }) {
+  try {
+    if (channel === 'sms') {
+      // Try to find school messaging config
+      const state = getSharedState();
+      const school = (state.schools || [])[0];
+      const messaging = hydrateMessagingCenter(school?.messaging);
+      if (messaging?.settings?.channels?.sms && messaging?.integration?.sms) {
+        await sendSmsMessage(messaging.integration.sms, recipient, message);
+        return { ok: true };
+      }
+    } else if (channel === 'whatsapp') {
+      const state = getSharedState();
+      const school = (state.schools || [])[0];
+      const messaging = hydrateMessagingCenter(school?.messaging);
+      if (messaging?.settings?.channels?.whatsapp && messaging?.integration?.whatsapp) {
+        await sendWhatsappCloudMessage(messaging.integration.whatsapp, recipient, message);
+        return { ok: true };
+      }
+    }
+    return { ok: false, reason: 'channel_not_configured' };
+  } catch (error) {
+    return { ok: false, reason: String(error?.message || 'send_failed') };
+  }
+}
+
+// alias for generateOtpCode
+function generateOtp(length = 6) {
+  return generateOtpCode(length);
 }
 
 async function dispatchChannelMessage(channel, config, recipient, text) {
