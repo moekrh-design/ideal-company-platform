@@ -2967,9 +2967,45 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
     violationStats,
     structureSpotlight,
     gateStats,
+    lessonAttendanceSummary: buildLessonAttendanceSummaryForServer(school),
   };
 }
-
+function buildLessonAttendanceSummaryForServer(school) {
+  const sessions = Array.isArray(school?.lessonAttendanceSessions) ? school.lessonAttendanceSessions : [];
+  if (!sessions.length) return null;
+  const sorted = [...sessions].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  const session = sorted.find((s) => String(s.status || 'open') !== 'closed') || sorted[0];
+  if (!session) return null;
+  const submissions = Array.isArray(session.submissions) ? session.submissions : [];
+  const invites = Array.isArray(session.teacherInvites) ? session.teacherInvites : [];
+  const targetIds = Array.isArray(session.targetTeacherIds) ? session.targetTeacherIds : [];
+  const expectedTeachers = targetIds.length || invites.length || 0;
+  const sentTeachers = invites.filter((item) => item.sentAt).length;
+  const openedTeachers = submissions.filter((item) => item.opened).length;
+  const submittedTeachers = new Set(submissions.map((item) => String(item.teacherId || ''))).size;
+  const totalPresent = submissions.reduce((sum, item) => sum + Number(item.presentCount || 0), 0);
+  const totalAbsent = submissions.reduce((sum, item) => sum + Number(item.absentCount || 0), 0);
+  const classRows = submissions.map((item) => ({
+    name: item.className || '—',
+    present: Number(item.presentCount || 0),
+    absent: Number(item.absentCount || 0),
+  }));
+  const slotLabel = session.slotLabel || 'حصة';
+  const dateIso = session.dateIso || '';
+  const label = `${slotLabel}${dateIso ? ' — ' + dateIso.slice(0, 10) : ''}`;
+  return {
+    id: session.id,
+    label,
+    status: session.status || 'open',
+    expectedTeachers,
+    sentTeachers,
+    openedTeachers,
+    submittedTeachers,
+    totalPresent,
+    totalAbsent,
+    classRows,
+  };
+}
 function findGateConfigByToken(state, token) {
   for (const school of state.schools) {
     const gate = school.smartLinks?.gates?.find((item) => item.token === token);

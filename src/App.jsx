@@ -11956,6 +11956,7 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
   const [teacherAcknowledgement, setTeacherAcknowledgement] = useState(false);
   const [teacherStatus, setTeacherStatus] = useState('');
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [allowResubmit, setAllowResubmit] = useState(false);
   const [targetTeacherIds, setTargetTeacherIds] = useState([]);
   const [sendStatus, setSendStatus] = useState('');
   const [customMessage, setCustomMessage] = useState('');
@@ -12006,6 +12007,8 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
       setTeacherAbsentIds([]);
       setTeacherAcknowledgement(false);
     }
+    // إعادة تعيين وضع إعادة التحضير عند تغيير الجلسة أو الفصل
+    setAllowResubmit(false);
   }, [existingTeacherSubmission, selectedSessionId, teacherClassKey]);
 
   useEffect(() => {
@@ -12040,7 +12043,11 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
     if (!teacherAcknowledgement) return setTeacherStatus('يلزم إقرار المعلم بصحة التحضير قبل الحفظ.');
     const result = onSubmitSession({ sessionId: selectedSession.id, classKey: teacherClassKey, acknowledgement: teacherAcknowledgement, absentStudentIds: teacherAbsentIds });
     setTeacherStatus(result?.message || (result?.ok ? 'تم الحفظ.' : 'تعذر الحفظ.'));
-    if (result?.ok) { setSubmitSuccess(true); setTimeout(() => setSubmitSuccess(false), 2500); }
+    if (result?.ok) {
+      setSubmitSuccess(true);
+      setAllowResubmit(false);
+      setTimeout(() => setSubmitSuccess(false), 3000);
+    }
   };
 
   const handleSendInvitesNow = async () => {
@@ -12323,35 +12330,51 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
                             <option value="">اختر الفصل</option>
                             {teacherClassrooms.map((row) => <option key={getClassroomKeyFromCompanyRow(row)} value={getClassroomKeyFromCompanyRow(row)}>{row.name} ({row.studentsCount})</option>)}
                           </Select>
-                          <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="font-black text-slate-900">قائمة الطلاب</div>
-                              <Badge tone="green">الجميع حاضر افتراضيًا</Badge>
+                          {/* إذا سبق للمعلم التحضير ولم يطلب إعادة التحضير، نعرض رسالة الاعتماد وزر إعادة التحضير */}
+                          {existingTeacherSubmission && !allowResubmit ? (
+                            <div className="rounded-2xl bg-emerald-50 p-5 ring-1 ring-emerald-200">
+                              <div className="flex items-center gap-3">
+                                <span className="text-2xl">✅</span>
+                                <div>
+                                  <div className="font-black text-emerald-800">تم اعتماد التحضير بنجاح</div>
+                                  <div className="mt-1 text-xs text-emerald-700">آخر حفظ: {new Date(existingTeacherSubmission.submittedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })} — الغائبون: {existingTeacherSubmission.absentCount || 0} طالب</div>
+                                </div>
+                              </div>
+                              <button onClick={() => { setAllowResubmit(true); setTeacherStatus(''); }} className="mt-4 w-full rounded-2xl bg-amber-500 px-4 py-3 text-sm font-black text-white hover:bg-amber-600 transition-colors">إعادة التحضير (تعديل)</button>
                             </div>
-                            <div className="mt-3 max-h-[22rem] overflow-auto space-y-2">
-                              {teacherClassStudents.length ? teacherClassStudents.map((student) => {
-                                const absent = teacherAbsentIds.includes(String(student.id));
-                                return (
-                                  <button key={student.id} onClick={() => toggleAbsent(student.id)} className={cx('flex w-full items-center justify-between rounded-2xl px-4 py-3 text-right ring-1 transition', absent ? 'bg-rose-50 text-rose-900 ring-rose-200' : 'bg-emerald-50 text-emerald-900 ring-emerald-200')}>
-                                    <div>
-                                      <div className="font-black">{student.name}</div>
-                                      <div className="mt-1 text-xs opacity-80">{student.studentNumber || student.nationalId || '—'}</div>
-                                    </div>
-                                    <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-black">{absent ? 'غائب' : 'حاضر'}</span>
-                                  </button>
-                                );
-                              }) : <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">اختر الفصل لعرض الطلاب.</div>}
-                            </div>
-                          </div>
-                          <label className="flex items-start gap-3 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200">
-                            <input type="checkbox" checked={teacherAcknowledgement} onChange={(e) => setTeacherAcknowledgement(e.target.checked)} className="mt-1 h-4 w-4 rounded border-slate-300" />
-                            <span>أقر بصحة التحضير لهذه الحصة وأن البيانات المدخلة مطابقة لواقع الفصل.</span>
-                          </label>
-                          <div className="flex flex-wrap items-center gap-3">
-                            <button onClick={handleTeacherSubmit} className={`rounded-2xl px-5 py-3 text-sm font-black text-white transition-all duration-300 ${submitSuccess ? "bg-emerald-600 scale-105 shadow-lg shadow-emerald-200" : "bg-sky-700"}`}>{submitSuccess ? "✓ تم الاعتماد بنجاح!" : "اعتماد التحضير"}</button>
-                            {teacherStatus ? <Badge tone={/تم/.test(teacherStatus) ? 'green' : 'amber'}>{teacherStatus}</Badge> : null}
-                            {existingTeacherSubmission ? <Badge tone="blue">آخر حفظ: {new Date(existingTeacherSubmission.submittedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</Badge> : null}
-                          </div>
+                          ) : (
+                            <>
+                              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="font-black text-slate-900">قائمة الطلاب</div>
+                                  <Badge tone="green">الجميع حاضر افتراضيًا</Badge>
+                                </div>
+                                <div className="mt-3 max-h-[22rem] overflow-auto space-y-2">
+                                  {teacherClassStudents.length ? teacherClassStudents.map((student) => {
+                                    const absent = teacherAbsentIds.includes(String(student.id));
+                                    return (
+                                      <button key={student.id} onClick={() => toggleAbsent(student.id)} className={cx('flex w-full items-center justify-between rounded-2xl px-4 py-3 text-right ring-1 transition', absent ? 'bg-rose-50 text-rose-900 ring-rose-200' : 'bg-emerald-50 text-emerald-900 ring-emerald-200')}>
+                                        <div>
+                                          <div className="font-black">{student.name}</div>
+                                          <div className="mt-1 text-xs opacity-80">{student.studentNumber || student.nationalId || '—'}</div>
+                                        </div>
+                                        <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-black">{absent ? 'غائب' : 'حاضر'}</span>
+                                      </button>
+                                    );
+                                  }) : <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">اختر الفصل لعرض الطلاب.</div>}
+                                </div>
+                              </div>
+                              <label className="flex items-start gap-3 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200">
+                                <input type="checkbox" checked={teacherAcknowledgement} onChange={(e) => setTeacherAcknowledgement(e.target.checked)} className="mt-1 h-4 w-4 rounded border-slate-300" />
+                                <span>أقر بصحة التحضير لهذه الحصة وأن البيانات المدخلة مطابقة لواقع الفصل.</span>
+                              </label>
+                              <div className="flex flex-wrap items-center gap-3">
+                                <button onClick={handleTeacherSubmit} className={`rounded-2xl px-5 py-3 text-sm font-black text-white transition-all duration-300 ${submitSuccess ? 'bg-emerald-600 scale-105 shadow-lg shadow-emerald-200' : 'bg-sky-700 hover:bg-sky-800'}`}>{submitSuccess ? '✓ تم الاعتماد بنجاح!' : 'اعتماد التحضير'}</button>
+                                {allowResubmit ? <button onClick={() => { setAllowResubmit(false); setTeacherStatus(''); }} className="rounded-2xl bg-slate-200 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-300 transition-colors">إلغاء التعديل</button> : null}
+                                {teacherStatus ? <Badge tone={/تم/.test(teacherStatus) ? 'green' : 'amber'}>{teacherStatus}</Badge> : null}
+                              </div>
+                            </>
+                          )}
                         </div>
                       ) : <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-4 text-sm font-bold text-amber-900 ring-1 ring-amber-200">الجلسة الحالية مغلقة.</div>}
                     </div>
@@ -18256,6 +18279,15 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
       lessonAttendanceSessions: [session, ...getLessonAttendanceSessions(school)],
     }));
     pushNotification('جلسة تحضير جديدة', `تم إنشاء ${buildLessonAttendanceSessionLabel(session)} وإتاحة رابطها للمعلمين.`);
+    // إرسال تنبيه لجميع المعلمين النشطين في المدرسة
+    const schoolTeachers = (users || []).filter((user) => Number(user.schoolId) === Number(selectedSchool.id) && String(user.role) === 'teacher' && String(user.status || 'نشط') === 'نشط');
+    if (schoolTeachers.length) {
+      const sessionLabel = buildLessonAttendanceSessionLabel(session);
+      setNotifications((prev) => [
+        { id: Date.now() + 1, title: 'طلب تحضير حصة', body: `طلب منك المدير تحضير ${sessionLabel}. افتح صفحة تحضير الحصص للبدء.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: schoolTeachers.map((t) => t.id) },
+        ...prev,
+      ].slice(0, 30));
+    }
     return { ok: true, session, message: 'تم إنشاء جلسة التحضير.' };
   };
 
