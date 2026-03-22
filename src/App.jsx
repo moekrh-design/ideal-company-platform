@@ -696,6 +696,28 @@ const defaultSettings = {
     duplicateScanBlocked: true,
   },
   exportPrefix: "ideal-company-platform",
+  subjectBank: [
+    "القرآن الكريم",
+    "التوحيد",
+    "الفقه",
+    "التفسير",
+    "الحديث",
+    "اللغة العربية",
+    "النحو والصرف",
+    "الأدب والبلاغة",
+    "الرياضيات",
+    "العلوم",
+    "الفيزياء",
+    "الكيمياء",
+    "الأحياء",
+    "التاريخ",
+    "الجغرافيا",
+    "التربية الوطنية",
+    "اللغة الإنجليزية",
+    "الحاسب الآلي",
+    "التربية البدنية",
+    "الفنون",
+  ],
   actions: defaultActionCatalog,
   auth: {
     allowPasswordLogin: true,
@@ -1367,6 +1389,12 @@ function hydrateSchools(schools) {
     ...school,
     access: getSchoolAccess(school),
     smartLinks: normalizeSmartLinks(school?.smartLinks),
+    customBranding: school.customBranding ? {
+      enabled: Boolean(school.customBranding.enabled),
+      allowed: Boolean(school.customBranding.allowed),
+      platformName: String(school.customBranding.platformName || '').trim(),
+      logoUrl: String(school.customBranding.logoUrl || '').trim(),
+    } : { enabled: false, allowed: false, platformName: '', logoUrl: '' },
     companies: (school.companies || []).map((company) => ({
       id: company.id,
       name: company.name,
@@ -1563,6 +1591,7 @@ function buildHydratedClientState(parsed = {}, uiState = {}) {
       teacherPoints: { ...defaultSettings.teacherPoints, ...(parsed.settings?.teacherPoints || {}) },
       devices: { ...defaultSettings.devices, ...(parsed.settings?.devices || {}) },
       actions: hydrateActionCatalog(parsed.settings?.actions || defaultSettings.actions),
+      subjectBank: Array.isArray(parsed.settings?.subjectBank) ? parsed.settings.subjectBank : defaultSettings.subjectBank,
       auth: {
         ...defaultSettings.auth,
         ...(parsed.settings?.auth || {}),
@@ -7621,7 +7650,7 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
   );
 }
 
-function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddSchool, onDeleteSchool, onExportSchool }) {
+function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddSchool, onDeleteSchool, onExportSchool, onUpdateSchoolBranding }) {
   const [form, setForm] = useState({ name: "", city: "", code: "", manager: "", principalUsername: "", principalEmail: "", principalPassword: "123456" });
   const [schoolSaveStatus, setSchoolSaveStatus] = useState('idle'); // idle | saving | saved
 
@@ -7703,6 +7732,45 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
               </div>
             </div>
           </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="تخصيص هوية المنصة لكل مدرسة" icon={ShieldCheck} action={<Badge tone="violet">صلاحيات White-Label</Badge>}>
+        <div className="mb-4 rounded-2xl bg-violet-50 px-4 py-3 text-sm leading-7 text-violet-900 ring-1 ring-violet-200">
+          يمكنك منح كل مدرسة صلاحية تغيير اسم المنصة وشعارها بشكل مستقل دون التأثير على المدارس الأخرى. عند تفعيل الصلاحية، يظهر قسم التخصيص لمدير المدرسة في إعداداته.
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {schools.map((school) => (
+            <div key={school.id} className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="font-black text-slate-900">{school.name}</div>
+                  <div className="mt-1 text-sm text-slate-500">{school.city} • {school.code}</div>
+                </div>
+                <Badge tone={school.customBranding?.allowed ? 'violet' : 'slate'}>
+                  {school.customBranding?.allowed ? 'مفعلة' : 'غير مفعلة'}
+                </Badge>
+              </div>
+              {school.customBranding?.allowed && school.customBranding?.platformName && (
+                <div className="mt-3 rounded-2xl bg-violet-50 px-3 py-2 text-sm">
+                  <span className="font-bold text-violet-800">الاسم المخصص:</span> <span className="text-violet-700">{school.customBranding.platformName}</span>
+                </div>
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => onUpdateSchoolBranding?.(school.id, { allowed: !school.customBranding?.allowed })}
+                  className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${
+                    school.customBranding?.allowed
+                      ? 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                      : 'bg-violet-700 text-white hover:bg-violet-800'
+                  }`}
+                >
+                  {school.customBranding?.allowed ? 'إلغاء صلاحية التخصيص' : 'منح صلاحية التخصيص'}
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </SectionCard>
     </div>
@@ -8974,7 +9042,69 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, actionLog, s
             )}
             {form.role === 'teacher' ? (
               <div className="md:col-span-2">
-                <Input label="المواد التي يدرسها" value={(form.subjects || []).join('، ')} onChange={(e) => setForm((prev) => ({ ...prev, subjects: parseTeacherSubjects(e.target.value), specialItems: hydrateTeacherSpecialItems(prev.specialItems || []).filter((item) => parseTeacherSubjects(e.target.value).includes(item.subject)) }))} placeholder="مثال: رياضيات، علوم" />
+                <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                  <div className="mb-3">
+                    <div className="font-black text-slate-900">المواد التي يدرّسها</div>
+                    <div className="mt-1 text-sm text-slate-500">اختر من بنك المواد أو أضف مادة جديدة يدوياً</div>
+                  </div>
+                  {(settings?.subjectBank || defaultSettings.subjectBank).length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {(settings?.subjectBank || defaultSettings.subjectBank).map((subject) => {
+                        const selected = (form.subjects || []).includes(subject);
+                        return (
+                          <button
+                            key={subject}
+                            type="button"
+                            onClick={() => {
+                              const current = form.subjects || [];
+                              const updated = selected ? current.filter((s) => s !== subject) : [...current, subject];
+                              setForm((prev) => ({ ...prev, subjects: updated, specialItems: hydrateTeacherSpecialItems(prev.specialItems || []).filter((item) => updated.includes(item.subject)) }));
+                            }}
+                            className={`rounded-2xl px-3 py-2 text-sm font-bold transition ${
+                              selected ? 'bg-sky-700 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            {selected ? '✓ ' : ''}{subject}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Input
+                      label="إضافة مادة يدوياً"
+                      value={form._subjectInput || ''}
+                      onChange={(e) => setForm((prev) => ({ ...prev, _subjectInput: e.target.value }))}
+                      placeholder="مثال: التربية الإسلامية"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const val = String(form._subjectInput || '').trim();
+                        if (!val) return;
+                        const current = form.subjects || [];
+                        if (!current.includes(val)) {
+                          setForm((prev) => ({ ...prev, subjects: [...current, val], _subjectInput: '' }));
+                        } else {
+                          setForm((prev) => ({ ...prev, _subjectInput: '' }));
+                        }
+                      }}
+                      className="mt-6 shrink-0 rounded-2xl bg-sky-700 px-4 py-3 text-sm font-bold text-white"
+                    >
+                      إضافة
+                    </button>
+                  </div>
+                  {(form.subjects || []).length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(form.subjects || []).map((subject) => (
+                        <span key={subject} className="inline-flex items-center gap-1 rounded-2xl bg-sky-100 px-3 py-1 text-sm font-bold text-sky-800">
+                          {subject}
+                          <button type="button" onClick={() => setForm((prev) => ({ ...prev, subjects: prev.subjects.filter((s) => s !== subject) }))} className="text-sky-600 hover:text-rose-600">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             ) : null}
             <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600 ring-1 ring-slate-200 md:col-span-2">
@@ -13708,7 +13838,7 @@ function TeacherPointsReport({ schoolActions, settings }) {
   );
 }
 
-function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schools, currentUser, onSaveSettings, onRestoreBackup, onResetData, onExportBackup, onImportStudents, onDownloadTemplate, setAttendanceMethod, forcedTab = null, titleOverride = "", descriptionOverride = "" }) {
+function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schools, currentUser, onSaveSettings, onRestoreBackup, onResetData, onExportBackup, onImportStudents, onDownloadTemplate, setAttendanceMethod, onUpdateSchoolBranding, forcedTab = null, titleOverride = "", descriptionOverride = "" }) {
   const [tab, setTab] = useState(forcedTab || "general");
   const [localSettings, setLocalSettings] = useState(settings);
   const [importMessage, setImportMessage] = useState("");
@@ -13825,6 +13955,7 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
   ] : [
     { key: "general", label: "هوية وتشغيل" },
     { key: "attendance", label: "الحضور" },
+    { key: "subjects", label: "بنك المواد" },
     { key: "import", label: "الطلاب" },
     { key: "devices", label: "الأجهزة" },
     ...(canViewParentPortal ? [{ key: "parentPortal", label: "بوابة ولي الأمر" }] : []),
@@ -13877,6 +14008,35 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
 
   const authTargeting = localSettings.auth?.targeting || { applyScope: 'all', selectedRoleKeys: [], selectedUserIds: [], excludedUserIds: [], forceForSelected: false };
   const canEditGlobalIdentity = currentUser?.role === 'superadmin';
+  const canCustomizeBranding = !canEditGlobalIdentity && selectedSchool?.customBranding?.allowed === true;
+  const [localBranding, setLocalBranding] = useState({
+    platformName: selectedSchool?.customBranding?.platformName || '',
+    logoUrl: selectedSchool?.customBranding?.logoUrl || '',
+    enabled: selectedSchool?.customBranding?.enabled || false,
+  });
+  const [brandingSaveStatus, setBrandingSaveStatus] = useState('idle');
+
+  const saveSchoolBranding = () => {
+    if (!onUpdateSchoolBranding || !selectedSchool?.id) return;
+    setBrandingSaveStatus('saving');
+    setTimeout(() => {
+      onUpdateSchoolBranding(selectedSchool.id, {
+        allowed: true,
+        enabled: localBranding.enabled,
+        platformName: localBranding.platformName.trim(),
+        logoUrl: localBranding.logoUrl.trim(),
+      });
+      setBrandingSaveStatus('saved');
+      setTimeout(() => setBrandingSaveStatus('idle'), 2500);
+    }, 400);
+  };
+
+  const handleSchoolLogoUpload = async (file) => {
+    if (!file) return;
+    const dataUrl = await fileToDataUrl(file);
+    setLocalBranding((prev) => ({ ...prev, logoUrl: dataUrl }));
+  };
+
   const authManagedUsers = useMemo(() => (users || []).map((user) => ({ ...user, schoolName: schools.find((school) => Number(school.id) === Number(user.schoolId))?.name || 'بدون مدرسة' })), [users, schools]);
   const handleBrandLogoUpload = async (type, file) => {
     if (!file) return;
@@ -14141,6 +14301,68 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
                 ))}
               </div>
             </div>
+
+            {canCustomizeBranding && (
+              <div className="rounded-3xl bg-violet-50 p-5 ring-1 ring-violet-200">
+                <div className="mb-4">
+                  <div className="font-black text-violet-900">تخصيص هوية المنصة لمدرستك</div>
+                  <div className="mt-1 text-sm leading-7 text-violet-700">تم منحك صلاحية تغيير اسم المنصة وشعارها لمدرستك بشكل مستقل دون التأثير على المدارس الأخرى.</div>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <Input
+                    label="اسم المنصة المخصص لمدرستك"
+                    value={localBranding.platformName}
+                    onChange={(e) => setLocalBranding((prev) => ({ ...prev, platformName: e.target.value }))}
+                    placeholder="مثال: منصة متوسطة الأبناء الثالثة"
+                  />
+                  <div className="rounded-3xl bg-white p-4 ring-1 ring-violet-200">
+                    <div className="font-black text-slate-900">شعار المدرسة</div>
+                    <div className="mt-1 text-sm text-slate-500">يظهر في الشريط الجانبي بدلاً من الشعار الافتراضي</div>
+                    <div className="mt-3 flex items-center gap-3">
+                      {localBranding.logoUrl ? (
+                        <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-slate-50 ring-1 ring-slate-200">
+                          <img src={localBranding.logoUrl} alt="شعار المدرسة" className="h-full w-full object-contain p-1" />
+                        </div>
+                      ) : (
+                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 ring-1 ring-slate-200">
+                          <Building2 className="h-7 w-7 text-slate-400" />
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-violet-700 px-4 py-2 text-sm font-bold text-white">
+                          <Upload className="h-4 w-4" />
+                          رفع الشعار
+                          <input type="file" accept="image/*" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (file) await handleSchoolLogoUpload(file); e.target.value = ''; }} />
+                        </label>
+                        {localBranding.logoUrl && (
+                          <button type="button" onClick={() => setLocalBranding((prev) => ({ ...prev, logoUrl: '' }))} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">إزالة</button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center gap-3">
+                  <label className="flex cursor-pointer items-center gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-violet-200">
+                    <input
+                      type="checkbox"
+                      checked={localBranding.enabled}
+                      onChange={(e) => setLocalBranding((prev) => ({ ...prev, enabled: e.target.checked }))}
+                    />
+                    <span className="font-bold text-slate-800">تفعيل الهوية المخصصة (تظهر في الشريط الجانبي)</span>
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  onClick={saveSchoolBranding}
+                  disabled={brandingSaveStatus === 'saving'}
+                  className={`mt-4 inline-flex items-center gap-2 rounded-2xl px-5 py-3 font-bold text-white transition-all duration-300 ${
+                    brandingSaveStatus === 'saved' ? 'scale-105 bg-emerald-600' : brandingSaveStatus === 'saving' ? 'cursor-wait bg-violet-400' : 'bg-violet-700 hover:bg-violet-800'
+                  }`}
+                >
+                  {brandingSaveStatus === 'saving' ? <><RefreshCw className="h-4 w-4 animate-spin" /> جارٍ الحفظ...</> : brandingSaveStatus === 'saved' ? <><CheckCircle className="h-4 w-4" /> تم الحفظ ✓</> : <><Save className="h-4 w-4" /> حفظ هوية المدرسة</>}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -14177,6 +14399,12 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
           </div>
         )}
 
+        {tab === "subjects" && (
+          <SubjectBankEditor
+            subjectBank={localSettings.subjectBank || defaultSettings.subjectBank}
+            onChange={(updated) => setLocalSettings((prev) => ({ ...prev, subjectBank: updated }))}
+          />
+        )}
 
         {tab === "import" && (
           <div className="space-y-4">
@@ -14663,6 +14891,114 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
           <button onClick={() => setLocalSettings(settings)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-5 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> التراجع</button>
         </div>
       </SectionCard>
+    </div>
+  );
+}
+
+function SubjectBankEditor({ subjectBank = [], onChange }) {
+  const [draft, setDraft] = useState('');
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingValue, setEditingValue] = useState('');
+
+  const addSubject = () => {
+    const val = draft.trim();
+    if (!val) return;
+    if (subjectBank.includes(val)) { window.alert('هذه المادة موجودة بالفعل في البنك.'); return; }
+    onChange([...subjectBank, val]);
+    setDraft('');
+  };
+
+  const removeSubject = (index) => {
+    onChange(subjectBank.filter((_, i) => i !== index));
+  };
+
+  const startEdit = (index) => {
+    setEditingIndex(index);
+    setEditingValue(subjectBank[index]);
+  };
+
+  const saveEdit = () => {
+    const val = editingValue.trim();
+    if (!val) return;
+    const updated = [...subjectBank];
+    updated[editingIndex] = val;
+    onChange(updated);
+    setEditingIndex(null);
+    setEditingValue('');
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-100">
+          <div className="text-sm font-bold text-sky-800">عدد المواد</div>
+          <div className="mt-3 text-3xl font-black text-slate-900">{subjectBank.length}</div>
+          <div className="mt-2 text-sm text-slate-600">مادة مسجلة في بنك المواد</div>
+        </div>
+        <div className="rounded-3xl bg-emerald-50 p-5 ring-1 ring-emerald-100">
+          <div className="text-sm font-bold text-emerald-800">استخدام البنك</div>
+          <div className="mt-3 text-2xl font-black text-slate-900">تلقائي</div>
+          <div className="mt-2 text-sm text-slate-600">يظهر البنك عند إضافة أو تعديل حساب معلم</div>
+        </div>
+        <div className="rounded-3xl bg-violet-50 p-5 ring-1 ring-violet-100">
+          <div className="text-sm font-bold text-violet-800">مرونة كاملة</div>
+          <div className="mt-3 text-2xl font-black text-slate-900">إضافة / تعديل / حذف</div>
+          <div className="mt-2 text-sm text-slate-600">يمكن تخصيص البنك بالكامل حسب احتياجات المدرسة</div>
+        </div>
+      </div>
+
+      <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+        <div className="mb-4">
+          <div className="font-black text-slate-900">إدارة بنك المواد الدراسية</div>
+          <div className="mt-1 text-sm leading-7 text-slate-500">هذه المواد تظهر كأزرار سريعة عند إضافة أو تعديل حساب معلم، مما يسرّع عملية تحديد مواده بدلاً من كتابتها يدوياً.</div>
+        </div>
+
+        <div className="mb-4 flex gap-2">
+          <Input
+            label="اسم المادة الجديدة"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubject(); } }}
+            placeholder="مثال: التربية الإسلامية"
+          />
+          <button type="button" onClick={addSubject} className="mt-6 shrink-0 inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white">
+            <Plus className="h-4 w-4" /> إضافة
+          </button>
+        </div>
+
+        {subjectBank.length > 0 ? (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {subjectBank.map((subject, index) => (
+              <div key={index} className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
+                {editingIndex === index ? (
+                  <div className="flex flex-1 items-center gap-2">
+                    <input
+                      type="text"
+                      value={editingValue}
+                      onChange={(e) => setEditingValue(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') { setEditingIndex(null); setEditingValue(''); } }}
+                      className="flex-1 rounded-xl border border-slate-300 px-3 py-1.5 text-sm font-bold outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+                      autoFocus
+                    />
+                    <button type="button" onClick={saveEdit} className="rounded-xl bg-sky-700 px-3 py-1.5 text-xs font-bold text-white">حفظ</button>
+                    <button type="button" onClick={() => { setEditingIndex(null); setEditingValue(''); }} className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700">إلغاء</button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="font-bold text-slate-800">{subject}</span>
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => startEdit(index)} className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200">تعديل</button>
+                      <button type="button" onClick={() => removeSubject(index)} className="rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-100">حذف</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">بنك المواد فارغ. أضف مواد لتظهر عند إضافة المعلمين.</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -17304,6 +17640,16 @@ export default function App() {
     pushNotification('تمت إضافة مدرسة', `أضيفت المدرسة ${form.name} وتم إنشاء مدير المدرسة بحساب ${normalizedPrincipalUsername}.`);
   };
 
+  const handleUpdateSchoolBranding = (schoolId, patch) => {
+    setSchools((prev) => prev.map((school) => school.id !== schoolId ? school : {
+      ...school,
+      customBranding: {
+        ...(school.customBranding || { enabled: false, allowed: false, platformName: '', logoUrl: '' }),
+        ...patch,
+      },
+    }));
+  };
+
   const handleDeleteSchool = (schoolId) => {
     if (schools.length === 1) {
       window.alert("لا يمكن حذف آخر مدرسة داخل المنصة.");
@@ -18884,7 +19230,7 @@ ${buildLessonSessionLink(sessionId)}
     if (currentUser.role === "student") return <StudentRolePage selectedSchool={selectedSchool} currentUser={currentUser} onCreateRewardRedemptionRequest={handleCreateRewardRedemptionRequest} />;
     switch (activePage) {
       case "schools":
-        return <SchoolsPage schools={schools} selectedSchoolId={selectedSchoolId} setSelectedSchoolId={setSelectedSchoolId} onAddSchool={handleAddSchool} onDeleteSchool={handleDeleteSchool} onExportSchool={exportSchoolSnapshot} />;
+        return <SchoolsPage schools={schools} selectedSchoolId={selectedSchoolId} setSelectedSchoolId={setSelectedSchoolId} onAddSchool={handleAddSchool} onDeleteSchool={handleDeleteSchool} onExportSchool={exportSchoolSnapshot} onUpdateSchoolBranding={handleUpdateSchoolBranding} />;
       case "companies":
         return <CompaniesPage selectedSchool={selectedSchool} onAddCompany={handleAddCompany} onDeleteCompany={handleDeleteCompany} onAwardInitiative={handleAwardInitiative} />;
       case "students":
@@ -18933,7 +19279,7 @@ ${buildLessonSessionLink(sessionId)}
       case "parentsAudit":
         return <ParentAuditFeedPage currentUser={currentUser} selectedSchool={selectedSchool} onSendMessage={handleSendSchoolMessage} onNavigate={setActivePage} />;
       case "settings":
-        return <SettingsPage selectedSchool={selectedSchool} settings={settings} attendanceMethod={attendanceMethod} users={users} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onRestoreBackup={restoreBackup} onResetData={resetData} onExportBackup={exportBackup} onImportStudents={handleImportStudentsFromExcel} onDownloadTemplate={downloadStudentImportTemplate} setAttendanceMethod={setAttendanceMethod} />;
+        return <SettingsPage selectedSchool={selectedSchool} settings={settings} attendanceMethod={attendanceMethod} users={users} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onRestoreBackup={restoreBackup} onResetData={resetData} onExportBackup={exportBackup} onImportStudents={handleImportStudentsFromExcel} onDownloadTemplate={downloadStudentImportTemplate} setAttendanceMethod={setAttendanceMethod} onUpdateSchoolBranding={handleUpdateSchoolBranding} />;
       case "platformAuth":
         return <PlatformAuthSettingsPage selectedSchool={selectedSchool} settings={settings} attendanceMethod={attendanceMethod} users={users} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onRestoreBackup={restoreBackup} onResetData={resetData} onExportBackup={exportBackup} onImportStudents={handleImportStudentsFromExcel} onDownloadTemplate={downloadStudentImportTemplate} setAttendanceMethod={setAttendanceMethod} />;
     case "classes":
@@ -18975,10 +19321,20 @@ ${buildLessonSessionLink(sessionId)}
         <aside className="border-l border-slate-200 bg-white p-4 lg:p-5">
           <div className="rounded-[2rem] bg-gradient-to-l from-sky-800 via-cyan-700 to-emerald-600 p-5 text-white shadow-lg">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-white/20"><Building2 className="h-7 w-7" /></div>
+              <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-3xl bg-white/20">
+                {selectedSchool?.customBranding?.enabled && selectedSchool?.customBranding?.logoUrl
+                  ? <img src={selectedSchool.customBranding.logoUrl} alt="شعار" className="h-full w-full object-contain p-1" />
+                  : <Building2 className="h-7 w-7" />
+                }
+              </div>
               <Badge tone="blue">هيكل مؤسسي</Badge>
             </div>
-            <div className="mt-4 text-2xl font-black leading-tight">{settings.platformName}</div>
+            <div className="mt-4 text-2xl font-black leading-tight">
+              {selectedSchool?.customBranding?.enabled && selectedSchool?.customBranding?.platformName
+                ? selectedSchool.customBranding.platformName
+                : settings.platformName
+              }
+            </div>
             <div className="mt-2 text-sm leading-7 text-white/90">منصة متعددة المدارس: أدمن عام، مدراء مدارس، معلمون، بوابات حضور، وصلاحيات تفصيلية قابلة للتوسّع.</div>
           </div>
 
@@ -19229,7 +19585,73 @@ function UserEditor({ editingUser, schools, currentUser, actionLog, settings, on
         {roleOptions.map((role) => <option key={role.key} value={role.key}>{role.label}</option>)}
       </Select>
       {form.role !== "superadmin" && <Select label="المدرسة" value={form.schoolId || ""} onChange={(e) => setForm((prev) => ({ ...prev, schoolId: Number(e.target.value) }))} disabled={!canManageAll}>{schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</Select>}
-      {form.role === "teacher" ? <div className="md:col-span-2"><Input label="المواد التي يدرسها" value={(form.subjects || []).join("، ")} onChange={(e) => setForm((prev) => ({ ...prev, subjects: parseTeacherSubjects(e.target.value), specialItems: hydrateTeacherSpecialItems(prev.specialItems || []).filter((item) => parseTeacherSubjects(e.target.value).includes(item.subject)) }))} placeholder="مثال: رياضيات، علوم" /></div> : null}
+      {form.role === "teacher" ? (
+        <div className="md:col-span-2">
+          <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+            <div className="mb-3">
+              <div className="font-black text-slate-900">المواد التي يدرّسها</div>
+              <div className="mt-1 text-sm text-slate-500">اختر من بنك المواد أو أضف مادة جديدة يدوياً</div>
+            </div>
+            {(settings?.subjectBank || defaultSettings.subjectBank).length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {(settings?.subjectBank || defaultSettings.subjectBank).map((subject) => {
+                  const selected = (form.subjects || []).includes(subject);
+                  return (
+                    <button
+                      key={subject}
+                      type="button"
+                      onClick={() => {
+                        const current = form.subjects || [];
+                        const updated = selected ? current.filter((s) => s !== subject) : [...current, subject];
+                        setForm((prev) => ({ ...prev, subjects: updated, specialItems: hydrateTeacherSpecialItems(prev.specialItems || []).filter((item) => updated.includes(item.subject)) }));
+                      }}
+                      className={`rounded-2xl px-3 py-2 text-sm font-bold transition ${
+                        selected ? 'bg-sky-700 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {selected ? '✓ ' : ''}{subject}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <Input
+                label="إضافة مادة يدوياً"
+                value={form._subjectInput || ''}
+                onChange={(e) => setForm((prev) => ({ ...prev, _subjectInput: e.target.value }))}
+                placeholder="مثال: التربية الإسلامية"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const val = String(form._subjectInput || '').trim();
+                  if (!val) return;
+                  const current = form.subjects || [];
+                  if (!current.includes(val)) {
+                    setForm((prev) => ({ ...prev, subjects: [...current, val], _subjectInput: '' }));
+                  } else {
+                    setForm((prev) => ({ ...prev, _subjectInput: '' }));
+                  }
+                }}
+                className="mt-6 shrink-0 rounded-2xl bg-sky-700 px-4 py-3 text-sm font-bold text-white"
+              >
+                إضافة
+              </button>
+            </div>
+            {(form.subjects || []).length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(form.subjects || []).map((subject) => (
+                  <span key={subject} className="inline-flex items-center gap-1 rounded-2xl bg-sky-100 px-3 py-1 text-sm font-bold text-sky-800">
+                    {subject}
+                    <button type="button" onClick={() => setForm((prev) => ({ ...prev, subjects: prev.subjects.filter((s) => s !== subject) }))} className="text-sky-600 hover:text-rose-600">×</button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
       {!canManageAll ? <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 ring-1 ring-amber-200 md:col-span-2">مدير المدرسة يحرر فقط حسابات مدرسته التشغيلية مثل الوكيل والمرشد والبوابة والمشرف والمعلم والطالب، ولا يستطيع تحويل أي مستخدم إلى مدير مدرسة أو أدمن عام أو منحه صلاحيات مركزية.</div> : null}
       <Select label="حالة الحساب" value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))}>
         <option value="نشط">نشط</option>
