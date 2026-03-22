@@ -7623,6 +7623,7 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
 
 function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddSchool, onDeleteSchool, onExportSchool }) {
   const [form, setForm] = useState({ name: "", city: "", code: "", manager: "", principalUsername: "", principalEmail: "", principalPassword: "123456" });
+  const [schoolSaveStatus, setSchoolSaveStatus] = useState('idle'); // idle | saving | saved
 
   const columns = [
     { key: "name", label: "المدرسة" },
@@ -7656,8 +7657,13 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
     if (!form.principalUsername) { window.alert('يرجى إدخال اسم دخول مدير المدرسة.'); return; }
     if (!form.principalEmail) { window.alert('يرجى إدخال البريد الإلكتروني لمدير المدرسة.'); return; }
     if (!form.principalPassword) { window.alert('يرجى إدخال كلمة المرور الأولية.'); return; }
-    onAddSchool(form);
-    setForm({ name: "", city: "", code: "", manager: "", principalUsername: "", principalEmail: "", principalPassword: "123456" });
+    setSchoolSaveStatus('saving');
+    setTimeout(() => {
+      onAddSchool(form);
+      setForm({ name: "", city: "", code: "", manager: "", principalUsername: "", principalEmail: "", principalPassword: "123456" });
+      setSchoolSaveStatus('saved');
+      setTimeout(() => setSchoolSaveStatus('idle'), 2500);
+    }, 400);
   };
 
   return (
@@ -7680,7 +7686,7 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
               <div className="mt-4 rounded-2xl bg-white p-4 text-sm leading-7 text-slate-600 ring-1 ring-slate-200">
                 عند حفظ المدرسة سيتم إنشاء <span className="font-black text-slate-800">مدير المدرسة كأدمن المدرسة</span> مباشرة بهذه البيانات، مع إبقاء حسابات البوابة والمعلم الافتراضية.
               </div>
-              <button type="submit" className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white"><Plus className="h-4 w-4" /> حفظ المدرسة وإنشاء الأدمن</button>
+              <button type="submit" disabled={schoolSaveStatus === 'saving'} className={`mt-4 inline-flex items-center gap-2 rounded-2xl px-5 py-3 font-bold text-white transition-all duration-300 ${schoolSaveStatus === 'saved' ? 'bg-emerald-600 scale-105' : schoolSaveStatus === 'saving' ? 'bg-sky-400 cursor-wait' : 'bg-sky-700 hover:bg-sky-800'}`}>{schoolSaveStatus === 'saving' ? <><RefreshCw className="h-4 w-4 animate-spin" /> جارٍ الحفظ...</> : schoolSaveStatus === 'saved' ? <><CheckCircle className="h-4 w-4" /> تمت الإضافة بنجاح ✓</> : <><Plus className="h-4 w-4" /> حفظ المدرسة وإنشاء الأدمن</>}</button>
             </form>
           </div>
           <div className="space-y-4">
@@ -14806,19 +14812,26 @@ const PROGRAM_SUGGESTIONS_BANK = [
 function PointsRewardsConfigPage({ selectedSchool, settings, currentUser, onSaveSettings }) {
   const [localSettings, setLocalSettings] = useState(settings);
   const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | saved
+  const justSavedRef = React.useRef(false);
 
   useEffect(() => {
-    setLocalSettings(settings);
+    if (!justSavedRef.current) {
+      setLocalSettings(settings);
+    }
   }, [settings]);
 
   const save = () => {
+    justSavedRef.current = true;
     setSaveStatus('saving');
     onSaveSettings({
       ...localSettings,
       actions: hydrateActionCatalog(localSettings.actions),
     });
-    setTimeout(() => setSaveStatus('saved'), 500);
-    setTimeout(() => setSaveStatus('idle'), 2500);
+    setTimeout(() => setSaveStatus('saved'), 400);
+    setTimeout(() => {
+      setSaveStatus('idle');
+      justSavedRef.current = false;
+    }, 2800);
   };
 
   const overview = [
@@ -14830,7 +14843,7 @@ function PointsRewardsConfigPage({ selectedSchool, settings, currentUser, onSave
 
   return (
     <div className="space-y-6">
-      <SectionCard title="النقاط والمكافآت والخصومات والبرامج" icon={Trophy} action={<div className="flex gap-2"><button onClick={() => setLocalSettings(settings)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> التراجع</button><button onClick={save} disabled={saveStatus === 'saving'} className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 font-bold text-white transition-colors ${saveStatus === 'saved' ? 'bg-emerald-600' : saveStatus === 'saving' ? 'bg-sky-400 cursor-wait' : 'bg-sky-700 hover:bg-sky-800'}`}>{saveStatus === 'saving' ? <><RefreshCw className="h-4 w-4 animate-spin" /> جارٍ الحفظ...</> : saveStatus === 'saved' ? <><CheckCircle className="h-4 w-4" /> تم الحفظ ✓</> : <><Save className="h-4 w-4" /> حفظ التعديلات</>}</button></div>}>
+      <SectionCard title="النقاط والمكافآت والخصومات والبرامج" icon={Trophy} action={<div className="flex gap-2"><button onClick={() => setLocalSettings(settings)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> التراجع</button><button onClick={save} disabled={saveStatus === 'saving'} className={`inline-flex items-center gap-2 rounded-2xl px-5 py-3 font-bold text-white transition-all duration-300 shadow-md ${saveStatus === 'saved' ? 'bg-emerald-600 scale-105 shadow-emerald-300' : saveStatus === 'saving' ? 'bg-sky-400 cursor-wait' : 'bg-sky-700 hover:bg-sky-800 hover:scale-105'}`}>{saveStatus === 'saving' ? <><RefreshCw className="h-4 w-4 animate-spin" /> جارٍ الحفظ...</> : saveStatus === 'saved' ? <><CheckCircle className="h-4 w-4" /> تم الحفظ ✓</> : <><Save className="h-4 w-4" /> حفظ التعديلات</>}</button></div>}>
         <div className="mb-5 rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-100">
           <div className="font-black text-sky-900">وصول أسرع لبنود النقاط</div>
           <div className="mt-2 text-sm leading-7 text-sky-900">تم جمع إعدادات النقاط وبنود المكافآت والخصومات والبرامج في صفحة مستقلة داخل القائمة الجانبية حتى تكون أوضح وأسهل للمدير في الوصول والتحرير والمتابعة.</div>
