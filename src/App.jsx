@@ -18669,6 +18669,8 @@ ${buildLessonSessionLink(sessionId)}
         return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="agent" />;
       case "leavePassCounselorDesk":
         return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="counselor" />;
+      case "pointsRewards":
+        return <PointsRewardsConfigPage selectedSchool={selectedSchool} settings={settings} currentUser={currentUser} onSaveSettings={handleSaveSettings} />;
       case "rewardStore":
         return <RewardStorePage selectedSchool={selectedSchool} currentUser={currentUser} onSaveItem={handleSaveRewardStoreItem} onDeleteItem={handleDeleteRewardStoreItem} onDecideProposal={handleDecideRewardStoreProposal} onCreateRedemptionRequest={handleCreateRewardRedemptionRequest} onDecideRedemption={handleDecideRewardRedemption} onActivateRewardItem={handleActivateRewardStoreItem} onUpdateRewardItemMeta={handleUpdateRewardStoreItemMeta} />;
       case "schoolStructure":
