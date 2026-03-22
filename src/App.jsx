@@ -16354,6 +16354,21 @@ function ParentAccountsPage({ currentUser, selectedSchool, onSendMessage, onNavi
       setState((current) => ({ ...current, sending: '' }));
     }
   };
+  const generateDirectLink = async (mobile, guardianName) => {
+    setState((current) => ({ ...current, generatingLink: mobile }));
+    try {
+      const baseUrl = window.location.origin;
+      const response = await apiRequest('/api/admin/parents/generate-link', { method: 'POST', token: getSessionToken(), body: { mobile, baseUrl } });
+      if (response.link) {
+        try { await navigator.clipboard.writeText(response.link); } catch {}
+        setState((current) => ({ ...current, linkModal: { link: response.link, mobile, guardianName: guardianName || 'ولي الأمر', whatsappUrl: `https://wa.me/${mobile.replace(/[^0-9]/g,'')}?text=${encodeURIComponent(`رابط دخول بوابة ولي الأمر:\n${response.link}\nصالح لمدة 10 دقائق.`)}` } }));
+      }
+    } catch (error) {
+      window.alert(error.message || 'تعذر إنشاء الرابط.');
+    } finally {
+      setState((current) => ({ ...current, generatingLink: '' }));
+    }
+  };
   const openDetail = async (mobile) => {
     setState((current) => ({ ...current, detailLoading: mobile, detailError: '', detail: null }));
     setDetailNote('');
@@ -16563,6 +16578,10 @@ ${buildCsv(auditRows, auditColumns)}`;
               </div>
               <div className="flex flex-wrap gap-2">
                 <button disabled={state.sending === item.mobile || String(currentUser?.role || '') === 'supervisor' || item.accountControl?.suspended} onClick={() => sendAccessCode(item.mobile, item.notificationSettings?.preferredChannel === 'sms' ? 'sms' : 'whatsapp')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{state.sending === item.mobile ? 'جارِ الإرسال...' : 'إرسال رمز دخول'}</button>
+                <button disabled={state.generatingLink === item.mobile || String(currentUser?.role || '') === 'supervisor' || item.accountControl?.suspended} onClick={() => generateDirectLink(item.mobile, item.guardianName)} className="rounded-2xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60 flex items-center gap-1.5">
+                  <ExternalLink size={14} />
+                  {state.generatingLink === item.mobile ? 'جارِ الإنشاء...' : 'رابط دخول'}
+                </button>
                 <button onClick={() => openDetail(item.mobile)} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">{state.detailLoading === item.mobile ? 'جارِ التحميل...' : 'التفاصيل'}</button>
               </div>
             </div>
@@ -16719,6 +16738,29 @@ ${buildCsv(auditRows, auditColumns)}`;
           ))}
         </div>
       </SectionCard>}
+      {/* Modal رابط الدخول المباشر */}
+      {state.linkModal ? <div className="fixed inset-0 z-[200] bg-slate-950/50 p-4 backdrop-blur-sm flex items-center justify-center" onClick={() => setState((c) => ({ ...c, linkModal: null }))}>
+        <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-lg font-black text-slate-900">رابط دخول مباشر</div>
+            <button onClick={() => setState((c) => ({ ...c, linkModal: null }))} className="rounded-xl bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 text-xl leading-none">×</button>
+          </div>
+          <div className="mb-2 text-sm font-bold text-slate-600">ولي الأمر: {state.linkModal.guardianName}</div>
+          <div className="mb-4 rounded-2xl bg-violet-50 p-4 ring-1 ring-violet-200">
+            <div className="text-xs font-black text-violet-600 mb-2">الرابط المباشر (صالح 10 دقائق)</div>
+            <div className="break-all text-xs text-slate-700 font-mono leading-relaxed">{state.linkModal.link}</div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={async () => { try { await navigator.clipboard.writeText(state.linkModal.link); window.alert('تم نسخ الرابط!'); } catch {} }} className="flex-1 rounded-2xl bg-slate-100 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-200 flex items-center justify-center gap-2">
+              <Copy size={14} /> نسخ الرابط
+            </button>
+            <a href={state.linkModal.whatsappUrl} target="_blank" rel="noopener noreferrer" className="flex-1 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700 flex items-center justify-center gap-2">
+              <ExternalLink size={14} /> إرسال واتساب
+            </a>
+          </div>
+          <div className="mt-3 text-center text-xs text-slate-400">تم نسخ الرابط تلقائياً عند الإنشاء</div>
+        </div>
+      </div> : null}
     </div>
   );
 }

@@ -3748,17 +3748,29 @@ function renderParentPortalHtml() {
       border-radius: 16px;
     }
     .nav-item .nav-icon {
-      font-size: 22px;
-      transition: transform .2s cubic-bezier(.34,1.56,.64,1);
       display: flex; align-items: center; justify-content: center;
-      width: 40px; height: 32px;
-      border-radius: 12px;
-      transition: all .2s cubic-bezier(.34,1.56,.64,1);
+      width: 44px; height: 36px;
+      border-radius: 14px;
+      transition: all .25s cubic-bezier(.34,1.56,.64,1);
+      color: var(--muted);
+    }
+    .nav-item .nav-icon svg {
+      width: 22px; height: 22px;
+      transition: all .25s cubic-bezier(.34,1.56,.64,1);
     }
     .nav-item.active { color: var(--primary); }
     .nav-item.active .nav-icon {
       background: var(--primary-light);
-      transform: scale(1.1);
+      color: var(--primary);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(15,118,110,.2);
+    }
+    .nav-item.active .nav-icon svg {
+      stroke-width: 2.5;
+    }
+    .nav-item:not(.active):hover .nav-icon {
+      background: rgba(241,245,249,0.8);
+      transform: translateY(-1px);
     }
     .nav-badge {
       position: absolute;
@@ -4237,8 +4249,20 @@ function renderParentPortalHtml() {
         <span class="name" id="headerName">ولي الأمر</span>
       </div>
       <div class="header-actions">
-        <button class="icon-btn" id="refreshBtn" title="تحديث">🔄</button>
-        <button class="icon-btn" id="logoutBtn" title="خروج">🚪</button>
+        <button class="icon-btn" id="refreshBtn" title="تحديث">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="logoutBtn" title="خروج">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </button>
       </div>
     </div>
 
@@ -4539,20 +4563,41 @@ function renderParentPortalHtml() {
     <!-- Bottom Navigation -->
     <div id="bottomNav">
       <button class="nav-item active" data-page="points">
-        <span class="nav-icon">🏆</span>
+        <span class="nav-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="6"/>
+            <path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/>
+          </svg>
+        </span>
         <span>النقاط</span>
       </button>
       <button class="nav-item" data-page="store">
-        <span class="nav-icon">🛍️</span>
+        <span class="nav-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <path d="M16 10a4 4 0 0 1-8 0"/>
+          </svg>
+        </span>
         <span>المتجر</span>
       </button>
       <button class="nav-item" data-page="notifications">
-        <span class="nav-icon">🔔</span>
+        <span class="nav-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+        </span>
         <span>التنبيهات</span>
         <span class="nav-badge hidden" id="notifBadge">0</span>
       </button>
       <button class="nav-item" data-page="settings">
-        <span class="nav-icon">⚙️</span>
+        <span class="nav-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </span>
         <span>الإعدادات</span>
       </button>
     </div>
@@ -5584,11 +5629,35 @@ const server = http.createServer(async (req, res) => {
       const item = store.items.map((entry) => normalizeRewardStoreItem(entry)).find((entry) => String(entry.id) === itemId && entry.isActive !== false && String(entry.approvalStatus || '') === 'active' && Number(entry.remainingQuantity || 0) > 0);
       if (!item) return sendJson(res, 404, { ok: false, message: 'الجائزة المحددة غير متاحة حاليًا.' });
       if (Number(student.points || 0) < Number(item.pointsCost || 0)) return sendJson(res, 400, { ok: false, message: 'رصيد الطالب لا يكفي لطلب هذه الجائزة.' });
-      const request = { id: `redeem-${Date.now()}`, schoolId, studentId, studentName: student.name || 'طالب', itemId, itemTitle: item.title || 'جائزة', pointsCost: Number(item.pointsCost || 0), note, mobile: profile.mobile, guardianName: profile.guardianName, status: 'pending', createdAt: nowIso() };
-      const nextState = { ...state, schools: (state.schools || []).map((entry) => Number(entry.id) !== schoolId ? entry : ({ ...entry, rewardStore: { ...getSchoolRewardStore(entry), redemptionRequests: [request, ...getSchoolRewardStore(entry).redemptionRequests] } })) };
+      const pointsCost = Number(item.pointsCost || 0);
+      const request = { id: `redeem-${Date.now()}`, schoolId, studentId, studentName: student.name || 'طالب', itemId, itemTitle: item.title || 'جائزة', pointsCost, note, mobile: profile.mobile, guardianName: profile.guardianName, status: 'pending', createdAt: nowIso() };
+      // خصم النقاط فوراً من الطالب الحقيقي في الـ state
+      const nextState = structuredClone(state);
+      const targetSchool = nextState.schools.find((s) => Number(s.id) === schoolId);
+      if (targetSchool) {
+        // محاولة خصم من school.students أولاً
+        const directStudent = (targetSchool.students || []).find((s) => String(s.id) === studentId);
+        if (directStudent) {
+          directStudent.points = Math.max(0, Number(directStudent.points || 0) - pointsCost);
+        } else {
+          // محاولة خصم من structure.classrooms
+          let found = false;
+          for (const classroom of (targetSchool.structure?.classrooms || [])) {
+            if (found) break;
+            const classStudent = (classroom.students || []).find((s) => String(s.id) === studentId);
+            if (classStudent) {
+              classStudent.points = Math.max(0, Number(classStudent.points || 0) - pointsCost);
+              found = true;
+            }
+          }
+        }
+        // تسجيل الطلب في rewardStore
+        const store = getSchoolRewardStore(targetSchool);
+        targetSchool.rewardStore = { ...store, redemptionRequests: [request, ...store.redemptionRequests] };
+      }
       await saveSharedState(nextState, null);
       const nextProfile = await buildParentProfile(getSharedState(), profile.mobile);
-      return sendJson(res, 200, { ok: true, message: 'تم إرسال طلب الاستبدال لمدير المدرسة لاعتماده.', profile: nextProfile });
+      return sendJson(res, 200, { ok: true, message: `تم استبدال ${pointsCost} نقطة بنجاح! طلبك قيد المعالجة.`, profile: nextProfile });
     }
 
     if (reqUrl.pathname === '/api/parent/bootstrap' && req.method === 'GET') {
@@ -5817,7 +5886,37 @@ const server = http.createServer(async (req, res) => {
       });
       return sendJson(res, 200, { ok: true, message: `تم إرسال رمز الدخول عبر ${channel === 'sms' ? 'SMS' : 'واتساب'}.`, destinationPreview, previewCode, channel });
     }
-
+    // API: إنشاء رابط دخول مباشر لولي الأمر
+    if (reqUrl.pathname === '/api/admin/parents/generate-link' && req.method === 'POST') {
+      const actor = await getActorFromRequest(req);
+      if (!actor || !['superadmin','admin','principal'].includes(String(actor.role || '').trim())) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const body = await parseJsonBody(req);
+      const mobile = normalizePhoneNumber(body.mobile || '');
+      if (!mobile) return sendJson(res, 400, { ok: false, message: 'رقم الجوال مطلوب.' });
+      const state = getSharedState();
+      const profile = await buildParentProfile(state, mobile);
+      if (!profile) return sendJson(res, 404, { ok: false, message: 'لا يوجد ولي أمر مرتبط بهذا الرقم.' });
+      if (['principal'].includes(String(actor.role || '').trim()) && !profile.students.some((s) => Number(s.schoolId) === Number(actor.schoolId))) {
+        return sendJson(res, 403, { ok: false, message: 'لا يمكنك إنشاء رابط لولي أمر خارج مدرستك.' });
+      }
+      const code = generateOtpCode(6);
+      await createParentOtpRequest(mobile, code);
+      // بناء الرابط المباشر
+      const baseUrl = String(body.baseUrl || '').trim() || `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`;
+      const directLink = `${baseUrl}/parent?mobile=${encodeURIComponent(mobile)}&code=${code}`;
+      await appendParentAuditHistory(mobile, {
+        action: 'generate_direct_link',
+        title: 'إنشاء رابط دخول مباشر',
+        note: 'تم إنشاء رابط دخول مباشر لولي الأمر.',
+        actor,
+        schoolId: profile.students?.[0]?.schoolId || null,
+        schoolName: profile.students?.[0]?.schoolName || '',
+        studentId: profile.students?.[0]?.studentId || null,
+        studentName: profile.students?.[0]?.name || '',
+        meta: {},
+      });
+      return sendJson(res, 200, { ok: true, link: directLink, code, mobile, guardianName: profile.guardianName || '' });
+    }
     if (reqUrl.pathname === '/api/admin/parent-primary-requests' && req.method === 'GET') {
       const actor = await getUserFromToken(token);
       if (!actor || !['superadmin','principal','supervisor'].includes(String(actor.role || '').trim())) return sendJson(res, 403, { ok: false, message: 'غير مصرح لك بعرض هذه الصفحة.' });
