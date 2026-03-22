@@ -531,6 +531,7 @@ export function createDefaultSharedState() {
     users: createDefaultUsers(schools),
     scanLog: hydrateScanLog(initialScanLog),
     actionLog: [],
+    gateSyncEvents: [],
     settings: {
       ...defaultSettings,
       policy: { ...defaultSettings.policy },
@@ -559,6 +560,7 @@ export function hydrateSharedState(parsed = {}) {
     users: hydrateUsers(parsed.users?.length ? parsed.users : createDefaultUsers(schools), schools),
     scanLog: hydrateScanLog(parsed.scanLog?.length ? parsed.scanLog : defaults.scanLog),
     actionLog: hydrateActionLog(parsed.actionLog || defaults.actionLog),
+    gateSyncEvents: Array.isArray(parsed.gateSyncEvents) ? parsed.gateSyncEvents : defaults.gateSyncEvents,
     settings: {
       ...defaultSettings,
       ...(parsed.settings || {}),

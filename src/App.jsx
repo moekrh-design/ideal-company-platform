@@ -16,6 +16,7 @@ import {
   Database,
   ExternalLink,
   Download,
+  Gift,
   FileClock,
   GraduationCap,
   Layers3,
@@ -26,9 +27,13 @@ import {
   QrCode,
   RefreshCw,
   Rocket,
+  Wifi,
+  WifiOff,
+  Clock3,
   Save,
   ScanLine,
   School,
+  ShoppingCart,
   Search,
   Settings,
   Shield,
@@ -45,8 +50,10 @@ import {
   ArrowRightLeft,
   MonitorSmartphone,
   Loader2,
+  PackageCheck,
   Printer,
   Unlink2,
+  UserCheck,
 } from "lucide-react";
 import {
   Bar,
@@ -69,6 +76,9 @@ const UI_STATE_KEY = "ideal-company-platform-ui-v8";
 const SERVER_CACHE_KEY = "ideal-company-platform-server-cache-v8";
 const SESSION_TOKEN_KEY = "ideal-company-platform-session-token-v8";
 const BACKUP_VERSION = 8;
+const GATE_OFFLINE_QUEUE_PREFIX = "ideal-company-platform-gate-offline-queue-v1";
+const GATE_SYNC_LOG_PREFIX = "ideal-company-platform-gate-sync-log-v1";
+
 
 const SCREEN_TRANSITION_OPTIONS = [
   ["fade", "تلاشي ناعم"],
@@ -399,6 +409,246 @@ const defaultActionCatalog = {
   ],
 };
 
+
+
+function parseTeacherSubjects(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean);
+  return String(value || '')
+    .split(/[\n،,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getTeacherSubjects(user) {
+  return parseTeacherSubjects(user?.subjects || user?.subjectAssignments || []);
+}
+
+function hydrateTeacherSpecialItems(items = []) {
+  return (Array.isArray(items) ? items : []).map((item, index) => ({
+    id: item?.id || `tsi-${Date.now()}-${index + 1}`,
+    title: String(item?.title || '').trim(),
+    type: item?.type === 'violation' ? 'violation' : item?.type === 'program' ? 'program' : 'reward',
+    points: Number(item?.points || 0),
+    subject: String(item?.subject || '').trim(),
+    description: String(item?.description || '').trim(),
+    isActive: item?.isActive !== false,
+  })).filter((item) => item.title && item.subject);
+}
+
+function getTeacherSpecialItems(user, actionType = '', subject = '') {
+  const type = actionType === 'violation' ? 'violation' : actionType === 'program' ? 'program' : 'reward';
+  return hydrateTeacherSpecialItems(user?.specialItems || [])
+    .filter((item) => item.type === type)
+    .filter((item) => !subject || item.subject === subject)
+    .filter((item) => item.isActive !== false)
+    .map((item) => ({ ...item, scope: 'special' }));
+}
+
+function getCurrentAcademicTermId(settings = {}) {
+  return `term-${String(settings?.academicYear || 'default').trim() || 'default'}`;
+}
+
+const SPECIAL_ITEM_TEMPLATES = {
+  'رياضيات': [
+    { title: 'حفظ جدول الضرب', type: 'reward', points: 5, description: 'إتقان جدول الضرب في الحصة' },
+    { title: 'حل ذهني سريع', type: 'reward', points: 4, description: 'سرعة ودقة في الحل الذهني' },
+    { title: 'نسيان الدفتر', type: 'violation', points: -2, description: 'خصم عند نسيان دفتر الرياضيات' },
+  ],
+  'اللغة العربية': [
+    { title: 'إتقان القراءة الجهرية', type: 'reward', points: 4, description: 'إجادة القراءة الجهرية للنص' },
+    { title: 'سلامة الإملاء', type: 'reward', points: 4, description: 'كتابة صحيحة وخالية من الأخطاء' },
+  ],
+  'عربي': [
+    { title: 'إتقان القراءة الجهرية', type: 'reward', points: 4, description: 'إجادة القراءة الجهرية للنص' },
+    { title: 'سلامة الإملاء', type: 'reward', points: 4, description: 'كتابة صحيحة وخالية من الأخطاء' },
+  ],
+  'علوم': [
+    { title: 'تنفيذ تجربة بإتقان', type: 'reward', points: 5, description: 'تنفيذ النشاط العلمي بدقة' },
+    { title: 'إحضار أدوات التجربة', type: 'reward', points: 3, description: 'الالتزام بالأدوات المطلوبة' },
+  ],
+  'إنجليزي': [
+    { title: 'حفظ مفردات الوحدة', type: 'reward', points: 4, description: 'إتقان كلمات الدرس' },
+    { title: 'نطق صحيح', type: 'reward', points: 4, description: 'نطق الكلمات والجمل بشكل صحيح' },
+  ],
+  'التربية الإسلامية': [
+    { title: 'حفظ مقرر الحفظ', type: 'reward', points: 5, description: 'إتقان المقرر المطلوب حفظه' },
+    { title: 'إتقان التلاوة', type: 'reward', points: 4, description: 'أداء صحيح وواضح' },
+  ],
+};
+
+function computeTeacherSpecialStats(actionLog = [], teacher = null, settings = {}) {
+  const termId = getCurrentAcademicTermId(settings);
+  const teacherId = teacher?.id != null ? String(teacher.id) : '';
+  const username = String(teacher?.username || '');
+  const name = String(teacher?.name || '');
+  const uniquePairs = new Set();
+  const uniqueStudents = new Set();
+  let activations = 0;
+  (Array.isArray(actionLog) ? actionLog : []).forEach((item) => {
+    if (!item?.specialDefinitionId || !item?.specialTermId) return;
+    if (String(item.specialTermId) !== termId) return;
+    const sameTeacher = (teacherId && String(item.actorId || '') === teacherId) || (username && String(item.actorUsername || '') === username) || (name && String(item.actorName || '') === name);
+    if (!sameTeacher) return;
+    activations += 1;
+    uniquePairs.add(`${item.studentId || item.student || 'student'}|${item.specialDefinitionId}`);
+    uniqueStudents.add(String(item.studentId || item.student || 'student'));
+  });
+  return { score: uniquePairs.size, achievements: activations, uniqueStudents: uniqueStudents.size };
+}
+
+function computeTeacherSpecialScore(actionLog = [], teacher = null, settings = {}) {
+  return computeTeacherSpecialStats(actionLog, teacher, settings).score;
+}
+
+function TeacherSpecialItemsEditor({ subjects = [], items = [], onChange }) {
+  const subjectOptions = Array.isArray(subjects) ? subjects.filter(Boolean) : [];
+  const hydratedItems = hydrateTeacherSpecialItems(items);
+  const [draft, setDraft] = React.useState({ title: '', type: 'reward', points: 5, subject: subjectOptions[0] || '', description: '' });
+  const [activeSubject, setActiveSubject] = React.useState(subjectOptions[0] || '');
+  React.useEffect(() => {
+    setDraft((prev) => ({ ...prev, subject: prev.subject || subjectOptions[0] || '' }));
+    setActiveSubject((prev) => prev || subjectOptions[0] || '');
+  }, [subjectOptions.join('|')]);
+  const grouped = subjectOptions.map((subject) => ({ subject, items: hydratedItems.filter((item) => item.subject === subject) }));
+  const activeCount = hydratedItems.filter((item) => item.isActive !== false).length;
+  const inactiveCount = Math.max(hydratedItems.length - activeCount, 0);
+  const activeGroup = grouped.find((group) => group.subject === activeSubject) || grouped[0] || null;
+  const subjectTemplates = SPECIAL_ITEM_TEMPLATES[draft.subject] || [];
+  const updateItem = (id, patch) => onChange(hydratedItems.map((item) => item.id !== id ? item : { ...item, ...patch }));
+  const removeItem = (id) => onChange(hydratedItems.filter((item) => item.id !== id));
+  const addItem = () => {
+    if (!draft.title.trim() || !draft.subject) return;
+    onChange([...hydratedItems, { id: `tsi-${Date.now()}`, title: draft.title.trim(), type: draft.type, points: Number(draft.points || 0), subject: draft.subject, description: draft.description.trim(), isActive: true }]);
+    setActiveSubject(draft.subject);
+    setDraft((prev) => ({ ...prev, title: '', points: prev.type === 'violation' ? -2 : 5, description: '' }));
+  };
+  const addTemplate = (template) => {
+    if (!draft.subject || !template?.title) return;
+    const exists = hydratedItems.some((item) => item.subject === draft.subject && item.title === template.title && item.type === template.type);
+    if (exists) return;
+    onChange([...hydratedItems, { id: `tsi-${Date.now()}`, title: template.title, type: template.type || 'reward', points: Number(template.points || 0), subject: draft.subject, description: String(template.description || '').trim(), isActive: true }]);
+    setActiveSubject(draft.subject);
+  };
+  return (
+    <div className="space-y-4 md:col-span-2">
+      <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-black text-slate-900">البنود التخصصية</div>
+            <div className="mt-1 text-sm text-slate-500">تظهر للمعلم داخل شاشة التنفيذ بعد البنود العامة، بحسب المادة التي يدرسها فقط.</div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge tone="violet">{hydratedItems.length} بند</Badge>
+            <Badge tone="green">{activeCount} مفعل</Badge>
+            {inactiveCount ? <Badge tone="slate">{inactiveCount} غير مفعل</Badge> : null}
+          </div>
+        </div>
+        {!subjectOptions.length ? <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 ring-1 ring-amber-200">أضف المادة أو المواد أولًا حتى تتمكن من إضافة البنود التخصصية.</div> : null}
+        {subjectOptions.length ? (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">المواد المسندة</div><div className="mt-1 text-2xl font-black text-slate-900">{subjectOptions.length}</div></div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">إجمالي البنود</div><div className="mt-1 text-2xl font-black text-violet-700">{hydratedItems.length}</div></div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">البنود المفعلة</div><div className="mt-1 text-2xl font-black text-emerald-700">{activeCount}</div></div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">مواد فيها بنود</div><div className="mt-1 text-2xl font-black text-sky-700">{grouped.filter((group) => group.items.length).length}</div></div>
+            </div>
+            <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <Input label="اسم البند" value={draft.title} onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))} placeholder="مثال: حفظ جدول الضرب" />
+                <Select label="النوع" value={draft.type} onChange={(e) => setDraft((prev) => ({ ...prev, type: e.target.value, points: e.target.value === 'violation' ? -2 : prev.points > 0 ? prev.points : 5 }))}>
+                  <option value="reward">مكافأة</option>
+                  <option value="violation">خصم</option>
+                  <option value="program">برنامج</option>
+                </Select>
+                <Input label="نقاط الطالب" type="number" value={draft.points} onChange={(e) => setDraft((prev) => ({ ...prev, points: Number(e.target.value || 0) }))} />
+                <Select label="المادة" value={draft.subject} onChange={(e) => { const subject = e.target.value; setDraft((prev) => ({ ...prev, subject })); setActiveSubject(subject); }}>
+                  {subjectOptions.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+                </Select>
+                <div className="flex items-end">
+                  <button type="button" onClick={addItem} className="w-full rounded-2xl bg-sky-700 px-4 py-3 text-sm font-bold text-white">إضافة البند</button>
+                </div>
+                <div className="md:col-span-2 xl:col-span-5">
+                  <Input label="وصف مختصر" value={draft.description} onChange={(e) => setDraft((prev) => ({ ...prev, description: e.target.value }))} placeholder="يظهر للمعلم عند اختيار البند" />
+                </div>
+              </div>
+              {subjectTemplates.length ? (
+                <div className="mt-4 rounded-2xl bg-violet-50 p-4 ring-1 ring-violet-100">
+                  <div className="text-sm font-black text-violet-800">قوالب سريعة لمادة {draft.subject}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {subjectTemplates.map((template) => {
+                      const exists = hydratedItems.some((item) => item.subject === draft.subject && item.title === template.title && item.type === template.type);
+                      return (
+                        <button key={`${draft.subject}-${template.title}`} type="button" disabled={exists} onClick={() => addTemplate(template)} className={cx('rounded-full px-3 py-2 text-xs font-bold ring-1 transition', exists ? 'cursor-not-allowed bg-slate-100 text-slate-400 ring-slate-200' : 'bg-white text-violet-700 ring-violet-200 hover:bg-violet-100')}>
+                          {template.title}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+      </div>
+      {grouped.length ? (
+        <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+          <div className="flex flex-wrap gap-2">
+            {grouped.map((group) => (
+              <button key={group.subject} type="button" onClick={() => setActiveSubject(group.subject)} className={cx('rounded-full px-4 py-2 text-sm font-bold ring-1 transition', activeGroup?.subject === group.subject ? 'bg-sky-700 text-white ring-sky-700' : 'bg-slate-50 text-slate-700 ring-slate-200 hover:bg-slate-100')}>
+                {group.subject} <span className="me-1 text-xs opacity-80">({group.items.length})</span>
+              </button>
+            ))}
+          </div>
+          {activeGroup ? (
+            <div className="mt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-black text-slate-900">{activeGroup.subject}</div>
+                  <div className="mt-1 text-sm text-slate-500">البنود الخاصة بهذه المادة فقط.</div>
+                </div>
+                <div className="flex gap-2">
+                  <Badge tone="blue">{activeGroup.items.length} بند</Badge>
+                  <Badge tone="green">{activeGroup.items.filter((item) => item.isActive !== false).length} مفعل</Badge>
+                </div>
+              </div>
+              {!activeGroup.items.length ? <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500 ring-1 ring-slate-200">لا توجد بنود تخصصية لهذه المادة بعد.</div> : null}
+              <div className="mt-4 space-y-3">
+                {activeGroup.items.map((item) => (
+                  <div key={item.id} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-black text-slate-900">{item.title}</div>
+                      <div className="flex gap-2">
+                        <Badge tone={item.type === 'reward' ? 'green' : item.type === 'violation' ? 'rose' : 'blue'}>{item.type === 'reward' ? 'مكافأة' : item.type === 'violation' ? 'خصم' : 'برنامج'}</Badge>
+                        <Badge tone="slate">{item.points > 0 ? `+${item.points}` : item.points} نقطة</Badge>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_.7fr_.45fr_auto_auto] md:items-end">
+                      <Input label="اسم البند" value={item.title} onChange={(e) => updateItem(item.id, { title: e.target.value })} />
+                      <Select label="النوع" value={item.type} onChange={(e) => updateItem(item.id, { type: e.target.value })}>
+                        <option value="reward">مكافأة</option>
+                        <option value="violation">خصم</option>
+                        <option value="program">برنامج</option>
+                      </Select>
+                      <Input label="النقاط" type="number" value={item.points} onChange={(e) => updateItem(item.id, { points: Number(e.target.value || 0) })} />
+                      <button type="button" onClick={() => updateItem(item.id, { isActive: item.isActive === false })} className={cx('rounded-2xl px-4 py-3 text-sm font-bold', item.isActive === false ? 'bg-slate-100 text-slate-700' : 'bg-emerald-50 text-emerald-700')}>
+                        {item.isActive === false ? 'غير مفعل' : 'مفعل'}
+                      </button>
+                      <button type="button" onClick={() => removeItem(item.id)} className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">حذف</button>
+                    </div>
+                    <div className="mt-3">
+                      <Input label="وصف البند" value={item.description || ''} onChange={(e) => updateItem(item.id, { description: e.target.value })} placeholder="وصف مختصر يظهر للمعلم" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const defaultSettings = {
   platformName: "منصة الشركة المثالية",
   academicYear: "1447",
@@ -471,6 +721,8 @@ const defaultSettings = {
 const roles = [
   { key: "superadmin", label: "الأدمن العام", icon: ShieldCheck },
   { key: "principal", label: "مدير المدرسة", icon: School },
+  { key: "agent", label: "الوكيل", icon: ShieldAlert },
+  { key: "counselor", label: "المرشد", icon: UserCheck },
   { key: "gate", label: "بوابة الحضور", icon: ScanLine },
   { key: "supervisor", label: "المشرف", icon: Users },
   { key: "teacher", label: "المعلم", icon: UserCircle2 },
@@ -479,6 +731,8 @@ const roles = [
 
 const schoolRoleDefinitions = [
   { key: "principal", label: "مدير المدرسة" },
+  { key: "agent", label: "الوكيل" },
+  { key: "counselor", label: "المرشد" },
   { key: "teacher", label: "المعلمون" },
   { key: "supervisor", label: "المشرفون" },
   { key: "gate", label: "بوابة الحضور" },
@@ -493,19 +747,22 @@ const permissionDefinitions = [
   { key: "attendance", label: "الحضور الذكي" },
   { key: "actions", label: "إجراءات الطلاب" },
   { key: "points", label: "النقاط والترتيب" },
-  { key: "reports", label: "التقارير" },
+  { key: "reports", label: "مركز التقارير" },
   { key: "deviceDisplays", label: "الشاشات والبوابات" },
   { key: "messages", label: "الرسائل والتنبيهات" },
+  { key: "leavePass", label: "الاستئذان" },
   { key: "settings", label: "الإعدادات" },
   { key: "users", label: "المستخدمون والصلاحيات" },
 ];
 
 const defaultPermissionsByRole = {
   superadmin: Object.fromEntries(permissionDefinitions.map((item) => [item.key, true])),
-  principal: { dashboard: true, schools: false, companies: true, students: true, attendance: true, actions: true, points: true, reports: true, deviceDisplays: true, messages: true, settings: true, users: true },
+  principal: { dashboard: true, schools: false, companies: true, students: true, attendance: true, actions: true, points: true, reports: true, deviceDisplays: true, messages: true, leavePass: true, settings: true, users: true },
+  agent: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: false, points: false, reports: true, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
+  counselor: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: false, points: false, reports: true, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
   gate: { dashboard: true, schools: false, companies: false, students: false, attendance: true, actions: false, points: true, reports: false, deviceDisplays: false, messages: false, settings: false, users: false },
-  supervisor: { dashboard: true, schools: false, companies: false, students: true, attendance: true, actions: true, points: true, reports: true, deviceDisplays: false, messages: false, settings: false, users: false },
-  teacher: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: true, points: true, reports: false, deviceDisplays: false, messages: false, settings: false, users: false },
+  supervisor: { dashboard: true, schools: false, companies: false, students: true, attendance: true, actions: true, points: true, reports: true, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
+  teacher: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: true, points: true, reports: false, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
   student: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: false, points: true, reports: false, deviceDisplays: false, messages: false, settings: false, users: false },
 };
 
@@ -515,11 +772,20 @@ const navItems = [
   { key: "companies", label: "الشركات والفصول", icon: Layers3, permission: "companies" },
   { key: "students", label: "البصمة والمعرفات", icon: GraduationCap, permission: "students" },
   { key: "attendance", label: "الحضور الذكي", icon: ScanLine, permission: "attendance" },
+  { key: "lessonAttendanceSessions", label: "تحضير الحصص", icon: ClipboardList, permission: "attendance", roles: ["superadmin", "principal", "supervisor", "teacher"] },
   { key: "actions", label: "إجراءات الطلاب", icon: ClipboardCheck, permission: "actions" },
   { key: "points", label: "النقاط والترتيب", icon: Trophy, permission: "points" },
-  { key: "reports", label: "التقارير", icon: LineChart, permission: "reports" },
+  { key: "reports", label: "مركز التقارير", icon: LineChart, permission: "reports" },
   { key: "deviceDisplays", label: "الشاشات والبوابات", icon: ExternalLink, permission: "deviceDisplays" },
   { key: "messages", label: "الرسائل والتنبيهات", icon: Bell, permission: "messages" },
+  { key: "leavePasses", label: "الاستئذان", icon: ClipboardList, permission: "leavePass", roles: ["superadmin", "principal", "supervisor", "teacher"] },
+  { key: "leavePassAgentDesk", label: "استئذان الوكيل", icon: ShieldCheck, permission: "leavePass", roles: ["superadmin", "principal", "supervisor", "agent"] },
+  { key: "leavePassCounselorDesk", label: "استئذان المرشد", icon: UserCheck, permission: "leavePass", roles: ["superadmin", "principal", "supervisor", "counselor"] },
+  { key: "rewardStore", label: "متجر النقاط", icon: Gift, permission: "points", roles: ["superadmin", "principal", "supervisor"] },
+  { key: "pointsRewards", label: "النقاط والمكافآت", icon: Trophy, permission: "points", roles: ["superadmin", "principal", "supervisor"] },
+  { key: "parentsExecutive", label: "المتابعة التنفيذية", icon: BarChart3, permission: "settings", roles: ["superadmin", "principal", "supervisor"] },
+  { key: "parentsAdmin", label: "أولياء الأمور", icon: Users, permission: "settings", roles: ["superadmin", "principal", "supervisor"] },
+  { key: "parentsAudit", label: "سجل أولياء الأمور", icon: ClipboardList, permission: "settings", roles: ["superadmin", "principal", "supervisor"] },
   { key: "schoolStructure", label: "الهيكل المدرسي", icon: School, permission: "settings" },
   { key: "users", label: "المستخدمون", icon: ShieldCheck, permission: "users" },
   { key: "platformAuth", label: "الدخول والمصادقة", icon: ShieldCheck, permission: "settings", roles: ["superadmin"] },
@@ -528,8 +794,8 @@ const navItems = [
   { key: "classes", label: "الفصول", icon: BookOpen, permission: "companies" },
 ];
 
-const principalDelegableRoles = ["gate", "supervisor", "teacher", "student"];
-const principalManageablePermissionKeys = ["dashboard", "companies", "students", "attendance", "actions", "points", "reports", "messages"];
+const principalDelegableRoles = ["agent", "counselor", "gate", "supervisor", "teacher", "student"];
+const principalManageablePermissionKeys = ["dashboard", "companies", "students", "attendance", "actions", "points", "reports", "messages", "leavePass"];
 
 function buildRolePermissions(role, overrides = {}) {
   return {
@@ -619,6 +885,14 @@ function normalizeSmartLinks(links) {
       recentActivity: item?.widgets?.recentActivity !== false,
       teacherActivity: item?.widgets?.teacherActivity !== false,
       actionStats: item?.widgets?.actionStats !== false,
+      parentPortalSummary: item?.widgets?.parentPortalSummary !== false,
+      lessonAttendanceSummary: item?.widgets?.lessonAttendanceSummary !== false,
+      rewardStoreSummary: item?.widgets?.rewardStoreSummary !== false,
+    },
+    rewardStoreSettings: {
+      mode: ['all','featured','marked'].includes(String(item?.rewardStoreSettings?.mode || '')) ? item.rewardStoreSettings.mode : 'all',
+      sourceFilter: ['all','school','parent','external'].includes(String(item?.rewardStoreSettings?.sourceFilter || '')) ? item.rewardStoreSettings.sourceFilter : 'all',
+      maxItems: Math.max(1, Math.min(24, Number(item?.rewardStoreSettings?.maxItems || 8))),
     },
     createdAt: item?.createdAt || new Date().toISOString(),
   });
@@ -657,10 +931,12 @@ function getRoleLabel(roleKey) {
 }
 
 function getDefaultLandingPage(user) {
+  if (user?.role === "agent" && canAccessPermission(user, "leavePass")) return "leavePassAgentDesk";
+  if (user?.role === "counselor" && canAccessPermission(user, "leavePass")) return "leavePassCounselorDesk";
   if (user?.role === "teacher" && canAccessPermission(user, "actions")) return "actions";
   if (user?.role === "supervisor" && canAccessPermission(user, "reports")) return "reports";
   if (user?.role === "gate" && canAccessPermission(user, "attendance")) return "attendance";
-  const firstAllowed = navItems.find((item) => canAccessPermission(user, item.permission));
+  const firstAllowed = navItems.find((item) => canAccessPermission(user, item.permission) && (!Array.isArray(item.roles) || !item.roles.length || item.roles.includes(user?.role)));
   return firstAllowed?.key || "dashboard";
 }
 
@@ -688,6 +964,30 @@ function createSeedUsersForSchool(school, startId = 1) {
     },
     {
       id: startId + 1,
+      name: `وكيل ${school.name}`,
+      username: `${slug}.agent`,
+      email: `${slug}.agent@example.com`,
+      password: "123456",
+      role: "agent",
+      schoolId: school.id,
+      studentId: null,
+      status: "نشط",
+      permissions: buildRolePermissions("agent"),
+    },
+    {
+      id: startId + 2,
+      name: `مرشد ${school.name}`,
+      username: `${slug}.counselor`,
+      email: `${slug}.counselor@example.com`,
+      password: "123456",
+      role: "counselor",
+      schoolId: school.id,
+      studentId: null,
+      status: "نشط",
+      permissions: buildRolePermissions("counselor"),
+    },
+    {
+      id: startId + 3,
       name: `بوابة ${school.name}`,
       username: `${slug}.gate`,
       email: `${slug}.gate@example.com`,
@@ -699,7 +999,7 @@ function createSeedUsersForSchool(school, startId = 1) {
       permissions: buildRolePermissions("gate"),
     },
     {
-      id: startId + 2,
+      id: startId + 4,
       name: `معلم ${school.name}`,
       username: `${slug}.teacher`,
       email: `${slug}.teacher@example.com`,
@@ -709,6 +1009,10 @@ function createSeedUsersForSchool(school, startId = 1) {
       studentId: null,
       status: "نشط",
       permissions: teacherPermissions,
+      subjects: ['رياضيات'],
+      specialItems: [
+        { id: `tsi-${school.id}-1`, title: 'حفظ جدول الضرب', type: 'reward', points: 5, subject: 'رياضيات', description: 'مكافأة تخصصية في الرياضيات', isActive: true },
+      ],
     },
   ];
 }
@@ -751,6 +1055,30 @@ function ensureDemoUsers(users, schools) {
       status: 'نشط',
       permissions: principalPermissions,
     });
+    addIfMissing((user) => String(user.username || '').toLowerCase() === 'agent.demo', {
+      name: 'وكيل تجريبي',
+      username: 'agent.demo',
+      email: 'agent.demo@example.com',
+      mobile: '966500000004',
+      password: 'Demo@123',
+      role: 'agent',
+      schoolId: firstSchool.id,
+      studentId: null,
+      status: 'نشط',
+      permissions: buildRolePermissions('agent'),
+    });
+    addIfMissing((user) => String(user.username || '').toLowerCase() === 'counselor.demo', {
+      name: 'مرشد تجريبي',
+      username: 'counselor.demo',
+      email: 'counselor.demo@example.com',
+      mobile: '966500000005',
+      password: 'Demo@123',
+      role: 'counselor',
+      schoolId: firstSchool.id,
+      studentId: null,
+      status: 'نشط',
+      permissions: buildRolePermissions('counselor'),
+    });
     addIfMissing((user) => String(user.username || '').toLowerCase() === 'teacher.demo', {
       name: 'معلم تجريبي',
       username: 'teacher.demo',
@@ -762,6 +1090,11 @@ function ensureDemoUsers(users, schools) {
       studentId: null,
       status: 'نشط',
       permissions: buildRolePermissions('teacher', { reports: true, actions: true }),
+      subjects: ['رياضيات','علوم'],
+      specialItems: [
+        { id: 'tsi-demo-1', title: 'حفظ جدول الضرب', type: 'reward', points: 5, subject: 'رياضيات', description: 'مكافأة تخصصية سريعة', isActive: true },
+        { id: 'tsi-demo-2', title: 'إتمام التجربة العملية', type: 'reward', points: 4, subject: 'علوم', description: 'اعتماد تنفيذ التجربة أو النشاط', isActive: true },
+      ],
     });
   }
 
@@ -1025,6 +1358,26 @@ function hydrateSchools(schools) {
       initiatives: safeNumber(company.initiatives),
     })),
     messaging: hydrateMessagingCenter(school?.messaging),
+    leavePasses: getLeavePasses(school).map((item) => ({
+      ...item,
+      id: item?.id || `leave-${Date.now()}`,
+      status: item?.status || "created",
+      createdAt: item?.createdAt || new Date().toISOString(),
+      destination: item?.destination || "agent",
+      reason: item?.reason || "",
+      note: item?.note || "",
+      studentName: item?.studentName || "طالب",
+      teacherName: item?.teacherName || "المعلم",
+      teacherMobile: String(item?.teacherMobile || "").trim(),
+      guardianName: item?.guardianName || "",
+      guardianMobile: String(item?.guardianMobile || "").trim(),
+      viewedAt: item?.viewedAt || "",
+      approvedAt: item?.approvedAt || "",
+      approvedByName: item?.approvedByName || "",
+      completedAt: item?.completedAt || "",
+      completedByName: item?.completedByName || "",
+      passLink: item?.passLink || buildLeavePassLink(item?.id || `leave-${Date.now()}`),
+    })),
     students: (school.students || []).map((student) => ({
       ...student,
       nationalId: student.nationalId || `AUTO-${student.id}`,
@@ -1123,6 +1476,7 @@ function createDefaultState() {
     attendanceMethod: "barcode",
     scanLog: hydrateScanLog(initialScanLog),
     actionLog: [],
+    gateSyncEvents: [],
     settings: {
       ...defaultSettings,
       policy: { ...defaultSettings.policy },
@@ -1155,6 +1509,7 @@ function buildHydratedClientState(parsed = {}, uiState = {}) {
     attendanceMethod: uiState.attendanceMethod || "barcode",
     scanLog: hydrateScanLog(parsed.scanLog?.length ? parsed.scanLog : initialScanLog),
     actionLog: hydrateActionLog(parsed.actionLog || []),
+    gateSyncEvents: Array.isArray(parsed.gateSyncEvents) ? parsed.gateSyncEvents : defaults.gateSyncEvents,
     settings: {
       ...defaultSettings,
       ...(parsed.settings || {}),
@@ -1347,6 +1702,128 @@ function buildWsUrl(path) {
   return `${protocol}//${window.location.host}${path}`;
 }
 
+function getGateOfflineQueueKey(token) {
+  return `${GATE_OFFLINE_QUEUE_PREFIX}:${token || "unknown"}`;
+}
+
+function readGateOfflineQueue(token) {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(getGateOfflineQueueKey(token)) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeGateOfflineQueue(token, queue) {
+  if (typeof window === "undefined") return [];
+  const safeQueue = Array.isArray(queue) ? queue : [];
+  window.localStorage.setItem(getGateOfflineQueueKey(token), JSON.stringify(safeQueue));
+  return safeQueue;
+}
+
+function enqueueGateOfflineScan(token, operation) {
+  const queue = readGateOfflineQueue(token);
+  queue.push(operation);
+  writeGateOfflineQueue(token, queue);
+  return queue;
+}
+
+function removeGateOfflineQueueItem(token, operationId) {
+  const next = readGateOfflineQueue(token).filter((item) => item.id !== operationId);
+  writeGateOfflineQueue(token, next);
+  return next;
+}
+
+function getGateOfflineQueueSummary(token) {
+  const queue = readGateOfflineQueue(token);
+  return {
+    total: queue.length,
+    earliestAt: queue.length ? queue[0]?.capturedAt || queue[0]?.createdAt || '' : '',
+    latestAt: queue.length ? queue[queue.length - 1]?.capturedAt || queue[queue.length - 1]?.createdAt || '' : '',
+    items: queue.slice(-5).reverse(),
+  };
+}
+
+
+function getGateSyncLogKey(token) {
+  return `${GATE_SYNC_LOG_PREFIX}:${token || "unknown"}`;
+}
+
+function readGateSyncLog(token) {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(getGateSyncLogKey(token)) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeGateSyncLog(token, items) {
+  if (typeof window === "undefined") return [];
+  const safeItems = Array.isArray(items) ? items.slice(0, 150) : [];
+  window.localStorage.setItem(getGateSyncLogKey(token), JSON.stringify(safeItems));
+  return safeItems;
+}
+
+function appendGateSyncLog(token, entry) {
+  const current = readGateSyncLog(token);
+  current.unshift({ id: entry?.id || `gate-log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, createdAt: new Date().toISOString(), ...entry });
+  return writeGateSyncLog(token, current);
+}
+
+function clearGateSyncLog(token) {
+  return writeGateSyncLog(token, []);
+}
+
+function getGateSyncLogSummary(token) {
+  const items = readGateSyncLog(token);
+  const summary = { total: items.length, pending: 0, synced: 0, duplicate: 0, rejected: 0, error: 0, cleared: 0, items: items.slice(0, 10) };
+  items.forEach((item) => {
+    const status = String(item?.status || '').toLowerCase();
+    if (status === 'pending') summary.pending += 1;
+    else if (status === 'synced') summary.synced += 1;
+    else if (status === 'duplicate') summary.duplicate += 1;
+    else if (status === 'rejected') summary.rejected += 1;
+    else if (status === 'cleared') summary.cleared += 1;
+    else summary.error += 1;
+  });
+  return summary;
+}
+
+function removeGateSyncLogItem(token, logId) {
+  const next = readGateSyncLog(token).filter((item) => item.id !== logId);
+  return writeGateSyncLog(token, next);
+}
+
+function getGateSyncStatusMeta(status) {
+  switch (String(status || '').toLowerCase()) {
+    case 'pending':
+      return { label: 'بانتظار', tone: 'amber' };
+    case 'synced':
+      return { label: 'تمت', tone: 'green' };
+    case 'duplicate':
+      return { label: 'مكرر', tone: 'blue' };
+    case 'rejected':
+      return { label: 'مرفوض', tone: 'rose' };
+    case 'cleared':
+      return { label: 'تم تفريغه', tone: 'slate' };
+    default:
+      return { label: 'خطأ', tone: 'amber' };
+  }
+}
+
+function formatLocalGateTimestamp(value) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString('ar-SA', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch {
+    return String(value);
+  }
+}
+
 function downloadFile(filename, content, mimeType) {
   const payload = String(mimeType || '').includes('csv') ? `﻿${content}` : content;
   const blob = new Blob([payload], { type: mimeType });
@@ -1380,24 +1857,58 @@ function exportRowsToWorkbook(filename, sheetName, rows, columns) {
   XLSX.writeFile(workbook, filename);
 }
 
-function printHtmlContent(title, bodyHtml) {
+function escapePrintHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildPrintSummaryStats(cards = []) {
+  if (!Array.isArray(cards) || !cards.length) return '';
+  return `<div class="stats">${cards.map((card) => `<div class="stat ${escapePrintHtml(card.tone || '')}"><div class="k">${escapePrintHtml(card.label || '')}</div><div class="v">${escapePrintHtml(card.value || '')}</div>${card.note ? `<div class="n">${escapePrintHtml(card.note)}</div>` : ''}</div>`).join('')}</div>`;
+}
+
+function printHtmlContent(title, bodyHtml, options = {}) {
   if (typeof window === "undefined") return;
   const printWindow = window.open("", "_blank", "width=1280,height=900");
   if (!printWindow) return;
-  printWindow.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" /><title>${title}</title><style>
-    body{font-family:"Tahoma","Arial",sans-serif;background:#fff;color:#0f172a;padding:24px;direction:rtl}
-    .wrap{max-width:1100px;margin:0 auto}
-    h1{font-size:28px;margin:0 0 8px;font-weight:800}
-    .meta{color:#475569;margin-bottom:20px;font-size:14px}
-    table{width:100%;border-collapse:collapse;margin-top:18px}
-    th,td{border:1px solid #cbd5e1;padding:10px 12px;text-align:right;font-size:14px}
-    th{background:#f8fafc}
+  const accent = String(options.accent || '#0f172a');
+  const subtitle = options.subtitle ? `<div class="meta">${escapePrintHtml(options.subtitle)}</div>` : '';
+  const summaryHtml = buildPrintSummaryStats(options.summaryCards || []);
+  const legendHtml = Array.isArray(options.legend) && options.legend.length
+    ? `<div class="legend">${options.legend.map((item) => `<span class="legend-pill ${escapePrintHtml(item.tone || '')}">${escapePrintHtml(item.label || '')}</span>`).join('')}</div>`
+    : '';
+  printWindow.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" /><title>${escapePrintHtml(title)}</title><style>
+    :root{--accent:${accent};--accent-soft:color-mix(in srgb, ${accent} 10%, white);--line:#cbd5e1;--text:#0f172a;--muted:#475569;--panel:#f8fafc}
+    *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body{font-family:"Tahoma","Arial",sans-serif;background:#fff;color:var(--text);padding:24px;direction:rtl}
+    .wrap{max-width:1180px;margin:0 auto}
+    .hero{border:1px solid var(--line);background:linear-gradient(180deg,var(--accent-soft),#fff);padding:18px 20px;border-radius:20px;margin-bottom:18px}
+    h1{font-size:28px;margin:0 0 8px;font-weight:800;color:var(--accent)}
+    h2{font-size:20px;margin:24px 0 8px;font-weight:800;color:#0f172a}
+    .meta{color:var(--muted);margin-bottom:14px;font-size:14px}
+    .legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .legend-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid var(--line);background:#fff}
+    table{width:100%;border-collapse:separate;border-spacing:0;margin-top:18px;border:1px solid var(--line);border-radius:18px;overflow:hidden}
+    th,td{border-bottom:1px solid #e2e8f0;padding:10px 12px;text-align:right;font-size:13px;vertical-align:top}
+    th{background:var(--accent);color:#fff;font-weight:800}
+    tbody tr:nth-child(even) td{background:#fafcff}
+    tbody tr:last-child td{border-bottom:none}
     .stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
-    .stat{border:1px solid #e2e8f0;border-radius:14px;padding:12px;background:#f8fafc}
+    .stat{border:1px solid #e2e8f0;border-radius:16px;padding:14px;background:#fff}
     .stat .k{font-size:12px;color:#64748b}
-    .stat .v{font-size:22px;font-weight:800;margin-top:6px}
+    .stat .v{font-size:24px;font-weight:800;margin-top:6px}
+    .stat .n{font-size:11px;color:#64748b;margin-top:4px}
+    .tone-blue{background:#eff6ff}.tone-green{background:#ecfdf5}.tone-amber{background:#fffbeb}.tone-rose{background:#fff1f2}.tone-violet{background:#f5f3ff}.tone-slate{background:#f8fafc}
+    .pill{display:inline-block;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;border:1px solid transparent}
+    .pill-green{background:#ecfdf5;color:#065f46;border-color:#a7f3d0}.pill-rose{background:#fff1f2;color:#9f1239;border-color:#fecdd3}.pill-amber{background:#fffbeb;color:#92400e;border-color:#fde68a}.pill-blue{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}.pill-slate{background:#f8fafc;color:#334155;border-color:#cbd5e1}.pill-violet{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}
+    .row-positive td{background:#f0fdf4 !important}.row-negative td{background:#fff1f2 !important}.row-warning td{background:#fffbeb !important}.row-info td{background:#eff6ff !important}.row-highlight td{background:#f5f3ff !important}
+    .section-gap{margin-top:24px}
     @media print{body{padding:0}.wrap{max-width:none}.no-print{display:none}}
-  </style></head><body><div class="wrap">${bodyHtml}</div></body></html>`);
+  </style></head><body><div class="wrap"><div class="hero"><h1>${escapePrintHtml(title)}</h1>${subtitle}${summaryHtml}${legendHtml}</div>${bodyHtml}</div></body></html>`);
   printWindow.document.close();
   printWindow.focus();
   setTimeout(() => {
@@ -1481,6 +1992,369 @@ function buildPublicLink(kind, token) {
   const url = new URL(window.location.origin + window.location.pathname);
   url.searchParams.set(kind, token);
   return url.toString();
+}
+
+function getLessonSessionIdFromLocation() {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return String(params.get("lessonSession") || '').trim();
+}
+
+function buildLessonSessionLink(sessionId) {
+  if (typeof window === "undefined") return "";
+  const url = new URL(window.location.origin + window.location.pathname);
+  url.searchParams.set('lessonSession', String(sessionId || ''));
+  return url.toString();
+}
+
+function clearLessonSessionParam() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete('lessonSession');
+  window.history.replaceState({}, '', url.toString());
+}
+
+function getLeavePassIdFromLocation() {
+  if (typeof window === "undefined") return "";
+  const params = new URLSearchParams(window.location.search);
+  return String(params.get("leavePass") || "").trim();
+}
+
+function buildLeavePassLink(leavePassId) {
+  if (typeof window === "undefined") return "";
+  const url = new URL(window.location.origin + window.location.pathname);
+  url.searchParams.set("leavePass", String(leavePassId || ""));
+  return url.toString();
+}
+
+function clearLeavePassParam() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.delete("leavePass");
+  window.history.replaceState({}, "", url.toString());
+}
+
+function getLeavePasses(school) {
+  return Array.isArray(school?.leavePasses) ? school.leavePasses : [];
+}
+
+function getLeavePassTimeline(pass) {
+  return Array.isArray(pass?.timeline) ? [...pass.timeline].sort((a, b) => String(b?.at || '').localeCompare(String(a?.at || ''))) : [];
+}
+
+function createLeavePassEvent(type, actorName, note = '') {
+  return {
+    id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: String(type || 'updated'),
+    actorName: String(actorName || 'مستخدم النظام').trim() || 'مستخدم النظام',
+    note: String(note || '').trim(),
+    at: new Date().toISOString(),
+  };
+}
+
+function getLeavePassEventLabel(type) {
+  switch (String(type || '')) {
+    case 'created': return 'إنشاء الطلب';
+    case 'sent-manual-teacher': return 'إرسال يدوي للمعلم';
+    case 'sent-system-teacher': return 'إرسال بالنظام للمعلم';
+    case 'sent-manual-guardian': return 'إشعار يدوي لولي الأمر';
+    case 'sent-system-guardian': return 'إشعار بالنظام لولي الأمر';
+    case 'notified-agent': return 'إشعار الوكيل';
+    case 'notified-counselor': return 'إشعار المرشد';
+    case 'viewed': return 'اطلاع المعلم';
+    case 'approved-agent': return 'اعتماد الوكيل';
+    case 'approved-counselor': return 'اعتماد المرشد';
+    case 'released-guardian': return 'تسليم مع ولي الأمر';
+    case 'completed': return 'إقفال مكتمل';
+    case 'cancelled': return 'إلغاء الطلب';
+    default: return 'تحديث';
+  }
+}
+
+function getLeavePassStatusLabel(status) {
+  switch (String(status || "")) {
+    case "draft": return "مسودة";
+    case "created": return "جديد";
+    case "sent-system": return "أرسل بالنظام";
+    case "sent-manual": return "أرسل يدويًا";
+    case "viewed": return "اطلع المعلم";
+    case "approved-agent": return "اعتمده الوكيل";
+    case "approved-counselor": return "اعتمده المرشد";
+    case "released-guardian": return "سُلّم مع ولي الأمر";
+    case "completed": return "تم التنفيذ";
+    case "cancelled": return "ملغي";
+    default: return "—";
+  }
+}
+
+function getLeavePassStatusTone(status) {
+  switch (String(status || "")) {
+    case "completed":
+    case "released-guardian": return "emerald";
+    case "approved-agent":
+    case "approved-counselor":
+    case "viewed": return "sky";
+    case "sent-system":
+    case "sent-manual": return "amber";
+    case "cancelled": return "rose";
+    case "draft": return "slate";
+    default: return "blue";
+  }
+}
+
+function getLeavePassAgeMinutes(pass) {
+  const base = new Date(pass?.updatedAt || pass?.approvedAt || pass?.viewedAt || pass?.createdAt || '').getTime();
+  if (!base || Number.isNaN(base)) return 0;
+  return Math.max(0, Math.round((Date.now() - base) / 60000));
+}
+
+function getLeavePassQueueMeta(pass) {
+  const status = String(pass?.status || 'created');
+  const ageMinutes = getLeavePassAgeMinutes(pass);
+  if (['completed', 'cancelled'].includes(status)) {
+    return { key: 'closed', label: 'مغلق', tone: 'emerald', cardClass: 'border-emerald-200 bg-emerald-50', ageMinutes };
+  }
+  if (['created', 'sent-system', 'sent-manual'].includes(status)) {
+    if (ageMinutes >= 10) return { key: 'overdue-teacher', label: 'متأخر لدى المعلم', tone: 'rose', cardClass: 'border-rose-200 bg-rose-50', ageMinutes };
+    if (ageMinutes >= 5) return { key: 'attention-teacher', label: 'بانتظار اطلاع المعلم', tone: 'amber', cardClass: 'border-amber-200 bg-amber-50', ageMinutes };
+    return { key: 'new', label: 'جديد', tone: 'blue', cardClass: 'border-sky-200 bg-sky-50', ageMinutes };
+  }
+  if (['viewed', 'approved-agent', 'approved-counselor', 'released-guardian'].includes(status)) {
+    if (ageMinutes >= 20) return { key: 'overdue-close', label: 'بانتظار الإقفال', tone: 'rose', cardClass: 'border-rose-200 bg-rose-50', ageMinutes };
+    if (ageMinutes >= 10) return { key: 'attention-close', label: 'قيد التنفيذ', tone: 'amber', cardClass: 'border-amber-200 bg-amber-50', ageMinutes };
+    return { key: 'in-progress', label: 'قيد التنفيذ', tone: 'sky', cardClass: 'border-sky-200 bg-sky-50', ageMinutes };
+  }
+  return { key: 'new', label: 'جديد', tone: 'blue', cardClass: 'border-sky-200 bg-sky-50', ageMinutes };
+}
+
+function getLeavePassElapsedLabel(pass) {
+  const ageMinutes = getLeavePassAgeMinutes(pass);
+  if (ageMinutes < 1) return 'الآن';
+  if (ageMinutes < 60) return `منذ ${formatEnglishDigits(ageMinutes)} دقيقة`;
+  const hours = Math.floor(ageMinutes / 60);
+  const mins = ageMinutes % 60;
+  return mins ? `منذ ${formatEnglishDigits(hours)}س ${formatEnglishDigits(mins)}د` : `منذ ${formatEnglishDigits(hours)} ساعة`;
+}
+
+function getLeavePassDestinationLabel(destination) {
+  switch (String(destination || "")) {
+    case "agent": return "الوكيل";
+    case "counselor": return "المرشد";
+    case "guardian": return "الخروج مع ولي الأمر";
+    default: return "—";
+  }
+}
+
+function getLessonAttendanceSessions(school) {
+  return Array.isArray(school?.lessonAttendanceSessions) ? school.lessonAttendanceSessions : [];
+}
+
+function getRewardStore(school) {
+  return {
+    items: Array.isArray(school?.rewardStore?.items) ? school.rewardStore.items : [],
+    parentProposals: Array.isArray(school?.rewardStore?.parentProposals) ? school.rewardStore.parentProposals : [],
+    redemptionRequests: Array.isArray(school?.rewardStore?.redemptionRequests) ? school.rewardStore.redemptionRequests : [],
+    notifications: Array.isArray(school?.rewardStore?.notifications) ? school.rewardStore.notifications : [],
+  };
+}
+
+function createRewardStoreNotification(payload = {}) {
+  return {
+    id: payload.id || `reward-note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: String(payload.type || 'info'),
+    title: String(payload.title || 'متجر النقاط').trim() || 'متجر النقاط',
+    body: String(payload.body || '').trim(),
+    schoolId: payload.schoolId || null,
+    studentId: payload.studentId || null,
+    itemId: payload.itemId || null,
+    itemTitle: payload.itemTitle || '',
+    requestId: payload.requestId || null,
+    createdAt: payload.createdAt || new Date().toISOString(),
+    createdByName: String(payload.createdByName || 'النظام').trim() || 'النظام',
+    audience: String(payload.audience || 'admin'),
+  };
+}
+
+function prependRewardStoreNotification(store, payload = {}) {
+  const entry = createRewardStoreNotification(payload);
+  return {
+    ...store,
+    notifications: [entry, ...(Array.isArray(store?.notifications) ? store.notifications : [])].slice(0, 80),
+  };
+}
+
+function normalizeRewardStoreItem(item = {}) {
+  const quantity = Math.max(0, safeNumber(item.quantity ?? item.stockQuantity ?? item.remainingQuantity ?? 0, 0));
+  const remainingQuantity = Math.max(0, safeNumber(item.remainingQuantity ?? quantity, quantity));
+  const deliveredQuantity = Math.max(0, quantity - remainingQuantity);
+  const sourceType = String(item.sourceType || item.source || 'school');
+  const donorName = String(item.donorName || item.createdByName || '').trim();
+  const approvalStatus = String(item.approvalStatus || item.status || (Number(item.pointsCost || 0) > 0 ? 'active' : 'awaiting_receipt'));
+  return {
+    ...item,
+    quantity,
+    remainingQuantity,
+    deliveredQuantity,
+    sourceType,
+    donorName,
+    showDonorName: item.showDonorName !== false,
+    approvalStatus,
+    isActive: item.isActive !== false,
+    pointsCost: Math.max(0, safeNumber(item.pointsCost || 0, 0)),
+    showOnScreens: item.showOnScreens !== false,
+    featured: item.featured === true,
+    displayPriority: safeNumber(item.displayPriority || 0, 0),
+  };
+}
+
+function getRewardStoreDonorLabel(item = {}) {
+  const normalized = normalizeRewardStoreItem(item);
+  if (normalized.showDonorName && normalized.donorName) return normalized.donorName;
+  if (normalized.sourceType === 'parent') return 'ولي أمر';
+  if (normalized.sourceType === 'external') return 'متبرع خارجي';
+  return 'إدارة المدرسة';
+}
+
+function getRewardStoreStatusLabel(status) {
+  if (status === 'active') return 'معتمدة في المتجر';
+  if (status === 'awaiting_receipt') return 'بانتظار الاستلام';
+  if (status === 'received_pending_activation') return 'بانتظار اعتماد المدير';
+  if (status === 'depleted') return 'منتهية الكمية';
+  if (status === 'rejected') return 'مرفوضة';
+  return 'مقترحة';
+}
+
+function getApprovedRewardStoreItems(school) {
+  return getRewardStore(school).items.map((item) => normalizeRewardStoreItem(item)).filter((item) => item && item.isActive !== false && item.approvalStatus === 'active' && item.remainingQuantity > 0);
+}
+
+function buildRewardStoreSummary(school) {
+  const store = getRewardStore(school);
+  const items = (store.items || []).map((item) => normalizeRewardStoreItem(item));
+  const proposals = store.parentProposals || [];
+  const pending = proposals.filter((item) => String(item.status || 'pending') === 'pending').length;
+  const approvedViaParents = items.filter((item) => String(item.sourceType || '') === 'parent').length;
+  const donorNames = new Set(items.map((item) => getRewardStoreDonorLabel(item)).filter(Boolean));
+  const redemptionRequests = store.redemptionRequests || [];
+  return {
+    totalItems: items.length,
+    activeItems: items.filter((item) => item.approvalStatus === 'active' && item.isActive !== false).length,
+    pendingProposals: pending,
+    approvedViaParents,
+    donorCount: donorNames.size,
+    awaitingReceipt: items.filter((item) => item.approvalStatus === 'awaiting_receipt').length,
+    pendingActivation: items.filter((item) => item.approvalStatus === 'received_pending_activation').length,
+    totalQuantity: items.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    remainingQuantity: items.reduce((sum, item) => sum + Number(item.remainingQuantity || 0), 0),
+    pendingRedemptions: redemptionRequests.filter((item) => String(item.status || 'pending') === 'pending').length,
+    approvedRedemptions: redemptionRequests.filter((item) => String(item.status || '') === 'approved').length,
+    deliveredRedemptions: redemptionRequests.filter((item) => String(item.status || '') === 'delivered').length,
+    schoolSourceCount: items.filter((item) => String(item.sourceType || '') === 'school').reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    parentSourceCount: items.filter((item) => String(item.sourceType || '') === 'parent').reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    externalSourceCount: items.filter((item) => String(item.sourceType || '') === 'external').reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+  };
+}
+
+
+function getRewardStoreDisplayItems(school, screenConfig = null) {
+  const settings = screenConfig?.rewardStoreSettings || {};
+  const mode = String(settings.mode || 'all');
+  const sourceFilter = String(settings.sourceFilter || 'all');
+  const maxItems = Math.max(1, Math.min(24, Number(settings.maxItems || 8)));
+  let items = getApprovedRewardStoreItems(school).filter((item) => item.showOnScreens !== false);
+  if (sourceFilter !== 'all') items = items.filter((item) => String(item.sourceType || '') === sourceFilter);
+  if (mode === 'featured') items = items.filter((item) => item.featured === true);
+  if (mode === 'marked') items = items.filter((item) => item.showOnScreens !== false);
+  items = items.sort((a, b) => Number(b.featured === true) - Number(a.featured === true) || Number(b.displayPriority || 0) - Number(a.displayPriority || 0) || String(a.title || '').localeCompare(String(b.title || ''), 'ar'));
+  return items.slice(0, maxItems);
+}
+
+function buildRewardStoreScreenSummary(school, screenConfig = null) {
+  const summary = buildRewardStoreSummary(school);
+  return {
+    ...summary,
+    items: getRewardStoreDisplayItems(school, screenConfig).map((item) => ({
+      id: item.id,
+      title: item.title,
+      image: item.image || '',
+      pointsCost: item.pointsCost || 0,
+      quantity: item.quantity || 0,
+      remainingQuantity: item.remainingQuantity || 0,
+      donorLabel: getRewardStoreDonorLabel(item),
+      featured: item.featured === true,
+      showOnScreens: item.showOnScreens !== false,
+      displayPriority: item.displayPriority || 0,
+      sourceType: item.sourceType || 'school',
+    })),
+    mode: String(screenConfig?.rewardStoreSettings?.mode || 'all'),
+    sourceFilter: String(screenConfig?.rewardStoreSettings?.sourceFilter || 'all'),
+    maxItems: Math.max(1, Math.min(24, Number(screenConfig?.rewardStoreSettings?.maxItems || 8))),
+  };
+}
+
+function buildLessonAttendanceSessionLabel(session) {
+  const slot = String(session?.slotLabel || session?.slot || 'الحصة').trim();
+  const date = String(session?.dateIso || '').trim();
+  return [slot, date].filter(Boolean).join(' • ');
+}
+
+function getLessonAttendanceSessionStatusTone(status) {
+  if (status === 'closed') return 'slate';
+  if (status === 'expired') return 'amber';
+  return 'green';
+}
+
+function getLessonAttendanceSessionStatusLabel(status) {
+  if (status === 'closed') return 'مغلقة';
+  if (status === 'expired') return 'منتهية';
+  return 'مفتوحة';
+}
+
+function getClassroomKeyFromCompanyRow(row) {
+  if (!row) return '';
+  return String(row.source === 'structure' ? `structure:${row.rawId || row.id}` : `school:${row.rawId || row.id}`);
+}
+
+function getStudentsForLessonClassroom(school, classroomKey) {
+  const key = String(classroomKey || '');
+  const students = getUnifiedSchoolStudents(school, { includeArchived: false, preferStructure: true });
+  if (!key) return [];
+  if (key.startsWith('structure:')) {
+    const rawId = key.split(':')[1];
+    return students.filter((student) => String(student.classroomId || '') === String(rawId));
+  }
+  if (key.startsWith('school:')) {
+    const rawId = key.split(':')[1];
+    return students.filter((student) => String(student.companyId || '') === String(rawId));
+  }
+  return [];
+}
+
+function computeLessonAttendanceSessionSummary(session, school, schoolUsers = []) {
+  const submissions = Array.isArray(session?.submissions) ? session.submissions : [];
+  const expectedTeachers = (schoolUsers || []).filter((user) => ['teacher', 'principal', 'supervisor', 'superadmin'].includes(String(user?.role || '')) && String(user?.status || 'نشط') === 'نشط');
+  const submittedTeacherIds = new Set(submissions.map((item) => String(item.teacherId || '')).filter(Boolean));
+  const absentRows = submissions.flatMap((submission) => (Array.isArray(submission.absentStudents) ? submission.absentStudents : []).map((student) => ({
+    sessionId: session?.id,
+    sessionLabel: buildLessonAttendanceSessionLabel(session),
+    className: submission.className || '—',
+    teacherName: submission.teacherName || '—',
+    studentId: student.id,
+    studentName: student.name,
+    studentNumber: student.studentNumber || '',
+    submittedAt: submission.submittedAt || '',
+    acknowledged: submission.acknowledged ? 'نعم' : 'لا',
+  })));
+  return {
+    expectedTeachers: expectedTeachers.length,
+    submittedTeachers: submittedTeacherIds.size,
+    pendingTeachers: Math.max(expectedTeachers.length - submittedTeacherIds.size, 0),
+    classesSubmitted: submissions.length,
+    totalPresent: submissions.reduce((sum, item) => sum + Number(item.presentCount || 0), 0),
+    totalAbsent: submissions.reduce((sum, item) => sum + Number(item.absentCount || 0), 0),
+    totalStudents: submissions.reduce((sum, item) => sum + Number(item.totalStudents || 0), 0),
+    absentRows,
+  };
 }
 
 function summarizeSchoolLiveState(school, scanLog = [], actionLog = []) {
@@ -1991,6 +2865,35 @@ function getUnifiedSchoolStudents(school, { includeArchived = false, preferStruc
   const baseStudents = Array.isArray(school.students) ? school.students.map((student) => ({ ...student, source: student.source || 'school', rawId: student.id })) : [];
   if (preferStructure && structureStudents.length) return structureStudents;
   return [...structureStudents, ...baseStudents];
+}
+
+
+function applyPointsToUnifiedStudent(school, studentId, deltaPoints = 0, nextStatus = '', meta = {}) {
+  if (!school || !studentId) return school;
+  const amount = Number(deltaPoints || 0);
+  const statusText = String(nextStatus || '').trim();
+  const patchStudent = (student) => ({
+    ...student,
+    points: Math.max(0, Number(student?.points || 0) + amount),
+    ...(statusText ? { attendanceStatus: statusText, status: statusText } : {}),
+  });
+  if (String(studentId).startsWith('structure-')) {
+    const targetRaw = String(studentId).split('-').slice(2).join('-');
+    return {
+      ...school,
+      structure: school?.structure ? {
+        ...school.structure,
+        classrooms: Array.isArray(school.structure.classrooms) ? school.structure.classrooms.map((classroom) => ({
+          ...classroom,
+          students: Array.isArray(classroom.students) ? classroom.students.map((student) => String(student.id) === String(targetRaw) ? patchStudent(student) : student) : [],
+        })) : [],
+      } : school.structure,
+    };
+  }
+  return {
+    ...school,
+    students: Array.isArray(school.students) ? school.students.map((student) => String(student.id) === String(studentId) ? patchStudent(student) : student) : school.students,
+  };
 }
 
 function sortUnifiedCompanyRows(rows = []) {
@@ -3055,6 +3958,9 @@ function ScreenSettingsEditor({ value, onChange, compact = false, classrooms = [
     ["recentActivity", "آخر النشاطات"],
     ["teacherActivity", "المعلمون الأبرز ونقاطهم"],
     ["actionStats", "أصناف المكافآت والخصومات"],
+    ["parentPortalSummary", "جاهزية أولياء الأمور"],
+    ["lessonAttendanceSummary", "تحضير الحصص"],
+    ["rewardStoreSummary", "محتويات متجر النقاط"],
   ];
 
   return (
@@ -3094,6 +4000,25 @@ function ScreenSettingsEditor({ value, onChange, compact = false, classrooms = [
           </label>
         ))}
       </div>
+      {widgets.rewardStoreSummary !== false ? (
+        <div className="rounded-3xl bg-slate-100/80 p-5 ring-1 ring-slate-200">
+          <div className="mb-3 text-sm font-black text-slate-800">إعدادات عرض متجر النقاط لهذه الشاشة</div>
+          <div className={cx("grid grid-cols-1 gap-4", compact ? "xl:grid-cols-3" : "lg:grid-cols-3")}>
+            <Select label="نوع الجوائز المعروضة" value={value.rewardStoreSettings?.mode || 'all'} onChange={(e) => onChange({ ...value, rewardStoreSettings: { ...(value.rewardStoreSettings || {}), mode: e.target.value } })}>
+              <option value="all">كل الجوائز</option>
+              <option value="featured">الجوائز المهمة فقط</option>
+              <option value="marked">الجوائز المعلّم عليها للشاشات</option>
+            </Select>
+            <Select label="المصدر" value={value.rewardStoreSettings?.sourceFilter || 'all'} onChange={(e) => onChange({ ...value, rewardStoreSettings: { ...(value.rewardStoreSettings || {}), sourceFilter: e.target.value } })}>
+              <option value="all">كل المصادر</option>
+              <option value="school">إدارة المدرسة</option>
+              <option value="parent">أولياء الأمور</option>
+              <option value="external">متبرعون خارجيون</option>
+            </Select>
+            <Input label="عدد الجوائز في هذه الشاشة" type="number" min="1" max="24" value={value.rewardStoreSettings?.maxItems || 8} onChange={(e) => onChange({ ...value, rewardStoreSettings: { ...(value.rewardStoreSettings || {}), maxItems: e.target.value } })} />
+          </div>
+        </div>
+      ) : null}
       <div className="space-y-4 rounded-3xl bg-slate-100/80 p-5 ring-1 ring-slate-200">
         <div className={cx("grid grid-cols-1 gap-4", compact ? "xl:grid-cols-3" : "lg:grid-cols-3")}>
           <label className="flex items-center justify-between rounded-2xl bg-white px-4 py-4 text-sm font-bold text-slate-700 ring-1 ring-slate-200">
@@ -3146,7 +4071,8 @@ function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink,
   const [screenForm, setScreenForm] = useState({
     name: "",
     title: "لوحة المدرسة",
-    widgets: { metrics: true, topStudents: true, topCompanies: true, attendanceChart: true, recentActivity: true },
+    widgets: { metrics: true, topStudents: true, topCompanies: true, attendanceChart: true, recentActivity: true, parentPortalSummary: true, lessonAttendanceSummary: false, rewardStoreSummary: false },
+    rewardStoreSettings: { mode: 'all', sourceFilter: 'all', maxItems: 8 },
     transition: "fade",
     rotateSeconds: "8",
     theme: "emerald-night",
@@ -3194,6 +4120,14 @@ function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink,
         topCompanies: screen.widgets?.topCompanies !== false,
         attendanceChart: screen.widgets?.attendanceChart !== false,
         recentActivity: screen.widgets?.recentActivity !== false,
+        parentPortalSummary: screen.widgets?.parentPortalSummary !== false,
+        lessonAttendanceSummary: screen.widgets?.lessonAttendanceSummary !== false,
+        rewardStoreSummary: screen.widgets?.rewardStoreSummary !== false,
+      },
+      rewardStoreSettings: {
+        mode: ['all','featured','marked'].includes(String(screen.rewardStoreSettings?.mode || '')) ? screen.rewardStoreSettings.mode : 'all',
+        sourceFilter: ['all','school','parent','external'].includes(String(screen.rewardStoreSettings?.sourceFilter || '')) ? screen.rewardStoreSettings.sourceFilter : 'all',
+        maxItems: Math.max(1, Math.min(24, Number(screen.rewardStoreSettings?.maxItems || 8))),
       },
       transition: screen.transition || "fade",
       rotateSeconds: String(screen.rotateSeconds || 8),
@@ -3215,7 +4149,8 @@ function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink,
   const resetCreateForm = () => setScreenForm({
     name: "",
     title: "لوحة المدرسة",
-    widgets: { metrics: true, topStudents: true, topCompanies: true, attendanceChart: true, recentActivity: true },
+    widgets: { metrics: true, topStudents: true, topCompanies: true, attendanceChart: true, recentActivity: true, parentPortalSummary: true, lessonAttendanceSummary: false, rewardStoreSummary: false },
+    rewardStoreSettings: { mode: 'all', sourceFilter: 'all', maxItems: 8 },
     transition: "fade",
     rotateSeconds: "8",
     theme: "emerald-night",
@@ -3235,7 +4170,7 @@ function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink,
   return (
     <SectionCard title="إدارة روابط البوابة والشاشات" icon={ExternalLink} className="overflow-visible" action={<Badge tone="blue">واجهة مستقلة أوضح للشاشات والبوابات</Badge>}>
       <div className="space-y-6">
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
           <div className="rounded-3xl bg-gradient-to-l from-sky-700 to-cyan-600 p-5 text-white shadow-sm">
             <div className="text-sm text-white/80">إجمالي الشاشات</div>
             <div className="mt-2 text-3xl font-black">{screens.length}</div>
@@ -3456,6 +4391,15 @@ function PublicGatePage({ token }) {
   const [facePreview, setFacePreview] = useState("");
   const [message, setMessage] = useState("");
   const [lastScanResult, setLastScanResult] = useState(null); // { student, message, ok, ts }
+  const [isOnline, setIsOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
+  const [offlineQueueCount, setOfflineQueueCount] = useState(() => readGateOfflineQueue(token).length);
+  const [offlineQueuePreview, setOfflineQueuePreview] = useState(() => getGateOfflineQueueSummary(token));
+  const [syncLogSummary, setSyncLogSummary] = useState(() => getGateSyncLogSummary(token));
+  const [syncState, setSyncState] = useState({ syncing: false, lastSyncAt: null, lastError: "", lastSyncedOperationAt: null, syncedCount: 0 });
+  const [deviceNow, setDeviceNow] = useState(Date.now());
+  const [syncLogFilter, setSyncLogFilter] = useState('all');
+  const [syncLogQuery, setSyncLogQuery] = useState('');
+  const syncLockRef = useRef(false);
 
   const loadGate = useCallback(async () => {
     try {
@@ -3490,6 +4434,13 @@ function PublicGatePage({ token }) {
     return () => { socket.close(); window.clearInterval(pollInterval); };
   }, [loadGate, token]);
 
+  const refreshOfflineQueueCount = useCallback(() => {
+    const summary = getGateOfflineQueueSummary(token);
+    setOfflineQueueCount(summary.total);
+    setOfflineQueuePreview(summary);
+    setSyncLogSummary(getGateSyncLogSummary(token));
+  }, [token]);
+
   const students = payload?.students || [];
   const resolveManualStudent = () => {
     const query = String(manualQuery || '').trim();
@@ -3509,24 +4460,140 @@ function PublicGatePage({ token }) {
     }) || null;
   };
 
+  const applyScanResponse = useCallback((response, fallbackMessage) => {
+    if (response?.live) setPayload((prev) => (prev ? ({ ...prev, live: response.live }) : prev));
+    if (response?.student) {
+      setLastScanResult({ student: response.student, message: response.message || fallbackMessage || 'تمت العملية بنجاح.', ok: true, ts: Date.now() });
+    } else if (fallbackMessage) {
+      setLastScanResult({ student: null, message: fallbackMessage, ok: true, ts: Date.now() });
+    }
+    setManualQuery('');
+  }, []);
+
+  const applyScanError = useCallback((err, fallbackMessage) => {
+    const errData = err?.data || err?.response;
+    if (errData?.live) setPayload((prev) => (prev ? ({ ...prev, live: errData.live }) : prev));
+    if (errData?.student) {
+      setLastScanResult({ student: errData.student, message: err?.message || errData?.message || fallbackMessage || 'تعذر تسجيل العملية.', ok: false, ts: Date.now() });
+    } else {
+      setLastScanResult({ student: null, message: err?.message || fallbackMessage || 'تعذر تسجيل العملية.', ok: false, ts: Date.now() });
+    }
+  }, []);
+
+  const reportSyncEvent = useCallback(async (entry) => {
+    try {
+      await apiRequest(`/api/public/gate/${token}/sync-event`, { method: 'POST', body: entry });
+    } catch {}
+  }, [token]);
+
+  const syncOfflineQueue = useCallback(async () => {
+    if (syncLockRef.current || !isOnline) return;
+    const queue = readGateOfflineQueue(token);
+    if (!queue.length) return;
+    syncLockRef.current = true;
+    setSyncState((prev) => ({ ...prev, syncing: true, lastError: '' }));
+    try {
+      for (const item of queue) {
+        try {
+          const response = await apiRequest(`/api/public/gate/${token}/scan`, {
+            method: 'POST',
+            body: {
+              barcode: item.barcode,
+              method: item.method,
+              capturedAt: item.capturedAt,
+              capturedAtLocal: item.capturedAtLocal,
+              offlineQueued: true,
+              clientOperationId: item.id,
+            },
+          });
+          removeGateOfflineQueueItem(token, item.id);
+          appendGateSyncLog(token, { operationId: item.id, status: response?.duplicate ? 'duplicate' : 'synced', studentName: item.studentName || '', barcode: item.barcode || '', method: item.method || 'QR', capturedAt: item.capturedAt, capturedAtLocal: item.capturedAtLocal || '', syncedAt: new Date().toISOString(), message: response?.duplicate ? 'هذه العملية موجودة مسبقًا وتم تجاهل تكرارها.' : 'تمت مزامنة العملية المحلية بنجاح.' });
+          reportSyncEvent({ operationId: item.id, status: response?.duplicate ? 'duplicate' : 'synced', studentName: item.studentName || '', barcode: item.barcode || '', method: item.method || 'QR', capturedAt: item.capturedAt, capturedAtLocal: item.capturedAtLocal || '', syncedAt: new Date().toISOString(), message: response?.duplicate ? 'هذه العملية موجودة مسبقًا وتم تجاهل تكرارها.' : 'تمت مزامنة العملية المحلية بنجاح.' });
+          refreshOfflineQueueCount();
+          applyScanResponse(response, response?.duplicate ? `كانت العملية المحلية مسجلة سابقًا للطالب ${item.studentName || ''}`.trim() : `تمت مزامنة العملية المحلية للطالب ${item.studentName || ''}`.trim());
+          setSyncState((prev) => ({ ...prev, lastSyncedOperationAt: item.capturedAt || Date.now(), syncedCount: Number(prev.syncedCount || 0) + 1 }));
+        } catch (err) {
+          if (err?.data || err?.response) {
+            removeGateOfflineQueueItem(token, item.id);
+            appendGateSyncLog(token, { operationId: item.id, status: 'rejected', studentName: item.studentName || '', barcode: item.barcode || '', method: item.method || 'QR', capturedAt: item.capturedAt, capturedAtLocal: item.capturedAtLocal || '', syncedAt: new Date().toISOString(), message: err?.message || 'تم رفض العملية من الخادم وحذفها من الصف المحلي.' });
+            reportSyncEvent({ operationId: item.id, status: 'rejected', studentName: item.studentName || '', barcode: item.barcode || '', method: item.method || 'QR', capturedAt: item.capturedAt, capturedAtLocal: item.capturedAtLocal || '', syncedAt: new Date().toISOString(), message: err?.message || 'تم رفض العملية من الخادم وحذفها من الصف المحلي.' });
+            refreshOfflineQueueCount();
+            applyScanError(err, 'تم حذف عملية من الصف لأنها مرفوضة من الخادم.');
+            continue;
+          }
+          throw err;
+        }
+      }
+      setSyncState((prev) => ({ ...prev, syncing: false, lastSyncAt: Date.now(), lastError: '' }));
+    } catch (err) {
+      appendGateSyncLog(token, { status: 'error', message: err?.message || 'تعذرت مزامنة الصف المحلي بالكامل.' });
+      reportSyncEvent({ status: 'error', message: err?.message || 'تعذرت مزامنة الصف المحلي بالكامل.' });
+      setSyncState((prev) => ({ ...prev, syncing: false, lastSyncAt: null, lastError: err?.message || 'تعذرت مزامنة الصف المحلي.' }));
+    } finally {
+      syncLockRef.current = false;
+      refreshOfflineQueueCount();
+    }
+  }, [applyScanError, applyScanResponse, isOnline, refreshOfflineQueueCount, reportSyncEvent, token]);
+
+  const clearOfflineQueue = () => {
+    const queue = readGateOfflineQueue(token);
+    if (!queue.length) return;
+    queue.forEach((item) => {
+      appendGateSyncLog(token, {
+        operationId: item.id,
+        status: 'cleared',
+        studentName: item.studentName || '',
+        barcode: item.barcode || '',
+        method: item.method || 'QR',
+        capturedAt: item.capturedAt || '',
+        capturedAtLocal: item.capturedAtLocal || '',
+        message: 'تم حذف العملية من الصف المحلي يدويًا بواسطة المستخدم.',
+      });
+      reportSyncEvent({ operationId: item.id, status: 'cleared', studentName: item.studentName || '', barcode: item.barcode || '', method: item.method || 'QR', capturedAt: item.capturedAt || '', capturedAtLocal: item.capturedAtLocal || '', message: 'تم حذف العملية من الصف المحلي يدويًا بواسطة المستخدم.' });
+    });
+    writeGateOfflineQueue(token, []);
+    refreshOfflineQueueCount();
+    setMessage('تم تفريغ الصف المحلي يدويًا، وسُجلت العمليات في سجل المزامنة.');
+  };
+
   const submitScan = async (barcode, method) => {
     if (!barcode) return;
+    const queuedStudent = students.find((student) => sanitizeBarcodeValue(student.barcode) === sanitizeBarcodeValue(barcode) || String(student.barcode || '') === String(barcode));
+    const capturedNow = Date.now();
+    const operation = {
+      id: `offline-${capturedNow}-${Math.random().toString(36).slice(2, 8)}`,
+      barcode,
+      method,
+      studentId: queuedStudent?.id || null,
+      studentName: queuedStudent?.name || queuedStudent?.fullName || '',
+      createdAt: new Date(capturedNow).toISOString(),
+      capturedAt: new Date(capturedNow).toISOString(),
+      capturedAtLocal: formatLocalGateTimestamp(capturedNow),
+    };
+    if (!isOnline) {
+      enqueueGateOfflineScan(token, operation);
+      appendGateSyncLog(token, { operationId: operation.id, status: 'pending', studentName: operation.studentName || '', barcode: operation.barcode || '', method: operation.method || 'QR', capturedAt: operation.capturedAt, capturedAtLocal: operation.capturedAtLocal, message: 'حُفظت العملية محليًا بانتظار عودة الاتصال.' });
+      reportSyncEvent({ operationId: operation.id, status: 'pending', studentName: operation.studentName || '', barcode: operation.barcode || '', method: operation.method || 'QR', capturedAt: operation.capturedAt, capturedAtLocal: operation.capturedAtLocal, message: 'حُفظت العملية محليًا بانتظار عودة الاتصال.' });
+      refreshOfflineQueueCount();
+      setLastScanResult({ student: queuedStudent || null, message: `تم حفظ العملية محليًا في الصف المؤقت عند ${operation.capturedAtLocal} وستتم مزامنتها تلقائيًا.`, ok: true, ts: Date.now() });
+      setMessage('الجهاز غير متصل حاليًا. تم حفظ المسح محليًا بنجاح.');
+      return;
+    }
     setBusy(true);
     try {
-      const response = await apiRequest(`/api/public/gate/${token}/scan`, { method: 'POST', body: { barcode, method } });
-      // تحديث live فوراً من الرد
-      if (response.live) setPayload((prev) => ({ ...prev, live: response.live }));
-      // تحديث lastScanResult لعرض اسم الطالب
-      if (response.student) setLastScanResult({ student: response.student, message: response.message, ok: true, ts: Date.now() });
-      setManualQuery('');
+      const response = await apiRequest(`/api/public/gate/${token}/scan`, { method: 'POST', body: { barcode, method, capturedAt: operation.capturedAt, capturedAtLocal: operation.capturedAtLocal, clientOperationId: operation.id } });
+      applyScanResponse(response);
+      setMessage('');
     } catch (err) {
-      // حتى عند الخطأ (مثل المسح المكرر)، نحاول تحديث الإحصائيات
-      const errData = err?.data || err?.response;
-      if (errData?.live) setPayload((prev) => ({ ...prev, live: errData.live }));
-      if (errData?.student) {
-        setLastScanResult({ student: errData.student, message: err?.message || errData?.message, ok: false, ts: Date.now() });
+      if (!err?.data && !err?.response) {
+        enqueueGateOfflineScan(token, operation);
+        appendGateSyncLog(token, { operationId: operation.id, status: 'pending', studentName: operation.studentName || '', barcode: operation.barcode || '', method: operation.method || 'QR', capturedAt: operation.capturedAt, capturedAtLocal: operation.capturedAtLocal, message: 'انقطع الاتصال أثناء الإرسال، فحُولت العملية تلقائيًا إلى الصف المحلي.' });
+        reportSyncEvent({ operationId: operation.id, status: 'pending', studentName: operation.studentName || '', barcode: operation.barcode || '', method: operation.method || 'QR', capturedAt: operation.capturedAt, capturedAtLocal: operation.capturedAtLocal, message: 'انقطع الاتصال أثناء الإرسال، فحُولت العملية تلقائيًا إلى الصف المحلي.' });
+        refreshOfflineQueueCount();
+        setLastScanResult({ student: queuedStudent || null, message: `انقطع الاتصال أثناء الإرسال. حُفظت العملية محليًا عند ${operation.capturedAtLocal} وستتم مزامنتها تلقائيًا.`, ok: true, ts: Date.now() });
+        setMessage('تم تحويل العملية تلقائيًا إلى الصف المحلي بانتظار المزامنة.');
       } else {
-        setLastScanResult({ student: null, message: err?.message || 'تعذر تسجيل العملية.', ok: false, ts: Date.now() });
+        applyScanError(err);
       }
     } finally {
       setBusy(false);
@@ -3570,6 +4637,30 @@ function PublicGatePage({ token }) {
     setFacePreview('');
   };
 
+  useEffect(() => {
+    refreshOfflineQueueCount();
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, [refreshOfflineQueueCount]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setDeviceNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!isOnline) return;
+    syncOfflineQueue();
+    const timer = window.setInterval(() => { syncOfflineQueue(); }, 12000);
+    return () => window.clearInterval(timer);
+  }, [isOnline, syncOfflineQueue]);
+
   if (error) return <div dir="rtl" className="flex min-h-screen items-center justify-center bg-slate-100 p-6"><div className="rounded-3xl bg-white p-8 ring-1 ring-slate-200">{error}</div></div>;
   if (!payload) return <div dir="rtl" className="flex min-h-screen items-center justify-center bg-slate-100 p-6"><div className="rounded-3xl bg-white p-8 ring-1 ring-slate-200">جارِ تحميل البوابة...</div></div>;
 
@@ -3582,6 +4673,102 @@ function PublicGatePage({ token }) {
   const allGateStats = live.gateStats ? Object.values(live.gateStats) : [];
   const mode = payload.gate?.mode || 'mixed';
   const manualStudent = resolveManualStudent();
+  const rawSyncLogItems = readGateSyncLog(token);
+  const normalizedSyncLogQuery = normalizeSearchToken(syncLogQuery || '');
+  const filteredSyncLogItems = rawSyncLogItems.filter((item) => {
+    const status = String(item?.status || '').toLowerCase();
+    if (syncLogFilter !== 'all' && status !== syncLogFilter) return false;
+    if (!normalizedSyncLogQuery) return true;
+    const haystack = [
+      item.studentName,
+      item.barcode,
+      item.method,
+      item.message,
+      item.status,
+      item.capturedAtLocal,
+      item.operationId,
+    ].map((value) => normalizeSearchToken(value || '')).join(' ');
+    return haystack.includes(normalizedSyncLogQuery);
+  });
+  const syncLogExportColumns = [
+    { key: 'statusLabel', label: 'الحالة' },
+    { key: 'studentName', label: 'الطالب' },
+    { key: 'barcode', label: 'الباركود / المعرف' },
+    { key: 'method', label: 'طريقة الالتقاط' },
+    { key: 'capturedAtLocal', label: 'وقت الالتقاط المحلي' },
+    { key: 'processedAt', label: 'وقت المعالجة / المزامنة' },
+    { key: 'operationId', label: 'معرف العملية' },
+    { key: 'message', label: 'الرسالة التشغيلية' },
+  ];
+  const syncLogExportRows = filteredSyncLogItems.map((item) => ({
+    statusLabel: getGateSyncStatusMeta(item.status).label,
+    studentName: item.studentName || '',
+    barcode: item.barcode || '',
+    method: item.method || 'QR',
+    capturedAtLocal: item.capturedAtLocal || formatLocalGateTimestamp(item.capturedAt || item.createdAt),
+    processedAt: item.syncedAt ? formatLocalGateTimestamp(item.syncedAt) : formatLocalGateTimestamp(item.createdAt),
+    operationId: item.operationId || item.id || '',
+    message: item.message || '',
+  }));
+  const handleExportSyncLogCsv = () => {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    downloadFile(`gate-sync-log-${token || 'gate'}-${stamp}.csv`, buildCsv(syncLogExportRows, syncLogExportColumns), 'text/csv;charset=utf-8;');
+  };
+  const handleExportSyncLogExcel = () => {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    exportRowsToWorkbook(`gate-sync-log-${token || 'gate'}-${stamp}.xlsx`, 'Gate Sync Log', syncLogExportRows, syncLogExportColumns);
+  };
+  const handlePrintSyncLogReport = () => {
+    const statusFilterLabel = syncLogFilter === 'all' ? 'كل الحالات' : (getGateSyncStatusMeta(syncLogFilter).label || syncLogFilter);
+    const filterSummary = [
+      payload.school?.name || 'المدرسة',
+      payload.gate?.name || 'البوابة',
+      `الحالة: ${statusFilterLabel}`,
+      syncLogQuery ? `البحث: ${syncLogQuery}` : 'بدون بحث نصي',
+      `وقت الطباعة: ${formatLocalGateTimestamp(new Date().toISOString())}`,
+    ].join(' • ');
+    const rowsHtml = syncLogExportRows.map((row, index) => {
+      const meta = getGateSyncStatusMeta(filteredSyncLogItems[index]?.status);
+      const rowClass = meta.tone === 'green' ? 'row-positive' : meta.tone === 'rose' ? 'row-negative' : meta.tone === 'blue' ? 'row-info' : meta.tone === 'slate' ? 'row-highlight' : 'row-warning';
+      const pillClass = meta.tone === 'green' ? 'pill-green' : meta.tone === 'rose' ? 'pill-rose' : meta.tone === 'blue' ? 'pill-blue' : meta.tone === 'slate' ? 'pill-slate' : 'pill-amber';
+      return `<tr class="${rowClass}"><td>${index + 1}</td><td><span class="pill ${pillClass}">${escapePrintHtml(row.statusLabel)}</span></td><td>${escapePrintHtml(row.studentName || '—')}</td><td>${escapePrintHtml(row.barcode || '—')}</td><td>${escapePrintHtml(row.method || '—')}</td><td>${escapePrintHtml(row.capturedAtLocal || '—')}</td><td>${escapePrintHtml(row.processedAt || '—')}</td><td>${escapePrintHtml(row.operationId || '—')}</td><td>${escapePrintHtml(row.message || '—')}</td></tr>`;
+    }).join('');
+    const bodyHtml = `
+      <h2>تقرير سجل مزامنة البوابة</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>الحالة</th>
+            <th>الطالب</th>
+            <th>الباركود / المعرف</th>
+            <th>طريقة الالتقاط</th>
+            <th>وقت الالتقاط المحلي</th>
+            <th>وقت المعالجة / المزامنة</th>
+            <th>معرف العملية</th>
+            <th>الرسالة التشغيلية</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml || `<tr><td colspan="9">لا توجد سجلات مطابقة للفلترة الحالية.</td></tr>`}</tbody>
+      </table>`;
+    printHtmlContent(`سجل مزامنة البوابة — ${payload.gate?.name || 'البوابة'}`, bodyHtml, {
+      subtitle: filterSummary,
+      accent: '#0f766e',
+      summaryCards: [
+        { label: 'إجمالي النتائج', value: filteredSyncLogItems.length, tone: 'tone-blue' },
+        { label: 'تمت', value: filteredSyncLogItems.filter((item) => String(item?.status || '').toLowerCase() === 'synced').length, tone: 'tone-green' },
+        { label: 'بانتظار / مكرر', value: `${filteredSyncLogItems.filter((item) => String(item?.status || '').toLowerCase() === 'pending').length} / ${filteredSyncLogItems.filter((item) => String(item?.status || '').toLowerCase() === 'duplicate').length}`, tone: 'tone-amber' },
+        { label: 'مرفوض / خطأ / تفريغ', value: `${filteredSyncLogItems.filter((item) => ['rejected','error'].includes(String(item?.status || '').toLowerCase())).length} / ${filteredSyncLogItems.filter((item) => String(item?.status || '').toLowerCase() === 'cleared').length}`, tone: 'tone-rose' },
+      ],
+      legend: [
+        { label: 'تمت', tone: 'pill-green' },
+        { label: 'مكرر', tone: 'pill-blue' },
+        { label: 'بانتظار', tone: 'pill-amber' },
+        { label: 'مرفوض / خطأ', tone: 'pill-rose' },
+        { label: 'تم تفريغه', tone: 'pill-slate' },
+      ],
+    });
+  };
 
   return (
     <div dir="rtl" className="min-h-screen bg-slate-950 p-4 text-white md:p-6">
@@ -3596,6 +4783,148 @@ function PublicGatePage({ token }) {
           <StatCard title="نسبة الحضور" value={`${summaryView?.attendanceRate || 0}%`} subtitle="تتحدث تلقائيًا" icon={BarChart3} />
           <StatCard title="الحضور المبكر" value={summaryView?.earlyToday || 0} subtitle="حتى الآن" icon={BadgeCheck} />
           <StatCard title="الخصومات اليوم" value={summaryView?.violationsToday || 0} subtitle="من سجل الإجراءات" icon={ClipboardCheck} />
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <div className={`rounded-[1.8rem] border p-5 ${isOnline ? 'border-emerald-400/30 bg-emerald-500/10' : 'border-amber-400/30 bg-amber-500/10'}`}>
+            <div className="flex items-center gap-3">
+              <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${isOnline ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'}`}>{isOnline ? <Wifi className="h-6 w-6" /> : <WifiOff className="h-6 w-6" />}</div>
+              <div>
+                <div className="text-sm text-white/70">حالة الاتصال</div>
+                <div className="text-xl font-black">{isOnline ? 'متصل ويزامن مباشرة' : 'غير متصل — العمل محليًا'}</div>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-[1.8rem] border border-sky-400/30 bg-sky-500/10 p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500 text-white"><Database className="h-6 w-6" /></div>
+              <div>
+                <div className="text-sm text-white/70">الصف المؤقت</div>
+                <div className="text-xl font-black">{offlineQueueCount} عملية</div>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-[1.8rem] border border-violet-400/30 bg-violet-500/10 p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500 text-white"><Clock3 className="h-6 w-6" /></div>
+              <div>
+                <div className="text-sm text-white/70">وقت الجهاز المعتمد</div>
+                <div className="text-xl font-black">{formatLocalGateTimestamp(deviceNow)}</div>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-[1.8rem] border border-white/10 bg-white/5 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm text-white/70">المزامنة</div>
+                <div className="text-xl font-black">{syncState.syncing ? 'جارٍ المزامنة...' : offlineQueueCount ? 'بانتظار المزامنة' : 'متزامن'}</div>
+                <div className="mt-1 text-xs text-white/60">{syncState.lastSyncAt ? `آخر مزامنة: ${formatLocalGateTimestamp(syncState.lastSyncAt)}` : (syncState.lastError || 'لا توجد عمليات معلقة')}</div>
+                <div className="mt-2 text-xs text-white/60">{syncState.lastSyncedOperationAt ? `آخر عملية تم قبولها: ${formatLocalGateTimestamp(syncState.lastSyncedOperationAt)}` : (offlineQueuePreview.earliestAt ? `أقدم عملية في الصف: ${formatLocalGateTimestamp(offlineQueuePreview.earliestAt)}` : 'لا توجد عمليات بانتظار المزامنة')}</div>
+              </div>
+              <button onClick={syncOfflineQueue} disabled={!isOnline || syncState.syncing || !offlineQueueCount} className={cx('inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold', (!isOnline || syncState.syncing || !offlineQueueCount) ? 'bg-slate-700 text-slate-300' : 'bg-white text-slate-900')}>
+                <RefreshCw className={cx('h-4 w-4', syncState.syncing && 'animate-spin')} /> مزامنة الآن
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.7fr_1.2fr]">
+          <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-black">تفاصيل الصف المؤقت</div>
+                <div className="mt-1 text-sm text-white/60">آخر العمليات المحفوظة محليًا مع وقت الالتقاط من الجهاز نفسه.</div>
+              </div>
+              <Badge tone={offlineQueueCount ? 'amber' : 'green'}>{offlineQueueCount ? `${offlineQueueCount} بانتظار المزامنة` : 'لا توجد عمليات معلقة'}</Badge>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-2xl bg-slate-900/60 p-4 ring-1 ring-white/10"><div className="text-xs text-white/60">أقدم عملية</div><div className="mt-2 text-sm font-black">{formatLocalGateTimestamp(offlineQueuePreview.earliestAt)}</div></div>
+              <div className="rounded-2xl bg-slate-900/60 p-4 ring-1 ring-white/10"><div className="text-xs text-white/60">أحدث عملية</div><div className="mt-2 text-sm font-black">{formatLocalGateTimestamp(offlineQueuePreview.latestAt)}</div></div>
+              <div className="rounded-2xl bg-slate-900/60 p-4 ring-1 ring-white/10"><div className="text-xs text-white/60">عمليات مزامنة ناجحة</div><div className="mt-2 text-2xl font-black">{syncState.syncedCount || 0}</div></div>
+            </div>
+            <div className="mt-4 space-y-3">
+              {offlineQueuePreview.items.length ? offlineQueuePreview.items.map((item) => (
+                <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-900/60 px-4 py-3 ring-1 ring-white/10">
+                  <div>
+                    <div className="font-bold text-white">{item.studentName || item.barcode || 'عملية محفوظة'}</div>
+                    <div className="mt-1 text-xs text-white/60">{item.method || 'QR'} • {item.capturedAtLocal || formatLocalGateTimestamp(item.capturedAt)}</div>
+                  </div>
+                  <Badge tone="amber">محلي</Badge>
+                </div>
+              )) : <div className="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-white/60">لا توجد عمليات محفوظة حاليًا في جهاز البوابة.</div>}
+            </div>
+          </div>
+          <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-lg font-black">حالة المزامنة التشغيلية</div>
+              <button onClick={() => { if (window.confirm('سيتم حذف جميع العمليات المعلقة من الصف المحلي وتسجيل ذلك في السجل. هل تريد المتابعة؟')) clearOfflineQueue(); }} disabled={!offlineQueueCount} className={cx('rounded-2xl px-4 py-2 text-sm font-bold', !offlineQueueCount ? 'bg-slate-700 text-slate-300' : 'bg-rose-600 text-white')}><Trash2 className="ml-1 inline h-4 w-4" /> تفريغ الصف المحلي</button>
+            </div>
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="flex items-center justify-between rounded-2xl bg-slate-900/60 px-4 py-3 ring-1 ring-white/10"><span className="text-white/65">وضع الجهاز</span><span className="font-black">{isOnline ? 'متصل' : 'دون اتصال'}</span></div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-900/60 px-4 py-3 ring-1 ring-white/10"><span className="text-white/65">وضع العمل</span><span className="font-black">{isOnline ? 'إرسال مباشر + مزامنة تلقائية' : 'حفظ محلي فقط'}</span></div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-900/60 px-4 py-3 ring-1 ring-white/10"><span className="text-white/65">اعتماد الوقت</span><span className="font-black">وقت الجهاز المحلي</span></div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-900/60 px-4 py-3 ring-1 ring-white/10"><span className="text-white/65">منع التكرار</span><span className="font-black">مفعل أثناء المزامنة</span></div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-900/60 px-4 py-3 ring-1 ring-white/10"><span className="text-white/65">آخر خطأ</span><span className="font-black text-left">{syncState.lastError || 'لا يوجد'}</span></div>
+            </div>
+          </div>
+          <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-black">سجل مزامنة البوابة</div>
+                <div className="mt-1 text-sm text-white/60">يعرض الحالات التشغيلية كاملة، مع فلترة وبحث وتصدير CSV / Excel للمراجعة الفنية والإدارية.</div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="green">تمت {syncLogSummary.synced}</Badge>
+                <Badge tone="blue">مكرر {syncLogSummary.duplicate}</Badge>
+                <Badge tone="amber">بانتظار {syncLogSummary.pending}</Badge>
+                <Badge tone="rose">مرفوض {syncLogSummary.rejected + syncLogSummary.error}</Badge>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded-2xl bg-slate-900/60 p-4 ring-1 ring-white/10"><div className="text-xs text-white/60">إجمالي السجل</div><div className="mt-2 text-2xl font-black">{syncLogSummary.total}</div></div>
+              <div className="rounded-2xl bg-slate-900/60 p-4 ring-1 ring-white/10"><div className="text-xs text-white/60">تم تفريغه يدويًا</div><div className="mt-2 text-2xl font-black">{syncLogSummary.cleared}</div></div>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[0.8fr_1.2fr]">
+              <select value={syncLogFilter} onChange={(e) => setSyncLogFilter(e.target.value)} className="rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm font-bold text-white outline-none ring-1 ring-white/10">
+                <option value="all">كل الحالات</option>
+                <option value="pending">بانتظار</option>
+                <option value="synced">تمت</option>
+                <option value="duplicate">مكرر</option>
+                <option value="rejected">مرفوض</option>
+                <option value="cleared">تم تفريغه</option>
+                <option value="error">خطأ</option>
+              </select>
+              <input value={syncLogQuery} onChange={(e) => setSyncLogQuery(e.target.value)} placeholder="ابحث باسم الطالب أو الباركود أو الرسالة" className="rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm font-bold text-white placeholder:text-white/35 outline-none ring-1 ring-white/10" />
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-white/60">
+              <span>المعروض الآن: {filteredSyncLogItems.length} سجل</span>
+              <span>•</span>
+              <span>التصدير يحترم نفس الفلترة والبحث الحالية</span>
+            </div>
+            <div className="mt-4 space-y-3">
+              {filteredSyncLogItems.length ? filteredSyncLogItems.slice(0, 25).map((item) => { const meta = getGateSyncStatusMeta(item.status); return (
+                <div key={item.id} className="rounded-2xl bg-slate-900/60 px-4 py-3 ring-1 ring-white/10">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="font-bold text-white">{item.studentName || item.barcode || 'عملية مزامنة'}</div>
+                      <div className="mt-1 text-xs text-white/60">{item.method || 'QR'} • {item.capturedAtLocal || formatLocalGateTimestamp(item.capturedAt || item.createdAt)}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={meta.tone}>{meta.label}</Badge>
+                      <button onClick={() => { removeGateSyncLogItem(token, item.id); refreshOfflineQueueCount(); }} className="rounded-xl bg-white/5 px-3 py-2 text-xs font-bold text-white ring-1 ring-white/10">حذف</button>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs text-white/70">{item.message || '—'}</div>
+                  <div className="mt-1 text-[11px] text-white/45">{item.syncedAt ? `تمت المعالجة: ${formatLocalGateTimestamp(item.syncedAt)}` : `سُجلت في: ${formatLocalGateTimestamp(item.createdAt)}`}</div>
+                </div>
+              ); }) : <div className="rounded-2xl border border-dashed border-white/10 px-4 py-6 text-center text-sm text-white/60">لا توجد سجلات مطابقة للفلترة الحالية على هذا الجهاز.</div>}
+              {filteredSyncLogItems.length > 25 ? <div className="rounded-2xl bg-white/5 px-4 py-3 text-center text-xs text-white/60 ring-1 ring-white/10">تم عرض أول 25 سجل فقط داخل الشاشة للحفاظ على سرعة الجهاز، بينما ملف التصدير يشمل جميع النتائج المفلترة ({filteredSyncLogItems.length}).</div> : null}
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button onClick={handlePrintSyncLogReport} disabled={!filteredSyncLogItems.length} className={cx('rounded-2xl px-4 py-2 text-sm font-bold', !filteredSyncLogItems.length ? 'bg-slate-700 text-slate-300' : 'bg-white text-slate-900')}><Printer className="ml-1 inline h-4 w-4" /> طباعة / PDF</button>
+              <button onClick={handleExportSyncLogCsv} disabled={!filteredSyncLogItems.length} className={cx('rounded-2xl px-4 py-2 text-sm font-bold', !filteredSyncLogItems.length ? 'bg-slate-700 text-slate-300' : 'bg-emerald-600 text-white')}>تصدير CSV</button>
+              <button onClick={handleExportSyncLogExcel} disabled={!filteredSyncLogItems.length} className={cx('rounded-2xl px-4 py-2 text-sm font-bold', !filteredSyncLogItems.length ? 'bg-slate-700 text-slate-300' : 'bg-sky-600 text-white')}>تصدير Excel</button>
+              <button onClick={() => { if (window.confirm('سيتم حذف سجل المزامنة المحلي من هذا الجهاز فقط.')) { clearGateSyncLog(token); refreshOfflineQueueCount(); } }} disabled={!syncLogSummary.total} className={cx('rounded-2xl px-4 py-2 text-sm font-bold', !syncLogSummary.total ? 'bg-slate-700 text-slate-300' : 'bg-white text-slate-900')}>مسح سجل المزامنة</button>
+            </div>
+          </div>
         </div>
         {/* إحصائيات البوابة الحالية */}
         {currentGateStats ? (
@@ -3792,6 +5121,9 @@ function PublicScreenPage({ token }) {
   const recentAttendanceView = Array.isArray(structureSpotlight?.recentActivity) && structureSpotlight.recentActivity.length ? structureSpotlight.recentActivity : (Array.isArray(live.recentAttendance) ? live.recentAttendance : []);
   const safeSchoolName = live?.school?.name || payload?.school?.name || 'المدرسة';
   const clockTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  const parentPortalSummary = live?.parentPortalSummary || null;
+  const lessonAttendanceSummary = live?.lessonAttendanceSummary || null;
+  const rewardStoreSummary = live?.rewardStoreSummary || null;
   const topStudentsChartData = useMemo(() => (topStudentsView || []).slice(0, 6).map((item, index) => ({
     rank: index + 1,
     name: String(item?.name || item?.student || item?.title || `طالب ${index + 1}`),
@@ -4059,6 +5391,188 @@ function PublicScreenPage({ token }) {
         ),
       });
     }
+
+
+    if (widgets.lessonAttendanceSummary !== false && lessonAttendanceSummary && (screen.sourceMode || 'school') !== 'classroom') {
+      const lessonBars = [
+        { name: 'أرسل لهم', value: Number(lessonAttendanceSummary.sentTeachers || 0) },
+        { name: 'فتحوا الرابط', value: Number(lessonAttendanceSummary.openedTeachers || 0) },
+        { name: 'اعتمدوا', value: Number(lessonAttendanceSummary.submittedTeachers || 0) },
+      ];
+      items.push({
+        key: 'lessonAttendanceSummary',
+        title: 'تحضير الحصص',
+        render: () => (
+          <div className="grid h-full gap-6 xl:grid-cols-[1.02fr_0.98fr]">
+            <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <div className="text-4xl font-black xl:text-5xl">تحضير الحصص</div>
+                  <div className="mt-2 text-xl text-slate-500">{lessonAttendanceSummary.label || 'آخر جلسة تحضير'}</div>
+                </div>
+                <div className={cx('rounded-full px-5 py-3 text-lg font-black', lessonAttendanceSummary.status === 'closed' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-800')}>{lessonAttendanceSummary.status === 'closed' ? 'مغلقة' : 'مفتوحة'}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+                {[
+                  ['المستهدفون', lessonAttendanceSummary.expectedTeachers || 0, 'text-slate-900'],
+                  ['المرسل لهم', lessonAttendanceSummary.sentTeachers || 0, 'text-violet-700'],
+                  ['اعتمدوا', lessonAttendanceSummary.submittedTeachers || 0, 'text-emerald-700'],
+                  ['الغائبون', lessonAttendanceSummary.totalAbsent || 0, 'text-rose-700'],
+                ].map(([label, value, tone]) => <div key={label} className="rounded-[1.6rem] bg-slate-50 p-5 text-center ring-1 ring-slate-200"><div className="text-lg font-bold text-slate-500">{label}</div><div className={cx('mt-3 text-6xl font-black xl:text-7xl', tone)}>{formatEnglishDigits(value)}</div></div>)}
+              </div>
+              <div className="mt-6 grid gap-3">{(lessonAttendanceSummary.classRows || []).slice(0,4).map((item)=><div key={item.name} className="flex items-center justify-between rounded-2xl bg-slate-100 px-4 py-3 ring-1 ring-slate-200"><span className="font-black text-slate-900">{item.name}</span><span className="flex gap-2"><span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-black text-emerald-800">{formatEnglishDigits(item.present)} حاضر</span><span className="rounded-full bg-rose-100 px-3 py-1 text-sm font-black text-rose-800">{formatEnglishDigits(item.absent)} غائب</span></span></div>)}</div>
+            </div>
+            <div className="grid gap-6">
+              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+                <div className="mb-4 text-3xl font-black">مراحل التنفيذ</div>
+                <ResponsiveContainer width="100%" height={260}><BarChart data={lessonBars}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis allowDecimals={false} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="value" fill="#0ea5e9" radius={[18,18,0,0]}><LabelList dataKey="value" position="top" formatter={(value)=>formatEnglishDigits(value)} /></Bar></BarChart></ResponsiveContainer>
+              </div>
+              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+                <div className="mb-4 text-3xl font-black">ملخص سريع</div>
+                <div className="grid gap-4">
+                  <div className="rounded-[1.5rem] bg-sky-50 px-5 py-4 ring-1 ring-sky-200"><div className="text-base font-bold text-sky-700">فتحوا الرابط</div><div className="mt-2 text-5xl font-black text-sky-700">{formatEnglishDigits(lessonAttendanceSummary.openedTeachers || 0)}</div></div>
+                  <div className="rounded-[1.5rem] bg-emerald-50 px-5 py-4 ring-1 ring-emerald-200"><div className="text-base font-bold text-emerald-700">الحاضرون</div><div className="mt-2 text-5xl font-black text-emerald-700">{formatEnglishDigits(lessonAttendanceSummary.totalPresent || 0)}</div></div>
+                  <div className="rounded-[1.5rem] bg-rose-50 px-5 py-4 ring-1 ring-rose-200"><div className="text-base font-bold text-rose-700">الغائبون</div><div className="mt-2 text-5xl font-black text-rose-700">{formatEnglishDigits(lessonAttendanceSummary.totalAbsent || 0)}</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ),
+      });
+    }
+
+
+    if (widgets.rewardStoreSummary !== false && rewardStoreSummary && (screen.sourceMode || 'school') !== 'classroom') {
+      const sourceRows = [
+        { name: 'المدرسة', value: Number(rewardStoreSummary.schoolSourceCount || 0) },
+        { name: 'أولياء الأمور', value: Number(rewardStoreSummary.parentSourceCount || 0) },
+        { name: 'متبرعون', value: Number(rewardStoreSummary.externalSourceCount || 0) },
+      ].filter((row) => row.value > 0);
+      items.push({
+        key: 'rewardStoreSummary',
+        title: 'محتويات متجر النقاط',
+        render: () => (
+          <div className="grid h-full gap-6 xl:grid-cols-[1.08fr_0.92fr]">
+            <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <div className="text-4xl font-black xl:text-5xl">متجر النقاط</div>
+                  <div className="mt-2 text-xl text-slate-500">عرض الجوائز بحسب إعدادات هذه الشاشة</div>
+                </div>
+                <div className="rounded-full bg-violet-100 px-5 py-3 text-lg font-black text-violet-800">{formatEnglishDigits(rewardStoreSummary.items?.length || 0)} جائزة معروضة</div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+                {[
+                  ['المعتمدة', rewardStoreSummary.activeItems || 0, 'text-emerald-700'],
+                  ['المتبقي', rewardStoreSummary.remainingQuantity || 0, 'text-sky-700'],
+                  ['طلبات التسليم', rewardStoreSummary.pendingRedemptions || 0, 'text-amber-700'],
+                  ['المتبرعون', rewardStoreSummary.donorCount || 0, 'text-violet-700'],
+                ].map(([label, value, tone]) => <div key={label} className="rounded-[1.6rem] bg-slate-50 p-5 text-center ring-1 ring-slate-200"><div className="text-lg font-bold text-slate-500">{label}</div><div className={cx('mt-3 text-6xl font-black xl:text-7xl', tone)}>{formatEnglishDigits(value)}</div></div>)}
+              </div>
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                {(rewardStoreSummary.items || []).slice(0, Number(rewardStoreSummary.maxItems || 8)).map((item) => (
+                  <div key={item.id} className="flex items-center gap-4 rounded-[1.7rem] bg-slate-50 p-4 ring-1 ring-slate-200">
+                    <div className="h-20 w-24 overflow-hidden rounded-2xl bg-slate-100">{item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs text-slate-400">بدون صورة</div>}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xl font-black text-slate-900">{item.title}</div>
+                      <div className="mt-1 text-sm text-slate-500">{item.donorLabel} • المتبقي {formatEnglishDigits(item.remainingQuantity || 0)}</div>
+                      <div className="mt-2 flex items-center gap-2">
+                        {item.featured ? <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800">مهمة</span> : null}
+                        <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-800">{formatEnglishDigits(item.pointsCost || 0)} نقطة</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-6">
+              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+                <div className="mb-4 text-3xl font-black">مصادر الجوائز</div>
+                <ResponsiveContainer width="100%" height={260}><PieChart><Pie data={(sourceRows.length ? sourceRows : [{ name: 'لا توجد بيانات', value: 1 }])} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}>{(sourceRows.length ? sourceRows : [{ name: 'لا توجد بيانات', value: 1 }]).map((_, index) => <Cell key={index} fill={["#10b981", "#0ea5e9", "#8b5cf6", "#f59e0b"][index % 4]} />)}</Pie><Tooltip formatter={(value) => [formatEnglishDigits(value), 'الكمية']} /></PieChart></ResponsiveContainer>
+              </div>
+              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+                <div className="mb-4 text-3xl font-black">خيارات العرض</div>
+                <div className="grid gap-4">
+                  <div className="rounded-[1.5rem] bg-slate-50 px-5 py-4 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">وضع الشاشة</div><div className="mt-2 text-3xl font-black text-slate-900">{rewardStoreSummary.mode === 'featured' ? 'المهمة فقط' : rewardStoreSummary.mode === 'marked' ? 'المعلّم عليها' : 'كل الجوائز'}</div></div>
+                  <div className="rounded-[1.5rem] bg-slate-50 px-5 py-4 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">المصدر</div><div className="mt-2 text-3xl font-black text-slate-900">{rewardStoreSummary.sourceFilter === 'school' ? 'إدارة المدرسة' : rewardStoreSummary.sourceFilter === 'parent' ? 'أولياء الأمور' : rewardStoreSummary.sourceFilter === 'external' ? 'متبرعون خارجيون' : 'كل المصادر'}</div></div>
+                  <div className="rounded-[1.5rem] bg-slate-50 px-5 py-4 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">عدد المعروض</div><div className="mt-2 text-5xl font-black text-slate-900">{formatEnglishDigits(rewardStoreSummary.items?.length || 0)}</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ),
+      });
+    }
+
+    if (widgets.parentPortalSummary !== false && parentPortalSummary && (screen.sourceMode || 'school') !== 'classroom') {
+      const portalStats = [
+        { label: 'الأولياء المرتبطون', value: parentPortalSummary.linkedParents || 0, tone: 'text-sky-700', box: 'bg-sky-50 ring-sky-200' },
+        { label: 'الأولياء النشطون', value: parentPortalSummary.activeParents || 0, tone: 'text-emerald-700', box: 'bg-emerald-50 ring-emerald-200' },
+        { label: 'الطلبات المعلقة', value: parentPortalSummary.pendingRequests || 0, tone: 'text-amber-700', box: 'bg-amber-50 ring-amber-200' },
+        { label: 'الحسابات المعلقة', value: parentPortalSummary.suspendedParents || 0, tone: 'text-rose-700', box: 'bg-rose-50 ring-rose-200' },
+      ];
+      const coverageData = [
+        { name: 'تغطية أولياء الأمور', value: Number(parentPortalSummary.coverageRate || 0) },
+        { name: 'تغطية الجوالات', value: Number(parentPortalSummary.guardianCoverageRate || 0) },
+      ];
+      items.push({
+        key: 'parentPortalSummary',
+        title: 'جاهزية أولياء الأمور',
+        render: () => (
+          <div className="grid h-full gap-6 xl:grid-cols-[1.08fr_0.92fr]">
+            <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <div className="text-4xl font-black xl:text-5xl">جاهزية أولياء الأمور</div>
+                  <div className="mt-2 text-xl text-slate-500">صورة تنفيذية مختصرة لبوابة ولي الأمر على هذه الشاشة</div>
+                </div>
+                <div className={cx('rounded-full px-5 py-3 text-lg font-black', parentPortalSummary.portalEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800')}>
+                  {parentPortalSummary.portalEnabled ? 'البوابة مفعلة' : 'البوابة مقفلة'}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+                {portalStats.map((item) => (
+                  <div key={item.label} className={cx('rounded-[1.7rem] p-5 text-center ring-1', item.box)}>
+                    <div className="text-lg font-bold text-slate-500">{item.label}</div>
+                    <div className={cx('mt-4 text-6xl font-black xl:text-7xl', item.tone)}>{formatEnglishDigits(item.value)}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-6 grid gap-4 xl:grid-cols-3">
+                <div className="rounded-[1.6rem] bg-slate-100 p-5 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">سياسة تحديث الرقم</div><div className="mt-3 text-3xl font-black text-slate-900">{parentPortalSummary.approvalMode === 'manual' ? 'يدوي' : 'تلقائي'}</div></div>
+                <div className="rounded-[1.6rem] bg-slate-100 p-5 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">الأرقام الإضافية</div><div className="mt-3 text-3xl font-black text-slate-900">{formatEnglishDigits(parentPortalSummary.extraContacts || 0)}</div></div>
+                <div className="rounded-[1.6rem] bg-slate-100 p-5 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">تفضيل واتساب</div><div className="mt-3 text-3xl font-black text-emerald-700">{formatEnglishDigits(parentPortalSummary.preferredWhatsappCount || 0)}</div></div>
+              </div>
+            </div>
+            <div className="grid gap-6">
+              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+                <div className="mb-4 text-3xl font-black">نسب التغطية</div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={coverageData} margin={{ top: 20, right: 10, left: 10, bottom: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis dataKey="name" tick={{ fontSize: 18, fontWeight: 900, fill: '#0f172a' }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} tickFormatter={(value) => formatEnglishDigits(value)} tick={{ fontSize: 18, fontWeight: 800, fill: '#334155' }} axisLine={false} tickLine={false} />
+                    <Tooltip formatter={(value) => [`${formatEnglishDigits(value)}%`, 'النسبة']} contentStyle={{ borderRadius: '18px', border: '1px solid #cbd5e1', fontWeight: 800 }} />
+                    <Bar dataKey="value" fill="#6366f1" radius={[18, 18, 0, 0]} barSize={68}>
+                      <LabelList dataKey="value" position="top" formatter={(value) => `${formatEnglishDigits(value)}%`} style={{ fill: '#0f172a', fontSize: 20, fontWeight: 900 }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
+                <div className="mb-4 text-3xl font-black">نبض البوابة</div>
+                <div className="grid gap-4">
+                  <div className="rounded-[1.5rem] bg-violet-50 px-5 py-4 ring-1 ring-violet-200"><div className="text-base font-bold text-violet-700">تغطية أولياء الأمور</div><div className="mt-2 text-5xl font-black text-violet-700">{formatEnglishDigits(parentPortalSummary.coverageRate || 0)}%</div></div>
+                  <div className="rounded-[1.5rem] bg-slate-50 px-5 py-4 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">تغطية أرقام الجوال</div><div className="mt-2 text-5xl font-black text-slate-900">{formatEnglishDigits(parentPortalSummary.guardianCoverageRate || 0)}%</div></div>
+                  <div className="rounded-[1.5rem] bg-amber-50 px-5 py-4 ring-1 ring-amber-200"><div className="text-base font-bold text-amber-700">آخر تنبيه إداري</div><div className="mt-2 text-2xl font-black text-amber-800">{parentPortalSummary.lastAlertAt ? formatDateTime(parentPortalSummary.lastAlertAt) : 'لا يوجد'}</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ),
+      });
+    }
+
     if (widgets.recentActivity !== false) {
       items.push({
         key: 'recentActivity',
@@ -4208,7 +5722,7 @@ function PublicScreenPage({ token }) {
         )
       }];
     }
-  }, [live, widgets, screenTemplate, structureSpotlight, summaryView, topStudentsView, topCompaniesView, topStudentsChartData, topCompaniesChartData, attendanceTrendView, recentAttendanceView, safeSchoolName]);
+  }, [live, widgets, screenTemplate, structureSpotlight, summaryView, topStudentsView, topCompaniesView, topStudentsChartData, topCompaniesChartData, attendanceTrendView, recentAttendanceView, safeSchoolName, rewardStoreSummary, lessonAttendanceSummary, parentPortalSummary]);
 
   useEffect(() => {
     setSlideIndex(0);
@@ -5333,8 +6847,20 @@ function SchoolStructurePage({ selectedSchool, schoolUsers = [], currentUser, on
   );
 }
 
-function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog, actionLog = [], settings = {}, notifications, canSelectSchool = true, executiveReport, currentUser, onCreateGateLink, onDeleteGateLink, onCreateScreenLink, onDeleteScreenLink, onUpdateScreenLink, onNavigate }) {
+function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog, actionLog = [], gateSyncEvents = [], settings = {}, notifications, canSelectSchool = true, executiveReport, currentUser, onCreateGateLink, onDeleteGateLink, onCreateScreenLink, onDeleteScreenLink, onUpdateScreenLink, onNavigate }) {
   const fallbackSchool = selectedSchool || schools[0] || null;
+  const canViewParentPortalDashboard = ['superadmin', 'principal', 'supervisor'].includes(String(currentUser?.role || ''));
+  const [parentPortalDashboard, setParentPortalDashboard] = useState({
+    loading: false,
+    loaded: false,
+    error: '',
+    enabled: true,
+    mode: 'auto',
+    pending: 0,
+    approvedToday: 0,
+    activeParents: 0,
+    lastAlert: null,
+  });
   const scopedSchools = canSelectSchool ? schools : [fallbackSchool].filter(Boolean);
   const totalStudents = scopedSchools.reduce((sum, school) => sum + getUnifiedSchoolStudents(school, { includeArchived: false, preferStructure: true }).length, 0);
   const totalCompanies = scopedSchools.reduce((sum, school) => sum + getUnifiedCompanyRows(school, { preferStructure: true }).length, 0);
@@ -5347,6 +6873,19 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
   const gateCount = Number(fallbackSchool?.smartLinks?.gates?.length || 0);
   const screenCount = Number(fallbackSchool?.smartLinks?.screens?.length || 0);
   const structureCount = Number(fallbackSchool?.structure?.classrooms?.length || 0);
+  const schoolGateSyncEvents = useMemo(() => hydrateGateSyncCenterEvents(gateSyncEvents).filter((item) => Number(item.schoolId) === Number(fallbackSchool?.id)), [gateSyncEvents, fallbackSchool?.id]);
+  const schoolGateSyncSummary = useMemo(() => schoolGateSyncEvents.reduce((acc, item) => {
+    acc.total += 1;
+    const status = String(item.status || '').toLowerCase();
+    if (status === 'synced') acc.synced += 1;
+    else if (status === 'duplicate') acc.duplicate += 1;
+    else if (status === 'pending') acc.pending += 1;
+    else if (status === 'rejected') acc.rejected += 1;
+    else if (status === 'error') acc.error += 1;
+    else if (status === 'cleared') acc.cleared += 1;
+    return acc;
+  }, { total: 0, pending: 0, synced: 0, duplicate: 0, rejected: 0, error: 0, cleared: 0 }), [schoolGateSyncEvents]);
+  const schoolGateSyncRecent = useMemo(() => schoolGateSyncEvents.slice(0, 6), [schoolGateSyncEvents]);
 
   const statusPie = [
     { name: "مبكر", value: schoolStudents.filter((item) => item.status === "مبكر").length },
@@ -5373,6 +6912,51 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
   }));
   const liveSummary = executiveReport?.summary || summarizeSchoolLiveState(fallbackSchool, scanLog, []).summary;
   const latestNotifications = notifications.slice(0, 4);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!fallbackSchool?.id || !canViewParentPortalDashboard) {
+      setParentPortalDashboard((current) => ({ ...current, loading: false, loaded: false, error: '' }));
+      return () => { cancelled = true; };
+    }
+    const loadParentPortalDashboard = async () => {
+      setParentPortalDashboard((current) => ({ ...current, loading: true, error: '' }));
+      try {
+        const query = currentUser?.role === 'superadmin' ? `?schoolId=${fallbackSchool.id}` : '';
+        const response = await apiRequest(`/api/admin/parent-primary-requests${query}`, { token: getSessionToken() });
+        const requests = Array.isArray(response?.requests) ? response.requests : [];
+        const alerts = Array.isArray(response?.alerts) ? response.alerts : [];
+        const activeParentPhones = new Set();
+        requests.forEach((request) => {
+          if (request?.currentPhone) activeParentPhones.add(String(request.currentPhone));
+          if (request?.requestedMobile) activeParentPhones.add(String(request.requestedMobile));
+        });
+        const approvedToday = requests.filter((request) => {
+          const stamp = String(request?.updatedAt || request?.verifiedAt || '');
+          return request?.status === 'approved' && stamp.slice(0, 10) === new Date().toISOString().slice(0, 10);
+        }).length;
+        if (!cancelled) {
+          setParentPortalDashboard({
+            loading: false,
+            loaded: true,
+            error: '',
+            enabled: response?.portalSettings?.enabled !== false,
+            mode: response?.policy?.mode === 'manual' ? 'manual' : 'auto',
+            pending: requests.filter((request) => String(request?.status || '') === 'pending').length,
+            approvedToday,
+            activeParents: activeParentPhones.size,
+            lastAlert: alerts[0] || null,
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setParentPortalDashboard((current) => ({ ...current, loading: false, loaded: true, error: error.message || 'تعذر تحميل مؤشرات بوابة ولي الأمر.' }));
+        }
+      }
+    };
+    loadParentPortalDashboard();
+    return () => { cancelled = true; };
+  }, [fallbackSchool?.id, canViewParentPortalDashboard, currentUser?.role]);
 
   // ===== إحصائيات الإجراءات =====
   const schoolActionLog = useMemo(() => (actionLog || []).filter((item) => item.schoolId === fallbackSchool?.id), [actionLog, fallbackSchool]);
@@ -5437,6 +7021,7 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
     { key: 'gates', label: 'البوابات والشاشات', tone: 'green' },
     { key: 'users', label: 'المستخدمون', tone: 'rose' },
     { key: 'settings', label: 'الإعدادات', tone: 'slate' },
+    ...(canViewParentPortalDashboard ? [{ key: 'parentPortal', label: 'بوابة ولي الأمر', tone: parentPortalDashboard.enabled ? 'green' : 'amber' }] : []),
   ];
   const readinessWarnings = [
     !structureCount ? { title: 'الفصول غير مهيأة', body: 'أضف الفصول أو استوردها من صفحة الشركات والفصول لظهور البيانات بشكل صحيح.', tone: 'amber' } : null,
@@ -5444,6 +7029,8 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
     !gateCount ? { title: 'لا توجد بوابات', body: 'أنشئ بوابة واحدة على الأقل حتى تعمل شاشة الحضور عند المدخل.', tone: 'amber' } : null,
     !screenCount ? { title: 'لا توجد شاشات', body: 'أضف شاشة عرض واحدة على الأقل لعرض المؤشرات أو لوحة المدرسة.', tone: 'blue' } : null,
     !fallbackSchool?.manager ? { title: 'بيانات المدير ناقصة', body: 'أكمل اسم مدير المدرسة وبياناته من صفحة المدارس أو الإعدادات.', tone: 'amber' } : null,
+    canViewParentPortalDashboard && !parentPortalDashboard.enabled ? { title: 'بوابة ولي الأمر مقفلة', body: 'البوابة متوقفة حاليًا، ولن يتمكن أولياء الأمور من تسجيل الدخول حتى يعاد تفعيلها من الإعدادات.', tone: 'amber' } : null,
+    canViewParentPortalDashboard && parentPortalDashboard.mode === 'manual' && parentPortalDashboard.pending > 0 ? { title: 'طلبات أولياء الأمور بانتظار الاعتماد', body: `يوجد ${parentPortalDashboard.pending} طلب يحتاج متابعة لأن سياسة التحديث الحالية يدوية.`, tone: 'blue' } : null,
   ].filter(Boolean);
 
   if (!fallbackSchool) {
@@ -5488,6 +7075,38 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
         <StatCard title="جاهزية بصمة الوجه" value={faceReadyCount} subtitle="طالب مفعّل لبصمة الوجه" icon={Camera} />
       </div>
 
+      {canViewParentPortalDashboard ? (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="flex items-center justify-between gap-3"><Badge tone={parentPortalDashboard.enabled ? 'green' : 'amber'}>بوابة ولي الأمر</Badge><Users className="h-5 w-5 text-slate-400" /></div>
+            <div className="mt-4 text-3xl font-black text-slate-900">{parentPortalDashboard.enabled ? 'مفعلة' : 'مقفلة'}</div>
+            <div className="mt-2 text-sm leading-7 text-slate-500">{parentPortalDashboard.mode === 'manual' ? 'التحديث يدوي ويحتاج موافقة الإدارة.' : 'التحديث تلقائي مع إشعار للإدارة.'}</div>
+            <div className="mt-4 flex items-center gap-2 text-xs font-bold text-slate-500"><span className="rounded-full bg-slate-100 px-3 py-1">{parentPortalDashboard.mode === 'manual' ? 'يدوي' : 'تلقائي'}</span>{parentPortalDashboard.loading ? <span className="rounded-full bg-sky-50 px-3 py-1 text-sky-700">تحديث...</span> : null}</div>
+          </div>
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="flex items-center justify-between gap-3"><Badge tone="amber">طلبات التحديث</Badge><RefreshCcw className="h-5 w-5 text-slate-400" /></div>
+            <div className="mt-4 text-3xl font-black text-slate-900">{parentPortalDashboard.pending}</div>
+            <div className="mt-2 text-sm leading-7 text-slate-500">طلبات بانتظار المراجعة أو المتابعة حسب السياسة الحالية.</div>
+            <div className="mt-4 text-xs font-bold text-slate-500">اعتمد اليوم: <span className="text-slate-800">{parentPortalDashboard.approvedToday}</span></div>
+          </div>
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="flex items-center justify-between gap-3"><Badge tone="blue">الأولياء المرتبطون</Badge><Phone className="h-5 w-5 text-slate-400" /></div>
+            <div className="mt-4 text-3xl font-black text-slate-900">{parentPortalDashboard.activeParents}</div>
+            <div className="mt-2 text-sm leading-7 text-slate-500">عدد الأرقام الظاهرة في سجل طلبات البوابة لهذه المدرسة.</div>
+            <div className="mt-4 text-xs font-bold text-slate-500">آخر تحديث: <span className="text-slate-800">{parentPortalDashboard.lastAlert?.createdAt ? formatDateTime(parentPortalDashboard.lastAlert.createdAt) : '—'}</span></div>
+          </div>
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="flex items-center justify-between gap-3"><Badge tone="violet">آخر إشعار</Badge><Bell className="h-5 w-5 text-slate-400" /></div>
+            <div className="mt-4 text-lg font-black leading-8 text-slate-900">{parentPortalDashboard.lastAlert?.message || parentPortalDashboard.error || 'لا يوجد إشعار حديث'}</div>
+            <div className="mt-2 text-sm leading-7 text-slate-500">{parentPortalDashboard.lastAlert?.action === 'auto-approved' ? 'اعتماد تلقائي' : parentPortalDashboard.lastAlert?.action === 'rejected' ? 'رفض/تراجع' : parentPortalDashboard.lastAlert?.action === 'approved' ? 'اعتماد يدوي' : 'متابعة إدارية'}</div>
+            <div className="mt-4 flex flex-wrap gap-2 text-xs font-bold"> 
+              <button type="button" onClick={() => onNavigate?.('settings')} className="rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-slate-200">إعدادات البوابة</button>
+              <button type="button" onClick={() => window.open('/admin/parent-primary-requests', '_blank', 'noopener,noreferrer')} className="rounded-full bg-sky-50 px-3 py-1 text-sky-700 hover:bg-sky-100">عرض الطلبات</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {Array.isArray(fallbackSchool?.structure?.classrooms) && fallbackSchool.structure.classrooms.length ? <div className="rounded-2xl border border-dashed border-violet-200 bg-violet-50 p-4 text-sm font-bold text-violet-800">المصدر الافتراضي للوحات المدرسة الآن هو <span className="font-black">الهيكل المدرسي</span>.</div> : null}
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
@@ -5497,6 +7116,64 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
         <SummaryBox label="الخصومات" value={liveSummary.violationsToday || 0} color="text-rose-700" />
         <SummaryBox label="البرامج" value={liveSummary.programsToday || 0} color="text-violet-700" />
       </div>
+
+
+      <SectionCard title="مركز مزامنة البوابات" icon={Wifi} action={<Badge tone={schoolGateSyncSummary.pending ? 'amber' : 'green'}>{schoolGateSyncSummary.pending ? `${schoolGateSyncSummary.pending} معلقة` : 'متزامنة'}</Badge>}>
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-6">
+          <SummaryBox label="إجمالي السجلات" value={schoolGateSyncSummary.total} color="text-slate-800" />
+          <SummaryBox label="تمت" value={schoolGateSyncSummary.synced} color="text-emerald-700" />
+          <SummaryBox label="مكرر" value={schoolGateSyncSummary.duplicate} color="text-sky-700" />
+          <SummaryBox label="بانتظار" value={schoolGateSyncSummary.pending} color="text-amber-700" />
+          <SummaryBox label="مرفوض / خطأ" value={schoolGateSyncSummary.rejected + schoolGateSyncSummary.error} color="text-rose-700" />
+          <SummaryBox label="تم تفريغه" value={schoolGateSyncSummary.cleared} color="text-slate-600" />
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-3 xl:grid-cols-2">
+          <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+            <div className="text-sm font-black text-slate-800">آخر أحداث مزامنة البوابات</div>
+            <div className="mt-3 space-y-3">
+              {schoolGateSyncRecent.length ? schoolGateSyncRecent.map((item) => (
+                <div key={item.id} className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-black text-slate-800">{item.gateName || 'بوابة المدرسة'}</div>
+                      <div className="mt-1 text-xs text-slate-500">{item.studentName || item.barcode || 'عملية بوابة'} - {formatDateTime(item.syncedAt || item.createdAt || item.capturedAt || new Date().toISOString())}</div>
+                    </div>
+                    <Badge tone={item.status === 'synced' ? 'green' : item.status === 'duplicate' ? 'blue' : item.status === 'pending' ? 'amber' : item.status === 'cleared' ? 'slate' : 'rose'}>
+                      {item.status === 'synced' ? 'تمت' : item.status === 'duplicate' ? 'مكرر' : item.status === 'pending' ? 'بانتظار' : item.status === 'cleared' ? 'تم تفريغه' : item.status === 'rejected' ? 'مرفوض' : 'خطأ'}
+                    </Badge>
+                  </div>
+                  <div className="mt-2 text-sm leading-7 text-slate-600">{item.message || '—'}</div>
+                </div>
+              )) : <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-8 text-center text-sm font-bold text-slate-500">لا توجد أحداث مزامنة مركزية بعد.</div>}
+            </div>
+          </div>
+          <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-extrabold text-slate-800">بوابات تحتاج متابعة</div>
+              <button type="button" onClick={() => onNavigate?.('reports')} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700 hover:bg-slate-200">فتح التقارير</button>
+            </div>
+            <div className="mt-4 space-y-3">
+              {(fallbackSchool?.smartLinks?.gates || []).map((gate) => {
+                const gateRows = schoolGateSyncEvents.filter((item) => String(item.gateId) === String(gate.id));
+                const pending = gateRows.filter((item) => item.status === 'pending').length;
+                const failed = gateRows.filter((item) => ['rejected','error'].includes(item.status)).length;
+                const synced = gateRows.filter((item) => item.status === 'synced').length;
+                return (
+                  <div key={gate.id} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-black text-slate-800">{gate.name}</div>
+                        <div className="mt-1 text-xs text-slate-500">تمت {synced} | معلقة {pending} | متعثرة {failed}</div>
+                      </div>
+                      <Badge tone={pending ? 'amber' : failed ? 'rose' : 'green'}>{pending ? 'تحتاج متابعة' : failed ? 'يوجد تعثر' : 'مستقرة'}</Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </SectionCard>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
         <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
@@ -6976,7 +8653,7 @@ function MessagingCenterPage({ selectedSchool, currentUser, onSendMessage, onTes
   );
 }
 
-function UsersPage({ users, schools, currentUser, selectedSchoolId, onAddUser, onSelectForEdit, editingUserId, onToggleUserStatus, onDeleteUser, onUpdateSchoolAccess, onOpenAccountSecurity, onOpenResetUserPassword }) {
+function UsersPage({ users, schools, currentUser, selectedSchoolId, actionLog, settings, onAddUser, onSelectForEdit, editingUserId, onToggleUserStatus, onDeleteUser, onUpdateSchoolAccess, onOpenAccountSecurity, onOpenResetUserPassword }) {
   const canManageAll = currentUser?.role === "superadmin";
   const scopeSchoolId = canManageAll ? selectedSchoolId : currentUser?.schoolId;
   const scopedSchool = schools.find((school) => school.id === scopeSchoolId) || schools[0] || null;
@@ -6990,6 +8667,8 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, onAddUser, o
     role: canManageAll ? "principal" : "teacher",
     schoolId: scopeSchoolId || schools[0]?.id || 1,
     permissions: clampDelegatedPermissions(currentUser, canManageAll ? "principal" : "teacher", buildRolePermissions(canManageAll ? "principal" : "teacher")),
+    subjects: [],
+    specialItems: [],
   });
   const [schoolAccess, setSchoolAccess] = useState(() => getSchoolAccess(scopedSchool));
   const [usersTab, setUsersTab] = useState("overview");
@@ -7001,6 +8680,8 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, onAddUser, o
     { key: 'currentRole', label: 'حسب الدور المختار', permissions: clampDelegatedPermissions(currentUser, form.role, buildRolePermissions(form.role)) },
     ...(canManageAll ? [{ key: 'principal', label: 'مثل مدير المدرسة', permissions: buildRolePermissions('principal') }] : []),
     ...(canManageAll ? [{ key: 'superadmin', label: 'مثل الأدمن العام', permissions: buildRolePermissions('superadmin') }] : []),
+    { key: 'agent', label: 'مثل الوكيل', permissions: clampDelegatedPermissions(currentUser, 'agent', buildRolePermissions('agent')) },
+    { key: 'counselor', label: 'مثل المرشد', permissions: clampDelegatedPermissions(currentUser, 'counselor', buildRolePermissions('counselor')) },
     { key: 'supervisor', label: 'مثل المشرف', permissions: clampDelegatedPermissions(currentUser, 'supervisor', buildRolePermissions('supervisor')) },
     { key: 'teacher', label: 'مثل المعلم', permissions: clampDelegatedPermissions(currentUser, 'teacher', buildRolePermissions('teacher')) },
     { key: 'gate', label: 'مثل البوابة', permissions: clampDelegatedPermissions(currentUser, 'gate', buildRolePermissions('gate')) },
@@ -7013,6 +8694,8 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, onAddUser, o
       role: (canManageAll ? roles : roles.filter((role) => principalDelegableRoles.includes(role.key))).some((item) => item.key === prev.role) ? prev.role : defaultRole,
       schoolId: canManageAll ? (prev.schoolId || scopeSchoolId || schools[0]?.id || 1) : (scopeSchoolId || schools[0]?.id || 1),
       permissions: prev.permissions || clampDelegatedPermissions(currentUser, defaultRole, buildRolePermissions(defaultRole)),
+      subjects: Array.isArray(prev.subjects) ? prev.subjects : [],
+      specialItems: Array.isArray(prev.specialItems) ? prev.specialItems : [],
     }));
   }, [canManageAll, scopeSchoolId, schools]);
 
@@ -7036,6 +8719,7 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, onAddUser, o
     const values = [user.name, user.username, user.email, user.mobile, getRoleLabel(user.role), schoolName, user.status];
     return values.some((value) => normalizeSearchToken(String(value || '')).includes(query));
   });
+  const teacherSpecialStatsMap = useMemo(() => Object.fromEntries(visibleUsers.filter((user) => user.role === 'teacher').map((user) => [String(user.id), computeTeacherSpecialStats(actionLog, user, settings)])), [visibleUsers, actionLog, settings]);
 
   const userTabs = [
     { key: "overview", label: "نظرة عامة" },
@@ -7094,6 +8778,8 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, onAddUser, o
       role: canManageAll ? "principal" : "teacher",
       schoolId: canManageAll ? (scopeSchoolId || schools[0]?.id || 1) : (scopeSchoolId || schools[0]?.id || 1),
       permissions: clampDelegatedPermissions(currentUser, canManageAll ? "principal" : "teacher", buildRolePermissions(canManageAll ? "principal" : "teacher")),
+      subjects: [],
+      specialItems: [],
     });
   };
 
@@ -7216,8 +8902,13 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, onAddUser, o
                 {schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}
               </Select>
             )}
+            {form.role === 'teacher' ? (
+              <div className="md:col-span-2">
+                <Input label="المواد التي يدرسها" value={(form.subjects || []).join('، ')} onChange={(e) => setForm((prev) => ({ ...prev, subjects: parseTeacherSubjects(e.target.value), specialItems: hydrateTeacherSpecialItems(prev.specialItems || []).filter((item) => parseTeacherSubjects(e.target.value).includes(item.subject)) }))} placeholder="مثال: رياضيات، علوم" />
+              </div>
+            ) : null}
             <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600 ring-1 ring-slate-200 md:col-span-2">
-              {canManageAll ? 'صلاحيات هذا الحساب يمكن تعديلها الآن قبل الحفظ، ويمكنك منحه صلاحيات مثل مدير المدرسة أو الأدمن العام ثم الزيادة أو التقليل يدويًا حسب حاجتك.' : 'مدير المدرسة يمنح فقط الأدوار التشغيلية داخل مدرسته: البوابة والمشرف والمعلم والطالب، ولا يستطيع منح صلاحيات مركزية مثل الإعدادات العامة أو المستخدمين أو الشاشات والبوابات.'}
+              {canManageAll ? 'صلاحيات هذا الحساب يمكن تعديلها الآن قبل الحفظ، ويمكنك منحه صلاحيات مثل مدير المدرسة أو الأدمن العام ثم الزيادة أو التقليل يدويًا حسب حاجتك.' : 'مدير المدرسة يمنح فقط الأدوار التشغيلية داخل مدرسته: الوكيل والمرشد والبوابة والمشرف والمعلم والطالب، ولا يستطيع منح صلاحيات مركزية مثل الإعدادات العامة أو المستخدمين أو الشاشات والبوابات.'}
             </div>
             <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200 md:col-span-2">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -7243,6 +8934,7 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, onAddUser, o
                 </label>
               ))}
             </div>
+            {form.role === 'teacher' ? <TeacherSpecialItemsEditor subjects={form.subjects || []} items={form.specialItems || []} onChange={(items) => setForm((prev) => ({ ...prev, specialItems: items }))} /> : null}
             <div className="md:col-span-2">
               <button type="submit" className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white"><Save className="h-4 w-4" /> حفظ المستخدم</button>
             </div>
@@ -7275,6 +8967,9 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, onAddUser, o
               { key: "email", label: "البريد الإلكتروني" },
               { key: "password", label: "كلمة المرور" },
               { key: "role", label: "الدور", render: (row) => getRoleLabel(row.role) },
+              { key: "subjects", label: "المواد", render: (row) => row.role === 'teacher' ? ((row.subjects || []).join('، ') || '—') : '—' },
+              { key: "specialItems", label: "التخصصي", render: (row) => row.role === 'teacher' ? `${hydrateTeacherSpecialItems(row.specialItems || []).length} بند • ${teacherSpecialStatsMap[String(row.id)]?.score || 0} رصيد` : '—' },
+              { key: "specialAchievements", label: "إنجازات الفصل", render: (row) => row.role === 'teacher' ? `${teacherSpecialStatsMap[String(row.id)]?.achievements || 0} تفعيل` : '—' },
               { key: "schoolId", label: "المدرسة", render: (row) => row.role === "superadmin" ? "مركزي" : (schools.find((school) => school.id === row.schoolId)?.name || "—") },
               { key: "status", label: "الحالة", render: (row) => roleStatusLabel(row) },
               {
@@ -8371,6 +10066,8 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
   }
   const [identifyMethod, setIdentifyMethod] = useState("barcode");
   const [query, setQuery] = useState("");
+  const [manualSelectedStudentId, setManualSelectedStudentId] = useState("");
+  const [manualSelectedCompany, setManualSelectedCompany] = useState("");
   const [actionType, setActionType] = useState("reward");
   const [definitionId, setDefinitionId] = useState(settings.actions?.rewards?.[0]?.id || "");
   const [note, setNote] = useState("");
@@ -8406,17 +10103,86 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
     { key: "group", label: "مجموعة" },
     { key: "student", label: "طالب واحد" },
   ];
+  const [definitionScope, setDefinitionScope] = useState('general');
+  const teacherSubjects = useMemo(() => getTeacherSubjects(currentUser), [currentUser]);
+  const teacherAvailableStudents = useMemo(() => {
+    const rows = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true });
+    return [...rows].sort((a, b) => {
+      const companyA = String(a.companyName || a.className || getStudentCompanyName(a, selectedSchool) || '');
+      const companyB = String(b.companyName || b.className || getStudentCompanyName(b, selectedSchool) || '');
+      const companyCompare = companyA.localeCompare(companyB, 'ar');
+      if (companyCompare !== 0) return companyCompare;
+      return String(a.name || '').localeCompare(String(b.name || ''), 'ar');
+    });
+  }, [selectedSchool]);
+  const teacherManualCompanyOptions = useMemo(() => {
+    const map = new Map();
+    teacherAvailableStudents.forEach((student) => {
+      const name = String(getStudentCompanyName(student, selectedSchool) || student.companyName || student.className || 'غير محدد');
+      const key = normalizeSearchToken(name) || String(student.companyId || student.classId || name);
+      if (!map.has(key)) map.set(key, { key, label: name });
+    });
+    return Array.from(map.values()).sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'ar'));
+  }, [teacherAvailableStudents, selectedSchool]);
+  const teacherManualStudentOptions = useMemo(() => {
+    const token = normalizeSearchToken(query);
+    const companyToken = normalizeSearchToken(manualSelectedCompany);
+    const filteredByCompany = companyToken
+      ? teacherAvailableStudents.filter((student) => normalizeSearchToken(String(getStudentCompanyName(student, selectedSchool) || student.companyName || student.className || 'غير محدد')) === companyToken)
+      : teacherAvailableStudents;
+    const rows = !token
+      ? filteredByCompany.slice(0, 80)
+      : filteredByCompany.filter((student) => [student.name, student.studentNumber, student.nationalId, student.barcode, getStudentCompanyName(student, selectedSchool)].some((value) => normalizeSearchToken(String(value || '')).includes(token))).slice(0, 80);
+    return rows;
+  }, [teacherAvailableStudents, query, selectedSchool, manualSelectedCompany]);
+  const [selectedSpecialSubject, setSelectedSpecialSubject] = useState('');
+  const teacherSpecialScore = useMemo(() => computeTeacherSpecialScore(actionLog, currentUser, settings), [actionLog, currentUser, settings]);
+  const specialAvailabilityBySubject = useMemo(() => (
+    teacherSubjects
+      .map((subject) => ({ subject, count: getTeacherSpecialItems(currentUser, actionType, subject).length }))
+      .filter((entry) => entry.count > 0)
+  ), [teacherSubjects, currentUser, actionType]);
+  const hasSpecialDefinitions = specialAvailabilityBySubject.length > 0;
+  const canUseSpecialDefinitions = Boolean(identifiedStudent) && hasSpecialDefinitions && actionType !== 'program';
 
-  const getDefinitionsByType = useCallback((type) => {
-    if (type === "violation") return settings.actions?.violations || [];
-    if (type === "program") return settings.actions?.programs || [];
-    return settings.actions?.rewards || [];
-  }, [settings]);
 
   useEffect(() => {
+    if (!teacherManualCompanyOptions.length) {
+      if (manualSelectedCompany) setManualSelectedCompany('');
+      return;
+    }
+    if (manualSelectedCompany && teacherManualCompanyOptions.some((item) => item.label === manualSelectedCompany || item.key === normalizeSearchToken(manualSelectedCompany))) return;
+    if (teacherManualCompanyOptions.length === 1) {
+      setManualSelectedCompany(teacherManualCompanyOptions[0].label);
+    }
+  }, [teacherManualCompanyOptions, manualSelectedCompany]);
+
+  const getDefinitionsByType = useCallback((type) => {
+    if (definitionScope === 'special' && type !== 'program') {
+      return getTeacherSpecialItems(currentUser, type, selectedSpecialSubject || teacherSubjects[0] || '');
+    }
+    if (type === "violation") return (settings.actions?.violations || []).map((item) => ({ ...item, scope: 'general' }));
+    if (type === "program") return (settings.actions?.programs || []).map((item) => ({ ...item, scope: 'general' }));
+    return (settings.actions?.rewards || []).map((item) => ({ ...item, scope: 'general' }));
+  }, [settings, definitionScope, currentUser, selectedSpecialSubject, teacherSubjects]);
+
+  useEffect(() => {
+    if (definitionScope === 'special' && teacherSubjects.length && !selectedSpecialSubject) {
+      setSelectedSpecialSubject(teacherSubjects[0]);
+    }
     const definitions = getDefinitionsByType(actionType);
     setDefinitionId(definitions[0]?.id || "");
-  }, [actionType, getDefinitionsByType]);
+  }, [actionType, getDefinitionsByType, definitionScope, teacherSubjects, selectedSpecialSubject]);
+
+  useEffect(() => {
+    if (actionType === 'program') {
+      setDefinitionScope('general');
+      return;
+    }
+    if (definitionScope === 'special' && !teacherSubjects.length) {
+      setDefinitionScope('general');
+    }
+  }, [actionType, definitionScope, teacherSubjects]);
 
   useEffect(() => {
     if (!compactMode) setTeacherView("workspace");
@@ -8426,6 +10192,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
     setIdentifiedStudent(null);
     setProgramStudent(null);
     setQuery("");
+    setManualSelectedStudentId("");
     setProgramStudentQuery("");
     setStatusMessage("");
     setFaceFile(null);
@@ -8621,8 +10388,22 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
   const resolveManual = () => {
     const student = onResolveStudentByManual(query);
     setIdentifiedStudent(student);
+    if (student) {
+      setManualSelectedStudentId(String(student.id));
+      setManualSelectedCompany(String(getStudentCompanyName(student, selectedSchool) || student.companyName || student.className || 'غير محدد'));
+    }
     setStatusMessage(student ? `تم العثور على الطالب: ${student.name}` : "لم يتم العثور على طالب بهذه البيانات.");
     return student;
+  };
+
+  const handleManualStudentSelection = (value) => {
+    setManualSelectedStudentId(value);
+    const student = teacherAvailableStudents.find((item) => String(item.id) === String(value));
+    if (!student) return;
+    setManualSelectedCompany(String(getStudentCompanyName(student, selectedSchool) || student.companyName || student.className || 'غير محدد'));
+    setQuery(student.studentNumber || student.nationalId || student.name || student.barcode || '');
+    setIdentifiedStudent(student);
+    setStatusMessage(`تم اختيار الطالب يدويًا: ${student.name}`);
   };
 
   const resolveProgramStudent = () => {
@@ -8690,6 +10471,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
         studentId: identifiedStudent.id,
         actionType,
         definitionId: definitionOverride.id,
+        specialDefinition: definitionOverride?.scope === 'special' ? definitionOverride : null,
         note,
         method: methodOverride || (identifyMethod === "face" ? "بصمة وجه" : identifyMethod === "barcode" ? "QR مباشر" : "إدخال رقم الطالب"),
       });
@@ -8960,7 +10742,27 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
 
           {identifyMethod === 'manual' ? (
             <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-              <Input label="رقم الطالب أو الهوية أو الاسم" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="مثال: ABH-0001 أو 1100000011" />
+              <Input label="رقم الطالب أو الهوية أو الاسم" value={query} onChange={(e) => { setQuery(e.target.value); setManualSelectedStudentId(""); }} placeholder="مثال: ABH-0001 أو 1100000011" list="teacher-manual-student-options-compact" />
+              <datalist id="teacher-manual-student-options-compact">{teacherManualStudentOptions.map((student) => <option key={student.id} value={student.studentNumber || student.name}>{student.name} — {student.nationalId || student.barcode}</option>)}</datalist>
+              <div className="mt-3 space-y-3">
+                {teacherManualCompanyOptions.length > 1 ? (
+                  <Select label="اختر الفصل أولًا" value={manualSelectedCompany} onChange={(e) => { setManualSelectedCompany(e.target.value); setManualSelectedStudentId(""); }}>
+                    <option value="">اختر الفصل من طلابك المسجلين</option>
+                    {teacherManualCompanyOptions.map((company) => (
+                      <option key={`compact-company-${company.key}`} value={company.label}>{company.label}</option>
+                    ))}
+                  </Select>
+                ) : teacherManualCompanyOptions.length === 1 ? (
+                  <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200">الفصل: {teacherManualCompanyOptions[0].label}</div>
+                ) : null}
+                <Select label={teacherManualCompanyOptions.length > 1 ? "ثم اختر الطالب من هذا الفصل" : "أو اختر من قائمة طلابك المسجلة"} value={manualSelectedStudentId} onChange={(e) => handleManualStudentSelection(e.target.value)} disabled={teacherManualCompanyOptions.length > 1 && !manualSelectedCompany}>
+                  <option value="">{teacherManualCompanyOptions.length > 1 && !manualSelectedCompany ? 'اختر الفصل أولًا' : 'اختر الطالب يدويًا من القائمة'}</option>
+                  {teacherManualStudentOptions.map((student) => (
+                    <option key={`compact-manual-${student.id}`} value={student.id}>{student.name} — {getStudentCompanyName(student, selectedSchool)}</option>
+                  ))}
+                </Select>
+              </div>
+              <div className="mt-2 text-xs font-bold text-slate-500">إذا كان لديك طلاب من أكثر من فصل فاختر الفصل أولًا، ثم ستظهر لك أسماء طلابه فقط.</div>
               <button onClick={resolveManual} className="mt-3 w-full rounded-2xl bg-sky-700 px-4 py-3 text-sm font-bold text-white">تعرف يدويًا</button>
             </div>
           ) : null}
@@ -9002,8 +10804,17 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
 
           {identifyMethod === 'manual' ? (
             <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-              <Input label="رقم الطالب أو الهوية أو الاسم أو الباركود" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="مثال: ST-0001-ABH أو 1100000011" list="manual-student-options" />
-              <datalist id="manual-student-options">{getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).slice(0, 40).map((student) => <option key={student.id} value={student.studentNumber || student.barcode}>{student.name} — {student.nationalId || student.barcode}</option>)}</datalist>
+              <Input label="رقم الطالب أو الهوية أو الاسم أو الباركود" value={query} onChange={(e) => { setQuery(e.target.value); setManualSelectedStudentId(""); }} placeholder="مثال: ST-0001-ABH أو 1100000011" list="manual-student-options" />
+              <datalist id="manual-student-options">{teacherManualStudentOptions.map((student) => <option key={student.id} value={student.studentNumber || student.barcode || student.name}>{student.name} — {student.nationalId || student.barcode}</option>)}</datalist>
+              <div className="mt-3">
+                <Select label="أو اختر من قائمة الطلاب المسجلة" value={manualSelectedStudentId} onChange={(e) => handleManualStudentSelection(e.target.value)}>
+                  <option value="">اختر الطالب من القائمة</option>
+                  {teacherManualStudentOptions.map((student) => (
+                    <option key={`manual-${student.id}`} value={student.id}>{student.name} — {getStudentCompanyName(student, selectedSchool)}</option>
+                  ))}
+                </Select>
+              </div>
+              <div className="mt-2 text-xs font-bold text-slate-500">يمكنك كتابة الاسم أو الرقم، أو فتح القائمة واختيار أحد الطلاب المسجلين يدويًا مباشرة.</div>
               <button onClick={resolveManual} className="mt-3 rounded-2xl bg-sky-700 px-4 py-3 text-sm font-bold text-white">بحث عن الطالب</button>
             </div>
           ) : null}
@@ -9013,6 +10824,72 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
       {statusMessage ? <div className="mt-4 rounded-2xl bg-white px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">{statusMessage}</div> : null}
     </div>
   );
+
+  const renderDefinitionScopeChooser = () => {
+    if (actionType === 'program') return null;
+    return (
+      <div className="mt-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setDefinitionScope('general')} className={cx('rounded-2xl px-4 py-2 text-sm font-bold transition', definitionScope === 'general' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700')}>البنود العامة</button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!canUseSpecialDefinitions) return;
+              setDefinitionScope('special');
+              if (!selectedSpecialSubject && (specialAvailabilityBySubject[0]?.subject || teacherSubjects[0])) {
+                setSelectedSpecialSubject(specialAvailabilityBySubject[0]?.subject || teacherSubjects[0]);
+              }
+            }}
+            disabled={!canUseSpecialDefinitions}
+            className={cx('rounded-2xl px-4 py-2 text-sm font-bold transition', !canUseSpecialDefinitions ? 'cursor-not-allowed bg-slate-100 text-slate-400' : definitionScope === 'special' ? 'bg-violet-700 text-white' : 'bg-violet-50 text-violet-700')}
+          >
+            البنود التخصصية
+          </button>
+          {definitionScope === 'special' ? <Badge tone="violet">رصيدك التخصصي: {teacherSpecialScore}</Badge> : null}
+        </div>
+
+        {!identifiedStudent && hasSpecialDefinitions ? (
+          <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm font-bold text-sky-800 ring-1 ring-sky-100">حدد الطالب أولًا ثم افتح البنود التخصصية.</div>
+        ) : null}
+        {identifiedStudent && !hasSpecialDefinitions ? (
+          <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 ring-1 ring-amber-200">لا توجد لك بنود تخصصية مفعلة لهذا النوع حاليًا.</div>
+        ) : null}
+
+        {hasSpecialDefinitions ? (
+          <div className="flex flex-wrap gap-2">
+            {specialAvailabilityBySubject.map((entry) => (
+              <button
+                key={entry.subject}
+                type="button"
+                disabled={!identifiedStudent}
+                onClick={() => {
+                  if (!identifiedStudent) return;
+                  setDefinitionScope('special');
+                  setSelectedSpecialSubject(entry.subject);
+                }}
+                className={cx('rounded-full px-3 py-2 text-xs font-black transition ring-1', definitionScope === 'special' && selectedSpecialSubject === entry.subject ? 'bg-violet-700 text-white ring-violet-700' : identifiedStudent ? 'bg-white text-violet-700 ring-violet-200 hover:bg-violet-50' : 'bg-slate-50 text-slate-400 ring-slate-200')}
+              >
+                {entry.subject} ({entry.count})
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {definitionScope === 'special' ? (
+          specialAvailabilityBySubject.length > 1 ? (
+            <Select label="المادة" value={selectedSpecialSubject} onChange={(e) => setSelectedSpecialSubject(e.target.value)}>
+              {specialAvailabilityBySubject.map((entry) => <option key={entry.subject} value={entry.subject}>{entry.subject} ({entry.count})</option>)}
+            </Select>
+          ) : (
+            <div className="rounded-2xl bg-violet-50 px-4 py-3 text-sm font-bold text-violet-800 ring-1 ring-violet-100">المادة الحالية: {specialAvailabilityBySubject[0]?.subject || teacherSubjects[0] || '—'}</div>
+          )
+        ) : null}
+        {definitionScope === 'special' && !currentDefinitions.length ? <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 ring-1 ring-amber-200">لا توجد بنود تخصصية مفعلة لهذه المادة حتى الآن.</div> : null}
+      </div>
+    );
+  };
+
+
 
   const renderQuickActionButtons = () => (
     <div className="overflow-hidden rounded-[32px] bg-gradient-to-br from-white via-slate-50 to-slate-100 p-5 ring-1 ring-slate-200 shadow-sm">
@@ -9028,12 +10905,14 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
         <div className={cx('rounded-2xl px-3 py-3 text-center text-xs font-black', identifiedStudent ? 'bg-sky-100 text-sky-700' : 'bg-slate-50 text-slate-400 ring-1 ring-slate-200')}>2. اختيار البند</div>
         <div className={cx('rounded-2xl px-3 py-3 text-center text-xs font-black', lastExecution && lastExecution.type === actionType ? 'bg-violet-100 text-violet-700' : 'bg-slate-50 text-slate-400 ring-1 ring-slate-200')}>3. اعتماد فوري</div>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
         <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-[11px] font-bold text-slate-500">نقاطك الحالية</div><div className="mt-1 text-lg font-black text-slate-900">{currentUser.points || 0}</div></div>
         <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-[11px] font-bold text-slate-500">عملياتك اليوم</div><div className="mt-1 text-lg font-black text-slate-900">{teacherStats.total}</div></div>
         <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-[11px] font-bold text-slate-500">النوع الحالي</div><div className="mt-1 text-lg font-black text-slate-900">{actionType === 'reward' ? 'مكافأة' : 'خصم'}</div></div>
-        <div className={cx('rounded-2xl p-3 ring-1', actionType === 'reward' ? 'bg-emerald-50 ring-emerald-100' : 'bg-rose-50 ring-rose-100')}><div className="text-[11px] font-bold text-slate-500">أثر البند المختار</div><div className="mt-1 text-lg font-black text-slate-900">{selectedDefinition ? (selectedDefinition.points > 0 ? `+${selectedDefinition.points}` : selectedDefinition.points) : '—'}</div></div>
+        <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-[11px] font-bold text-slate-500">رصيدك التخصصي</div><div className="mt-1 text-lg font-black text-violet-700">{teacherSpecialScore}</div></div>
+        <div className={cx('rounded-2xl p-3 ring-1', actionType === 'reward' ? 'bg-emerald-50 ring-emerald-100' : 'bg-rose-50 ring-rose-100')}><div className="text-[11px] font-bold text-slate-500">أثر البند المختار</div><div className="mt-1 text-lg font-black text-slate-900">{selectedDefinition ? (selectedDefinition.points > 0 ? `+${selectedDefinition.points}` : selectedDefinition.points) : '—'}</div><div className="mt-1 text-[11px] font-bold text-slate-500">{specialAvailabilityBySubject.length ? `مواد تخصصية مفعلة: ${specialAvailabilityBySubject.length}` : 'لا توجد مواد تخصصية مفعلة'}</div></div>
       </div>
+      {renderDefinitionScopeChooser()}
       <div className="mt-4">
         <label className="block">
           <span className="mb-2 block text-sm font-bold text-slate-700">ملاحظة اختيارية</span>
@@ -9478,10 +11357,11 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="font-bold text-slate-800">{actionModes.find((item) => item.key === actionType)?.label || 'الإجراء'}</div>
-                    <div className="text-sm text-slate-500">هذه البنود تأتي من إعدادات مدير المدرسة أو الأدمن</div>
+                    <div className="text-sm text-slate-500">{definitionScope === 'special' ? 'هذه البنود تخصصية وتظهر لك فقط بحسب المادة المختارة.' : 'هذه البنود تأتي من إعدادات مدير المدرسة أو الأدمن.'}</div>
                   </div>
                   {selectedDefinition ? <Badge tone={actionType === 'violation' ? 'rose' : 'green'}>{selectedDefinition.points > 0 ? `+${selectedDefinition.points}` : selectedDefinition.points} نقطة</Badge> : null}
                 </div>
+                {renderDefinitionScopeChooser()}
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <Select label="البند المعتمد" value={definitionId} onChange={(e) => setDefinitionId(e.target.value)}>
                     {currentDefinitions.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
@@ -9621,7 +11501,714 @@ function PointsPage({ selectedSchool, settings }) {
   );
 }
 
-function ReportsPage({ schools, scanLog, actionLog, selectedSchool, settings, executiveReport, onExportAttendance, onExportStudents, onExportSchools, onExportBackup }) {
+function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, onCreateLeavePass, onSendLeavePass, onMarkViewed, onUpdateLeavePassStatus, viewMode = "main" }) {
+  const schoolUsers = useMemo(() => (users || []).filter((user) => Number(user.schoolId) === Number(selectedSchool?.id)), [users, selectedSchool]);
+  const teacherUsers = useMemo(() => schoolUsers.filter((user) => String(user.role || '') === 'teacher' && String(user.status || 'نشط') === 'نشط'), [schoolUsers]);
+  const students = useMemo(() => getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }), [selectedSchool]);
+  const allLeavePasses = useMemo(() => [...getLeavePasses(selectedSchool)].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))), [selectedSchool]);
+  const destinationFilter = viewMode === 'agent' ? 'agent' : viewMode === 'counselor' ? 'counselor' : '';
+  const leavePasses = useMemo(() => destinationFilter ? allLeavePasses.filter((item) => String(item.destination || '') === destinationFilter) : allLeavePasses, [allLeavePasses, destinationFilter]);
+  const canCreate = viewMode === 'main' && ['superadmin', 'principal', 'supervisor'].includes(String(currentUser?.role || ''));
+  const teacherInbox = useMemo(() => leavePasses.filter((item) => String(item.teacherUserId || '') === String(currentUser?.id || '')), [leavePasses, currentUser]);
+  const managedRows = canCreate || viewMode !== 'main' ? leavePasses : teacherInbox;
+  const pageMeta = viewMode === 'agent'
+    ? { title: 'لوحة استئذان الوكيل', description: 'تعرض فقط الطلبات الموجهة إلى الوكيل مع الاعتماد السريع والطباعة والمتابعة. إذا دخل حساب الوكيل فستفتح له هذه الشاشة مباشرة.', summaryTone: 'indigo' }
+    : viewMode === 'counselor'
+      ? { title: 'لوحة استئذان المرشد', description: 'تعرض فقط الطلبات الموجهة إلى المرشد مع سجلها الزمني واعتمادها السريع. إذا دخل حساب المرشد فستفتح له هذه الشاشة مباشرة.', summaryTone: 'violet' }
+      : { title: 'الاستئذان', description: 'مسار تشغيلي لطلب الطالب من فصله وتوجيهه إلى الوكيل أو المرشد أو الخروج مع ولي الأمر، مع إنشاء رابط خاص للمعلم وإرساله يدويًا أو عبر النظام.', summaryTone: 'sky' };
+  const [form, setForm] = useState({ studentId: '', teacherUserId: '', destination: 'agent', reason: '', note: '', guardianName: '', guardianMobile: '', sendChannel: 'system' });
+  const [selectedId, setSelectedId] = useState('');
+  const selectedPass = useMemo(() => managedRows.find((item) => String(item.id) === String(selectedId)) || managedRows[0] || null, [managedRows, selectedId]);
+  const selectedStudent = useMemo(() => students.find((item) => String(item.id) === String(form.studentId)), [students, form.studentId]);
+  const selectedTeacher = useMemo(() => teacherUsers.find((item) => String(item.id) === String(form.teacherUserId)), [teacherUsers, form.teacherUserId]);
+  const [boardFilter, setBoardFilter] = useState('active');
+  const todayIso = getTodayIso();
+  const dashboardRows = useMemo(() => leavePasses.map((item) => ({ ...item, queueMeta: getLeavePassQueueMeta(item) })), [leavePasses]);
+  const boardRows = useMemo(() => {
+    const rows = dashboardRows.filter((item) => {
+      if (boardFilter === 'today') return String(item.createdAt || '').startsWith(todayIso);
+      if (boardFilter === 'overdue') return ['overdue-teacher', 'overdue-close'].includes(String(item.queueMeta?.key || ''));
+      if (boardFilter === 'waitingTeacher') return ['created', 'sent-system', 'sent-manual'].includes(String(item.status || ''));
+      if (boardFilter === 'needsClosure') return ['viewed', 'approved-agent', 'approved-counselor', 'released-guardian'].includes(String(item.status || ''));
+      return !['completed', 'cancelled'].includes(String(item.status || ''));
+    });
+    return [...rows].sort((a, b) => {
+      const rank = { 'overdue-teacher': 5, 'overdue-close': 4, 'attention-teacher': 3, 'attention-close': 2, 'in-progress': 1, 'new': 0, 'closed': -1 };
+      const diff = (rank[String(b.queueMeta?.key || '')] || 0) - (rank[String(a.queueMeta?.key || '')] || 0);
+      if (diff) return diff;
+      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    });
+  }, [dashboardRows, boardFilter, todayIso]);
+  const boardSummary = useMemo(() => ({
+    active: dashboardRows.filter((item) => !['completed', 'cancelled'].includes(String(item.status || ''))).length,
+    waitingTeacher: dashboardRows.filter((item) => ['created', 'sent-system', 'sent-manual'].includes(String(item.status || ''))).length,
+    needsClosure: dashboardRows.filter((item) => ['viewed', 'approved-agent', 'approved-counselor', 'released-guardian'].includes(String(item.status || ''))).length,
+    overdue: dashboardRows.filter((item) => ['overdue-teacher', 'overdue-close'].includes(String(item.queueMeta?.key || ''))).length,
+    today: dashboardRows.filter((item) => String(item.createdAt || '').startsWith(todayIso)).length,
+  }), [dashboardRows, todayIso]);
+  const printLeavePass = (pass) => {
+    if (!pass) return;
+    const popup = window.open('', '_blank', 'width=980,height=760');
+    if (!popup) return window.alert('تعذر فتح نافذة الطباعة.');
+    const statusLabel = getLeavePassStatusLabel(pass.status);
+    const destinationLabel = getLeavePassDestinationLabel(pass.destination);
+    const createdAtLabel = pass.createdAt ? formatDateTime(pass.createdAt) : '—';
+    const approvalLabel = pass.approvedAt ? `${pass.approvedByName || 'الإدارة'} — ${formatDateTime(pass.approvedAt)}` : '—';
+    const timelineHtml = getLeavePassTimeline(pass).slice(0, 6).map((event) => `<div class="time-item"><strong>${getLeavePassEventLabel(event.type)}</strong><span>${event.at ? formatDateTime(event.at) : '—'}</span><div>${event.actorName || 'مستخدم النظام'}${event.note ? ` — ${event.note}` : ''}</div></div>`).join('');
+    popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="UTF-8" /><title>طباعة الاستئذان</title><style>
+      body{font-family:Tahoma,Arial,sans-serif;background:#f8fafc;padding:24px;color:#0f172a} .sheet{max-width:900px;margin:auto;background:#fff;border:2px solid #cbd5e1;border-radius:24px;padding:28px}
+      .head{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0f766e;padding-bottom:16px;margin-bottom:18px}.title{font-size:28px;font-weight:800}.meta{color:#475569;font-size:14px}
+      .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:16px 0}.box{border:1px solid #cbd5e1;border-radius:18px;padding:14px;background:#f8fafc}.label{font-size:13px;color:#64748b;margin-bottom:6px}.value{font-size:18px;font-weight:700}
+      .wide{grid-column:1/-1}.badge{display:inline-block;padding:8px 14px;border-radius:999px;background:#e0f2fe;color:#075985;font-weight:800}.timeline{margin-top:18px;border-top:1px dashed #cbd5e1;padding-top:14px}.timeline div{margin:8px 0}.footer{margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:24px}.sign{border-top:1px solid #94a3b8;padding-top:12px;color:#475569;height:70px}
+      @media print{body{background:#fff;padding:0}.sheet{border:none;border-radius:0;padding:0}}
+    </style></head><body><div class="sheet"><div class="head"><div><div class="title">نموذج استئذان طالب</div><div class="meta">${selectedSchool?.name || 'المدرسة'} — ${createdAtLabel}</div></div><div class="badge">${statusLabel}</div></div>
+      <div class="grid"><div class="box"><div class="label">الطالب</div><div class="value">${pass.studentName || '—'}</div></div><div class="box"><div class="label">الفصل</div><div class="value">${pass.className || pass.companyName || '—'}</div></div>
+      <div class="box"><div class="label">المعلم</div><div class="value">${pass.teacherName || '—'}</div></div><div class="box"><div class="label">الوجهة</div><div class="value">${destinationLabel}</div></div>
+      <div class="box wide"><div class="label">سبب الاستئذان</div><div class="value">${pass.reason || '—'}</div></div><div class="box wide"><div class="label">الملاحظات</div><div class="value">${pass.note || 'لا توجد ملاحظات إضافية'}</div></div>
+      ${pass.guardianName || pass.guardianMobile ? `<div class="box"><div class="label">ولي الأمر</div><div class="value">${pass.guardianName || '—'}</div></div><div class="box"><div class="label">جوال ولي الأمر</div><div class="value">${pass.guardianMobile || '—'}</div></div>` : ''}</div>
+      <div class="timeline"><div><strong>إنشاء الطلب:</strong> ${createdAtLabel}</div><div><strong>اطلاع المعلم:</strong> ${pass.viewedAt ? formatDateTime(pass.viewedAt) : '—'}</div><div><strong>اعتماد/تنفيذ:</strong> ${approvalLabel}</div></div>
+      <div class="footer"><div class="sign">توقيع الجهة الطالبة</div><div class="sign">توقيع مستلم الطالب / الجهة المستقبلة</div></div></div><script>window.print();</script></body></html>`);
+    popup.document.close();
+  };
+
+  useEffect(() => {
+    if (!form.studentId && students[0]) {
+      setForm((prev) => ({ ...prev, studentId: String(students[0].id) }));
+    }
+  }, [students, form.studentId]);
+
+  useEffect(() => {
+    if (!selectedId && managedRows[0]) {
+      setSelectedId(String(managedRows[0].id));
+    }
+  }, [managedRows, selectedId]);
+
+  useEffect(() => {
+    if (!initialPassId) return;
+    setSelectedId(String(initialPassId));
+    if (String(currentUser?.role || '') === 'teacher') {
+      onMarkViewed?.(initialPassId);
+      clearLeavePassParam();
+    }
+  }, [initialPassId, currentUser, onMarkViewed]);
+
+  useEffect(() => {
+    if (!selectedStudent || form.teacherUserId) return;
+    const normalizedClass = String(selectedStudent.classroomName || selectedStudent.className || selectedStudent.companyName || '').trim();
+    const matchedTeacher = teacherUsers.find((teacher) => String(teacher.className || teacher.companyName || '').trim() && String(teacher.className || teacher.companyName || '').trim() === normalizedClass);
+    if (matchedTeacher) {
+      setForm((prev) => ({ ...prev, teacherUserId: String(matchedTeacher.id) }));
+    }
+  }, [selectedStudent, form.teacherUserId, teacherUsers]);
+
+  const handleCreate = async () => {
+    const result = await onCreateLeavePass?.(form);
+    if (result?.ok && result?.leavePass?.id) {
+      setSelectedId(String(result.leavePass.id));
+      window.alert(result.message || 'تم إنشاء الاستئذان بنجاح.');
+    } else {
+      window.alert(result?.message || 'تعذر إنشاء الاستئذان.');
+    }
+  };
+
+  const openManualWhatsapp = async (pass) => {
+    const result = await onSendLeavePass?.(pass?.id, 'manual');
+    if (result?.ok && result?.whatsAppUrl) {
+      window.open(result.whatsAppUrl, '_blank');
+    }
+    window.alert(result?.message || (result?.ok ? 'تم تجهيز رابط الواتساب.' : 'تعذر تنفيذ الإرسال اليدوي.'));
+  };
+
+  const sendSystem = async (pass) => {
+    const result = await onSendLeavePass?.(pass?.id, 'system');
+    window.alert(result?.message || (result?.ok ? 'تم الإرسال عبر النظام.' : 'تعذر الإرسال عبر النظام.'));
+  };
+
+  const principalColumns = [
+    { key: 'studentName', label: 'الطالب' },
+    { key: 'teacherName', label: 'المعلم' },
+    { key: 'destinationLabel', label: 'الوجهة' },
+    { key: 'statusLabel', label: 'الحالة', render: (row) => <Badge tone={getLeavePassStatusTone(row.status)}>{getLeavePassStatusLabel(row.status)}</Badge> },
+    { key: 'createdAtLabel', label: 'الوقت' },
+    { key: 'queueLabel', label: 'المتابعة', render: (row) => <Badge tone={row.queueTone || 'blue'}>{row.queueLabel || 'جديد'}</Badge> },
+  ];
+
+  const preparedRows = managedRows.map((row) => ({
+    ...row,
+    destinationLabel: getLeavePassDestinationLabel(row.destination),
+    statusLabel: getLeavePassStatusLabel(row.status),
+    createdAtLabel: row.createdAt ? new Intl.DateTimeFormat('ar-SA', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(row.createdAt)) : '—',
+    queueLabel: getLeavePassQueueMeta(row).label,
+    queueTone: getLeavePassQueueMeta(row).tone,
+  }));
+
+  return (
+    <div className="space-y-6">
+      <SectionCard title={pageMeta.title} icon={viewMode === 'agent' ? ShieldCheck : viewMode === 'counselor' ? UserCheck : ClipboardList} description={pageMeta.description}>
+        <div className="grid gap-4 md:grid-cols-5">
+          <SummaryBox label="إجمالي الطلبات" value={formatEnglishDigits(leavePasses.length)} color="text-slate-900" />
+          <SummaryBox label="بانتظار اطلاع المعلم" value={formatEnglishDigits(leavePasses.filter((item) => ['created','sent-system','sent-manual'].includes(String(item.status || ''))).length)} color="text-amber-700" />
+          <SummaryBox label="اطلع المعلم" value={formatEnglishDigits(leavePasses.filter((item) => String(item.status || '') === 'viewed').length)} color="text-sky-700" />
+          <SummaryBox label="اعتماد الجهة" value={formatEnglishDigits(leavePasses.filter((item) => ['approved-agent','approved-counselor','released-guardian'].includes(String(item.status || ''))).length)} color="text-sky-700" />
+          <SummaryBox label="تم التنفيذ" value={formatEnglishDigits(leavePasses.filter((item) => String(item.status || '') === 'completed').length)} color="text-emerald-700" />
+        </div>
+      </SectionCard>
+
+      {canCreate && (
+        <SectionCard title={viewMode === 'main' ? "لوحة المتابعة اليومية" : "لوحة متابعة الجهة"} icon={FileClock} description={viewMode === 'main' ? "تعرض الطلبات الجارية الآن، وما تأخر على المعلم أو ما يحتاج إقفالًا سريعًا من الإدارة." : "تعرض الطلبات المحالة إلى هذه الجهة مع الحالات التي تحتاج اعتمادًا أو إقفالًا سريعًا."}>
+          <div className="grid gap-4 xl:grid-cols-[0.95fr_2.05fr]">
+            <div className="space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                {[
+                  ['active', 'الطلبات الجارية', boardSummary.active, 'text-slate-900'],
+                  ['waitingTeacher', 'بانتظار المعلم', boardSummary.waitingTeacher, 'text-amber-700'],
+                  ['needsClosure', 'بانتظار الإقفال', boardSummary.needsClosure, 'text-sky-700'],
+                  ['overdue', 'طلبات متأخرة', boardSummary.overdue, 'text-rose-700'],
+                  ['today', 'طلبات اليوم', boardSummary.today, 'text-violet-700'],
+                ].map(([key, label, value, tone]) => (
+                  <button key={key} onClick={() => setBoardFilter(String(key))} className={cx('rounded-3xl border p-4 text-right transition', boardFilter === key ? 'border-sky-300 bg-sky-50' : 'border-slate-200 bg-white hover:bg-slate-50')}>
+                    <div className="text-xs font-bold text-slate-500">{label}</div>
+                    <div className={cx('mt-2 text-3xl font-black', tone)}>{formatEnglishDigits(value)}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-black text-slate-800">طلبات تحتاج متابعة</div>
+                  <div className="mt-1 text-xs text-slate-500">يتم ترتيبها تلقائيًا بحسب الأشد حاجة للتدخل أولًا.</div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => setBoardFilter('active')} className="rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-700 ring-1 ring-slate-200">الكل الجاري</button>
+                  <button onClick={() => setBoardFilter('overdue')} className="rounded-2xl bg-white px-3 py-2 text-xs font-black text-rose-700 ring-1 ring-rose-200">المتأخر فقط</button>
+                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {boardRows.length ? boardRows.slice(0, 8).map((pass) => (
+                  <button key={pass.id} onClick={() => setSelectedId(String(pass.id))} className={cx('rounded-3xl border p-4 text-right transition hover:shadow-sm', pass.queueMeta?.cardClass || 'border-slate-200 bg-white', String(selectedId) === String(pass.id) ? 'ring-2 ring-sky-300' : 'ring-1 ring-transparent')}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-base font-black text-slate-900">{pass.studentName}</div>
+                        <div className="mt-1 text-xs text-slate-500">{pass.className || pass.companyName || '—'} — {pass.teacherName || '—'}</div>
+                      </div>
+                      <Badge tone={pass.queueMeta?.tone || 'blue'}>{pass.queueMeta?.label || 'جديد'}</Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-bold text-slate-600">
+                      <span className="rounded-full bg-white/80 px-3 py-1 ring-1 ring-slate-200">{getLeavePassDestinationLabel(pass.destination)}</span>
+                      <span className="rounded-full bg-white/80 px-3 py-1 ring-1 ring-slate-200">{getLeavePassElapsedLabel(pass)}</span>
+                      <span className="rounded-full bg-white/80 px-3 py-1 ring-1 ring-slate-200">{getLeavePassStatusLabel(pass.status)}</span>
+                    </div>
+                    <div className="mt-3 text-sm leading-6 text-slate-700">{pass.reason || 'لا يوجد سبب مكتوب.'}</div>
+                  </button>
+                )) : <div className="md:col-span-2 rounded-3xl bg-white p-6 text-sm font-bold text-slate-500 ring-1 ring-slate-200">لا توجد طلبات ضمن هذا التصنيف حاليًا.</div>}
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {canCreate && (
+        <SectionCard title="إنشاء استئذان جديد" icon={Plus} description="اختر الطالب والمعلم والوجهة، ثم أنشئ الطلب ليظهر معه رابط خاص يمكن مشاركته مع المعلم.">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Select label="الطالب" value={form.studentId} onChange={(e) => setForm((prev) => ({ ...prev, studentId: e.target.value }))}>
+              <option value="">اختر الطالب</option>
+              {students.map((student) => <option key={student.id} value={student.id}>{student.name} — {getStudentGroupingLabel(student, selectedSchool)}</option>)}
+            </Select>
+            <Select label="المعلم المستهدف" value={form.teacherUserId} onChange={(e) => setForm((prev) => ({ ...prev, teacherUserId: e.target.value }))}>
+              <option value="">اختر المعلم</option>
+              {teacherUsers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}{teacher.mobile ? ` — ${teacher.mobile}` : ''}</option>)}
+            </Select>
+            <Select label="الوجهة" value={form.destination} onChange={(e) => setForm((prev) => ({ ...prev, destination: e.target.value }))}>
+              <option value="agent">الوكيل</option>
+              <option value="counselor">المرشد</option>
+              <option value="guardian">الخروج مع ولي الأمر</option>
+            </Select>
+            <Select label="طريقة الإرسال الافتراضية" value={form.sendChannel} onChange={(e) => setForm((prev) => ({ ...prev, sendChannel: e.target.value }))}>
+              <option value="system">من خلال النظام</option>
+              <option value="manual">واتساب يدوي</option>
+            </Select>
+            <Input label="اسم ولي الأمر (اختياري)" value={form.guardianName} onChange={(e) => setForm((prev) => ({ ...prev, guardianName: e.target.value }))} placeholder="يُفضّل عند الخروج مع ولي الأمر" />
+            <Input label="جوال ولي الأمر (اختياري)" value={form.guardianMobile} onChange={(e) => setForm((prev) => ({ ...prev, guardianMobile: e.target.value }))} placeholder="9665XXXXXXXX" />
+            <div className="lg:col-span-2">
+              <Input label="سبب الاستئذان" value={form.reason} onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))} placeholder="مثال: مراجعة الوكيل / موعد ولي أمر / ظرف طارئ" />
+            </div>
+            <label className="block lg:col-span-2">
+              <span className="mb-2 block text-sm font-bold text-slate-700">ملاحظات إضافية</span>
+              <textarea value={form.note} onChange={(e) => setForm((prev) => ({ ...prev, note: e.target.value }))} rows={3} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none" placeholder="أي تعليمات يحتاجها المعلم أو الجهة المستقبلة" />
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button onClick={handleCreate} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white"><Plus className="h-4 w-4" /> إنشاء الطلب</button>
+            <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">المعلم يُحدد الآن يدويًا من معلمي المدرسة، ويمكن لاحقًا ربطه تلقائيًا بالحصة أو الجدول.</div>
+          </div>
+        </SectionCard>
+      )}
+
+      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <SectionCard title={viewMode === 'main' ? (canCreate ? 'سجل الاستئذان' : 'طلبات الاستئذان الواردة') : (viewMode === 'agent' ? 'طلبات الوكيل' : 'طلبات المرشد')} icon={ClipboardCheck}>
+          {viewMode !== 'main' ? <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">بانتظار الاعتماد</div><div className="mt-1 text-2xl font-black text-slate-900">{formatEnglishDigits(preparedRows.filter((item) => ['viewed','sent-system','sent-manual','created'].includes(String(item.status || ''))).length)}</div></div>
+            <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">قيد التنفيذ</div><div className="mt-1 text-2xl font-black text-slate-900">{formatEnglishDigits(preparedRows.filter((item) => ['approved-agent','approved-counselor','released-guardian'].includes(String(item.status || ''))).length)}</div></div>
+            <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">متأخرة</div><div className="mt-1 text-2xl font-black text-slate-900">{formatEnglishDigits(preparedRows.filter((item) => ['overdue-teacher','overdue-close'].includes(String(item.queueMeta?.key || item.queueKey || ''))).length)}</div></div>
+          </div> : null}
+          <DataTable columns={principalColumns} rows={preparedRows} emptyMessage={viewMode === 'main' ? (canCreate ? 'لا توجد طلبات استئذان بعد.' : 'لا توجد طلبات موجّهة لهذا المعلم.') : (viewMode === 'agent' ? 'لا توجد طلبات موجّهة إلى الوكيل.' : 'لا توجد طلبات موجّهة إلى المرشد.')} />
+        </SectionCard>
+
+        <SectionCard title={selectedPass ? `تفاصيل الطلب: ${selectedPass.studentName}` : 'تفاصيل الطلب'} icon={ExternalLink}>
+          {!selectedPass ? (
+            <div className="rounded-2xl bg-slate-50 p-6 text-sm text-slate-500 ring-1 ring-slate-200">اختر طلبًا من السجل لعرض التفاصيل.</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الطالب</div><div className="mt-1 font-black text-slate-900">{selectedPass.studentName}</div><div className="mt-1 text-xs text-slate-500">{selectedPass.className || selectedPass.companyName || '—'}</div></div>
+                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">المعلم</div><div className="mt-1 font-black text-slate-900">{selectedPass.teacherName}</div><div className="mt-1 text-xs text-slate-500">{selectedPass.teacherMobile || 'بدون رقم جوال'}</div></div>
+                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الوجهة</div><div className="mt-1 font-black text-slate-900">{getLeavePassDestinationLabel(selectedPass.destination)}</div></div>
+                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الحالة</div><div className="mt-2"><Badge tone={getLeavePassStatusTone(selectedPass.status)}>{getLeavePassStatusLabel(selectedPass.status)}</Badge></div></div>
+                <div className={cx('rounded-2xl p-4 ring-1', getLeavePassQueueMeta(selectedPass).cardClass)}><div className="text-sm text-slate-500">المتابعة اليومية</div><div className="mt-2"><Badge tone={getLeavePassQueueMeta(selectedPass).tone}>{getLeavePassQueueMeta(selectedPass).label}</Badge></div><div className="mt-2 text-xs font-bold text-slate-600">{getLeavePassElapsedLabel(selectedPass)}</div></div>
+              </div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+                <div className="text-sm text-slate-500">سبب الاستئذان</div>
+                <div className="mt-1 font-bold text-slate-900">{selectedPass.reason || '—'}</div>
+                <div className="mt-3 text-sm text-slate-500">ملاحظات</div>
+                <div className="mt-1 text-sm leading-7 text-slate-700">{selectedPass.note || 'لا توجد ملاحظات إضافية.'}</div>
+                {(selectedPass.guardianName || selectedPass.guardianMobile) ? (
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">ولي الأمر</div><div className="mt-1 font-bold text-slate-900">{selectedPass.guardianName || '—'}</div></div>
+                    <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">جوال ولي الأمر</div><div className="mt-1 font-bold text-slate-900">{selectedPass.guardianMobile || '—'}</div></div>
+                  </div>
+                ) : null}
+              </div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+                <div className="flex items-center justify-between gap-3"><div className="text-sm text-slate-500">المسار التنفيذي</div><button onClick={() => printLeavePass(selectedPass)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"><Printer className="h-4 w-4" /> طباعة النموذج</button></div>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الإنشاء</div><div className="mt-1 font-bold text-slate-900">{selectedPass.createdAt ? formatDateTime(selectedPass.createdAt) : '—'}</div></div>
+                  <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">اطلاع المعلم</div><div className="mt-1 font-bold text-slate-900">{selectedPass.viewedAt ? formatDateTime(selectedPass.viewedAt) : '—'}</div></div>
+                  <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">آخر اعتماد / إقفال</div><div className="mt-1 font-bold text-slate-900">{selectedPass.approvedAt ? `${selectedPass.approvedByName || 'الإدارة'} — ${formatDateTime(selectedPass.approvedAt)}` : selectedPass.completedAt ? `${selectedPass.completedByName || 'الإدارة'} — ${formatDateTime(selectedPass.completedAt)}` : '—'}</div></div>
+                </div>
+                <div className="mt-4 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                  <div className="text-sm font-bold text-slate-700">السجل الزمني</div>
+                  <div className="mt-3 space-y-2">
+                    {getLeavePassTimeline(selectedPass).length ? getLeavePassTimeline(selectedPass).map((event) => (
+                      <div key={event.id} className="rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
+                        <div className="flex flex-wrap items-center justify-between gap-2"><div className="font-bold text-slate-900">{getLeavePassEventLabel(event.type)}</div><div className="text-xs text-slate-500">{event.at ? formatDateTime(event.at) : '—'}</div></div>
+                        <div className="mt-1 text-sm text-slate-600">{event.actorName || 'مستخدم النظام'}{event.note ? ` — ${event.note}` : ''}</div>
+                      </div>
+                    )) : <div className="text-sm text-slate-500">لا توجد حركات مسجلة بعد.</div>}
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                <div className="text-sm text-slate-500">رابط المعلم</div>
+                <div className="mt-2 break-all text-sm font-bold text-slate-800">{selectedPass.passLink}</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button onClick={() => navigator.clipboard?.writeText(selectedPass.passLink || '')} className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200"><Copy className="h-4 w-4" /> نسخ الرابط</button>
+                  {canCreate && <button onClick={() => openManualWhatsapp(selectedPass)} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white"><ExternalLink className="h-4 w-4" /> واتساب يدوي للمعلم</button>}
+                  {canCreate && <button onClick={() => sendSystem(selectedPass)} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white"><Bell className="h-4 w-4" /> إرسال من النظام للمعلم</button>}
+                  {canCreate && selectedPass.destination === 'guardian' && selectedPass.guardianMobile ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'manual', 'guardian'); if (result?.whatsAppUrl) window.open(result.whatsAppUrl, '_blank'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-2 rounded-2xl bg-fuchsia-600 px-4 py-2 text-sm font-bold text-white"><ExternalLink className="h-4 w-4" /> إشعار ولي الأمر يدويًا</button> : null}
+                  {canCreate && selectedPass.destination === 'guardian' && selectedPass.guardianMobile ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'guardian'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-2 rounded-2xl bg-violet-700 px-4 py-2 text-sm font-bold text-white"><Bell className="h-4 w-4" /> إشعار ولي الأمر بالنظام</button> : null}
+                  {(canCreate || viewMode === 'agent') && selectedPass.destination === 'agent' ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'agent'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white"><Bell className="h-4 w-4" /> إشعار الوكيل</button> : null}
+                  {(canCreate || viewMode === 'counselor') && selectedPass.destination === 'counselor' ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'counselor'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white"><Bell className="h-4 w-4" /> إشعار المرشد</button> : null}
+                </div>
+              </div>
+              {String(currentUser?.role || '') === 'teacher' && (
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => onMarkViewed?.(selectedPass.id)} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white"><BadgeCheck className="h-4 w-4" /> تم الاطلاع</button>
+                  <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'completed')} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white"><ClipboardCheck className="h-4 w-4" /> خرج الطالب من الحصة</button>
+                </div>
+              )}
+              {(canCreate || viewMode === 'agent' || viewMode === 'counselor') && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedPass.destination === 'agent' ? <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'approved-agent')} className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white"><ShieldCheck className="h-4 w-4" /> اعتماد الوكيل</button> : null}
+                  {selectedPass.destination === 'counselor' ? <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'approved-counselor')} className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white"><ShieldCheck className="h-4 w-4" /> اعتماد المرشد</button> : null}
+                  {selectedPass.destination === 'guardian' ? <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'released-guardian')} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white"><UserCheck className="h-4 w-4" /> تسليم مع ولي الأمر</button> : null}
+                  <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'completed')} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white"><ClipboardCheck className="h-4 w-4" /> إقفال مكتمل</button>
+                  <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'cancelled')} className="inline-flex items-center gap-2 rounded-2xl bg-rose-600 px-4 py-2 text-sm font-bold text-white"><Trash2 className="h-4 w-4" /> إلغاء الطلب</button>
+                </div>
+              )}
+            </div>
+          )}
+        </SectionCard>
+      </div>
+    </div>
+  );
+}
+
+function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, initialSessionId, onCreateSession, onCloseSession, onSubmitSession, onSendSessionInvites, onMarkSessionOpened }) {
+  const isManager = ['superadmin', 'principal', 'supervisor'].includes(String(currentUser?.role || ''));
+  const schoolUsers = useMemo(() => (users || []).filter((user) => Number(user.schoolId) === Number(selectedSchool?.id)), [users, selectedSchool?.id]);
+  const sessions = useMemo(() => [...getLessonAttendanceSessions(selectedSchool)].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))), [selectedSchool]);
+  const [selectedSessionId, setSelectedSessionId] = useState(initialSessionId || sessions[0]?.id || '');
+  const [createForm, setCreateForm] = useState({ dateIso: getTodayIso(), slotLabel: 'الحصة الأولى', startTime: '', endTime: '', note: '' });
+  const [teacherClassKey, setTeacherClassKey] = useState('');
+  const [teacherAbsentIds, setTeacherAbsentIds] = useState([]);
+  const [teacherAcknowledgement, setTeacherAcknowledgement] = useState(true);
+  const [teacherStatus, setTeacherStatus] = useState('');
+  const [targetTeacherIds, setTargetTeacherIds] = useState([]);
+  const [sendStatus, setSendStatus] = useState('');
+
+  const teacherOptions = useMemo(() => (schoolUsers || []).filter((user) => user.role === 'teacher' && String(user.status || 'نشط') === 'نشط'), [schoolUsers]);
+  const selectedSession = useMemo(() => sessions.find((session) => String(session.id) === String(selectedSessionId)) || null, [sessions, selectedSessionId]);
+  const selectedSessionSummary = useMemo(() => computeLessonAttendanceSessionSummary(selectedSession, selectedSchool, schoolUsers), [selectedSession, selectedSchool, schoolUsers]);
+  const teacherClassrooms = useMemo(() => getUnifiedCompanyRows(selectedSchool, { preferStructure: true }).filter((row) => Number(row.studentsCount || 0) > 0), [selectedSchool]);
+  const teacherClassStudents = useMemo(() => getStudentsForLessonClassroom(selectedSchool, teacherClassKey), [selectedSchool, teacherClassKey]);
+  const existingTeacherSubmission = useMemo(() => {
+    if (!selectedSession || !teacherClassKey) return null;
+    return (selectedSession.submissions || []).find((item) => String(item.teacherId) === String(currentUser?.id) && String(item.classKey) === String(teacherClassKey)) || null;
+  }, [selectedSession, teacherClassKey, currentUser?.id]);
+  const inviteRows = useMemo(() => {
+    if (!selectedSession) return [];
+    const inviteMap = new Map((selectedSession.teacherInvites || []).map((item) => [String(item.teacherId), item]));
+    return getLessonSessionTeacherTargets(selectedSession, schoolUsers).map((teacher) => ({ teacher, invite: inviteMap.get(String(teacher.id)) || null }));
+  }, [selectedSession, schoolUsers]);
+  const completionChart = useMemo(() => ([
+    { name: 'المستهدفون', value: selectedSessionSummary.expectedTeachers || 0 },
+    { name: 'أرسل لهم', value: selectedSessionSummary.sentTeachers || 0 },
+    { name: 'فتحوا الرابط', value: selectedSessionSummary.openedTeachers || 0 },
+    { name: 'اعتمدوا', value: selectedSessionSummary.submittedTeachers || 0 },
+  ]), [selectedSessionSummary]);
+  const attendanceChart = useMemo(() => ([
+    { name: 'حاضر', value: selectedSessionSummary.totalPresent || 0 },
+    { name: 'غائب', value: selectedSessionSummary.totalAbsent || 0 },
+  ]), [selectedSessionSummary]);
+
+  useEffect(() => {
+    if (!selectedSessionId && sessions[0]?.id) setSelectedSessionId(sessions[0].id);
+  }, [sessions, selectedSessionId]);
+
+  useEffect(() => {
+    if (initialSessionId && sessions.some((session) => String(session.id) === String(initialSessionId))) setSelectedSessionId(initialSessionId);
+  }, [initialSessionId, sessions]);
+
+  useEffect(() => {
+    if (!teacherClassKey && teacherClassrooms[0]) setTeacherClassKey(getClassroomKeyFromCompanyRow(teacherClassrooms[0]));
+  }, [teacherClassKey, teacherClassrooms]);
+
+  useEffect(() => {
+    if (existingTeacherSubmission) {
+      setTeacherAbsentIds((existingTeacherSubmission.absentStudentIds || []).map((id) => String(id)));
+      setTeacherAcknowledgement(existingTeacherSubmission.acknowledged !== false);
+    } else {
+      setTeacherAbsentIds([]);
+      setTeacherAcknowledgement(true);
+    }
+  }, [existingTeacherSubmission, selectedSessionId, teacherClassKey]);
+
+  useEffect(() => {
+    if (!selectedSession) return;
+    const preset = Array.isArray(selectedSession.targetTeacherIds) && selectedSession.targetTeacherIds.length
+      ? selectedSession.targetTeacherIds.map((id) => String(id))
+      : teacherOptions.map((teacher) => String(teacher.id));
+    setTargetTeacherIds(preset);
+  }, [selectedSession?.id, teacherOptions]);
+
+  useEffect(() => {
+    if (isManager || !selectedSession || !currentUser?.id) return;
+    onMarkSessionOpened?.(selectedSession.id, currentUser.id);
+  }, [isManager, selectedSession?.id, currentUser?.id, onMarkSessionOpened]);
+
+  const toggleAbsent = (studentId) => {
+    const key = String(studentId);
+    setTeacherAbsentIds((prev) => prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]);
+  };
+
+  const handleCreate = () => {
+    const result = onCreateSession(createForm);
+    if (result?.ok) {
+      setSelectedSessionId(result.session.id);
+      setTeacherStatus(`تم إنشاء الجلسة. الرابط: ${buildLessonSessionLink(result.session.id)}`);
+    }
+  };
+
+  const handleTeacherSubmit = () => {
+    if (!selectedSession) return;
+    if (!teacherClassKey) return setTeacherStatus('اختر الفصل أولًا.');
+    if (!teacherAcknowledgement) return setTeacherStatus('يلزم إقرار المعلم بصحة التحضير قبل الحفظ.');
+    const result = onSubmitSession({ sessionId: selectedSession.id, classKey: teacherClassKey, acknowledgement: teacherAcknowledgement, absentStudentIds: teacherAbsentIds });
+    setTeacherStatus(result?.message || (result?.ok ? 'تم الحفظ.' : 'تعذر الحفظ.'));
+  };
+
+  const handleSendInvitesNow = async () => {
+    if (!selectedSession) return;
+    const result = await onSendSessionInvites?.(selectedSession.id, targetTeacherIds);
+    setSendStatus(result?.message || (result?.ok ? 'تم الإرسال.' : 'تعذر الإرسال.'));
+  };
+
+  const exportSessionSummary = () => {
+    if (!selectedSession) return;
+    const rows = (selectedSession.submissions || []).map((item) => ({
+      session: buildLessonAttendanceSessionLabel(selectedSession),
+      teacherName: item.teacherName || '—',
+      className: item.className || '—',
+      totalStudents: item.totalStudents || 0,
+      presentCount: item.presentCount || 0,
+      absentCount: item.absentCount || 0,
+      acknowledged: item.acknowledged ? 'نعم' : 'لا',
+      submittedAt: item.submittedAt || '',
+    }));
+    downloadFile(`lesson-session-${selectedSession.id}-summary.csv`, buildCsv(rows, [
+      { key: 'session', label: 'الجلسة' },
+      { key: 'teacherName', label: 'المعلم' },
+      { key: 'className', label: 'الفصل' },
+      { key: 'totalStudents', label: 'إجمالي الطلاب' },
+      { key: 'presentCount', label: 'الحاضرون' },
+      { key: 'absentCount', label: 'الغائبون' },
+      { key: 'acknowledged', label: 'إقرار المعلم' },
+      { key: 'submittedAt', label: 'وقت الحفظ' },
+    ]), 'text/csv;charset=utf-8;');
+  };
+
+  const exportSessionAbsences = () => {
+    if (!selectedSession) return;
+    downloadFile(`lesson-session-${selectedSession.id}-absences.csv`, buildCsv(selectedSessionSummary.absentRows || [], [
+      { key: 'sessionLabel', label: 'الجلسة' },
+      { key: 'className', label: 'الفصل' },
+      { key: 'teacherName', label: 'المعلم' },
+      { key: 'studentName', label: 'الطالب' },
+      { key: 'studentNumber', label: 'الرقم' },
+      { key: 'acknowledged', label: 'إقرار المعلم' },
+      { key: 'submittedAt', label: 'وقت الحفظ' },
+    ]), 'text/csv;charset=utf-8;');
+  };
+
+  if (!selectedSchool) {
+    return <SectionCard title="تحضير الحصص" icon={ClipboardList}><div className="rounded-3xl bg-amber-50 p-6 text-sm font-bold text-amber-900 ring-1 ring-amber-200">لم يتم تحديد مدرسة لهذا الحساب.</div></SectionCard>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <SectionCard title="تحضير الحصص" icon={ClipboardList}>
+        <div className="grid gap-4 xl:grid-cols-[1.02fr_1.98fr]">
+          <div className="space-y-4 rounded-[1.8rem] bg-slate-50 p-4 ring-1 ring-slate-200">
+            <div>
+              <div className="text-sm font-black text-slate-700">جلسات التحضير</div>
+              <div className="mt-1 text-xs leading-6 text-slate-500">ينشئ المدير الجلسة ثم ينسخ الرابط أو يرسل واتساب للمعلمين. المعلم يختار الفصل يدويًا والجميع حاضرون افتراضيًا.</div>
+            </div>
+            {isManager ? (
+              <div className="space-y-3 rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
+                <div className="text-sm font-black text-slate-800">إنشاء جلسة جديدة</div>
+                <Input label="التاريخ" type="date" value={createForm.dateIso} onChange={(e) => setCreateForm((prev) => ({ ...prev, dateIso: e.target.value }))} />
+                <Input label="اسم الحصة" value={createForm.slotLabel} onChange={(e) => setCreateForm((prev) => ({ ...prev, slotLabel: e.target.value }))} />
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <Input label="بداية التحضير" type="time" value={createForm.startTime} onChange={(e) => setCreateForm((prev) => ({ ...prev, startTime: e.target.value }))} />
+                  <Input label="نهاية التحضير" type="time" value={createForm.endTime} onChange={(e) => setCreateForm((prev) => ({ ...prev, endTime: e.target.value }))} />
+                </div>
+                <Input label="ملاحظة" value={createForm.note} onChange={(e) => setCreateForm((prev) => ({ ...prev, note: e.target.value }))} placeholder="اختياري" />
+                <button onClick={handleCreate} className="w-full rounded-2xl bg-sky-700 px-4 py-3 text-sm font-black text-white">إنشاء الجلسة</button>
+              </div>
+            ) : (
+              <div className="rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
+                <div className="text-sm font-black text-slate-800">وضع المعلم</div>
+                <div className="mt-2 text-xs leading-6 text-slate-500">ادخل الجلسة من الرابط أو من هذه الصفحة. اضغط فقط على الغائب ثم اعتمد مع الإقرار.</div>
+              </div>
+            )}
+            <div className="space-y-2">
+              {sessions.length ? sessions.map((session) => {
+                const summary = computeLessonAttendanceSessionSummary(session, selectedSchool, schoolUsers);
+                return (
+                  <button key={session.id} onClick={() => setSelectedSessionId(session.id)} className={cx('w-full rounded-[1.5rem] border px-4 py-4 text-right transition', String(selectedSessionId) === String(session.id) ? 'border-sky-300 bg-sky-50' : 'border-slate-200 bg-white hover:bg-slate-50')}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-black text-slate-900">{buildLessonAttendanceSessionLabel(session)}</div>
+                        <div className="mt-1 text-xs text-slate-500">{session.startTime || '—'} {session.endTime ? `حتى ${session.endTime}` : ''}</div>
+                      </div>
+                      <Badge tone={getLessonAttendanceSessionStatusTone(session.status)}>{getLessonAttendanceSessionStatusLabel(session.status)}</Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-bold text-slate-500">
+                      <span className="rounded-full bg-slate-100 px-3 py-1">اعتمدوا: {summary.submittedTeachers}/{summary.expectedTeachers}</span>
+                      <span className="rounded-full bg-slate-100 px-3 py-1">فتحوا الرابط: {summary.openedTeachers}</span>
+                      <span className="rounded-full bg-slate-100 px-3 py-1">الغياب: {summary.totalAbsent}</span>
+                    </div>
+                  </button>
+                );
+              }) : <div className="rounded-[1.5rem] bg-white p-5 text-sm font-bold text-slate-500 ring-1 ring-slate-200">لا توجد جلسات تحضير بعد.</div>}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {selectedSession ? (
+              <>
+                <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
+                  {[
+                    ['المستهدفون', selectedSessionSummary.expectedTeachers, 'text-slate-900'],
+                    ['أرسل لهم', selectedSessionSummary.sentTeachers, 'text-violet-700'],
+                    ['فتحوا الرابط', selectedSessionSummary.openedTeachers, 'text-sky-700'],
+                    ['اعتمدوا', selectedSessionSummary.submittedTeachers, 'text-emerald-700'],
+                    ['الحاضرون', selectedSessionSummary.totalPresent, 'text-slate-900'],
+                    ['الغائبون', selectedSessionSummary.totalAbsent, 'text-rose-700'],
+                  ].map(([label, value, tone]) => (
+                    <div key={label} className="rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
+                      <div className="text-xs font-bold text-slate-500">{label}</div>
+                      <div className={cx('mt-2 text-3xl font-black', tone)}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-[1.8rem] bg-white p-5 ring-1 ring-slate-200">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm text-slate-500">تفاصيل الجلسة</div>
+                      <div className="mt-1 text-2xl font-black text-slate-900">{buildLessonAttendanceSessionLabel(selectedSession)}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Badge tone={getLessonAttendanceSessionStatusTone(selectedSession.status)}>{getLessonAttendanceSessionStatusLabel(selectedSession.status)}</Badge>
+                        {selectedSession.note ? <Badge tone="violet">{selectedSession.note}</Badge> : null}
+                        <Badge tone="blue">الرابط جاهز</Badge>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => navigator.clipboard?.writeText(buildLessonSessionLink(selectedSession.id))} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200">نسخ الرابط</button>
+                      <button onClick={() => navigator.clipboard?.writeText(`نأمل تنفيذ تحضير ${buildLessonAttendanceSessionLabel(selectedSession)} عبر الرابط التالي:
+${buildLessonSessionLink(selectedSession.id)}`)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200">نسخ الرسالة</button>
+                      {isManager ? <button onClick={() => onCloseSession?.(selectedSession.id, selectedSession.status === 'closed' ? 'open' : 'closed')} className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white">{selectedSession.status === 'closed' ? 'إعادة فتح' : 'إغلاق الجلسة'}</button> : null}
+                      <button onClick={exportSessionSummary} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">CSV الملخص</button>
+                      <button onClick={exportSessionAbsences} className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-black text-white">CSV الغياب</button>
+                    </div>
+                  </div>
+
+                  {isManager ? (
+                    <div className="mt-5 grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+                      <div className="space-y-4">
+                        <div className="rounded-[1.5rem] bg-slate-50 p-4 ring-1 ring-slate-200">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-black text-slate-800">إرسال الرابط للمعلمين</div>
+                              <div className="mt-1 text-xs text-slate-500">حدد المعلمين ثم أرسل لهم عبر واتساب من النظام أو انسخ الرابط يدويًا.</div>
+                            </div>
+                            <button onClick={() => setTargetTeacherIds(teacherOptions.map((teacher) => String(teacher.id)))} className="rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-700 ring-1 ring-slate-200">تحديد الكل</button>
+                          </div>
+                          <div className="mt-3 grid gap-2 md:grid-cols-2">
+                            {teacherOptions.map((teacher) => {
+                              const active = targetTeacherIds.includes(String(teacher.id));
+                              return (
+                                <label key={teacher.id} className={cx('flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold ring-1', active ? 'bg-sky-50 text-sky-800 ring-sky-200' : 'bg-white text-slate-700 ring-slate-200')}>
+                                  <span>{teacher.name || teacher.username}</span>
+                                  <input type="checkbox" checked={active} onChange={(e) => setTargetTeacherIds((prev) => e.target.checked ? [...new Set([...prev, String(teacher.id)])] : prev.filter((id) => String(id) !== String(teacher.id)))} />
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <button onClick={handleSendInvitesNow} className="rounded-2xl bg-emerald-700 px-4 py-3 text-sm font-black text-white">إرسال واتساب للمحددين</button>
+                            {sendStatus ? <Badge tone={/تم/.test(sendStatus) ? 'green' : 'amber'}>{sendStatus}</Badge> : null}
+                          </div>
+                        </div>
+                        <div className="rounded-[1.5rem] bg-slate-50 p-4 ring-1 ring-slate-200">
+                          <div className="mb-3 text-sm font-black text-slate-800">متابعة الإرسال والفتح</div>
+                          <div className="space-y-2 max-h-[24rem] overflow-auto">
+                            {inviteRows.length ? inviteRows.map(({ teacher, invite }) => (
+                              <div key={teacher.id} className="rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div>
+                                    <div className="font-black text-slate-900">{teacher.name || teacher.username}</div>
+                                    <div className="mt-1 text-xs text-slate-500">{teacher.mobile || 'لا يوجد رقم جوال'}</div>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {invite?.sentAt ? <Badge tone="violet">أرسل</Badge> : <Badge tone="slate">لم يرسل</Badge>}
+                                    {invite?.openedAt ? <Badge tone="blue">فتح الرابط</Badge> : null}
+                                    {(selectedSession.submissions || []).some((item) => String(item.teacherId) === String(teacher.id)) ? <Badge tone="green">اعتمد</Badge> : null}
+                                  </div>
+                                </div>
+                              </div>
+                            )) : <div className="rounded-2xl bg-white px-4 py-5 text-sm font-bold text-slate-500 ring-1 ring-slate-200">لا يوجد معلمون مستهدفون.</div>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-5 xl:grid-cols-2">
+                        <div className="rounded-[1.6rem] bg-white p-4 ring-1 ring-slate-200 xl:col-span-2">
+                          <div className="mb-3 text-sm font-black text-slate-800">سير الجلسة</div>
+                          <ResponsiveContainer width="100%" height={240}>
+                            <BarChart data={completionChart}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                              <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                              <YAxis allowDecimals={false} axisLine={false} tickLine={false} />
+                              <Tooltip />
+                              <Bar dataKey="value" fill="#0ea5e9" radius={[12, 12, 0, 0]}>
+                                <LabelList dataKey="value" position="top" />
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="rounded-[1.6rem] bg-white p-4 ring-1 ring-slate-200">
+                          <div className="mb-3 text-sm font-black text-slate-800">الحاضرون مقابل الغياب</div>
+                          <ResponsiveContainer width="100%" height={240}>
+                            <PieChart>
+                              <Pie data={attendanceChart} dataKey="value" nameKey="name" innerRadius={50} outerRadius={85}>
+                                {attendanceChart.map((entry, index) => <Cell key={entry.name} fill={index === 0 ? '#10b981' : '#f43f5e'} />)}
+                              </Pie>
+                              <Tooltip />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="rounded-[1.6rem] bg-white p-4 ring-1 ring-slate-200">
+                          <div className="mb-3 text-sm font-black text-slate-800">توزيع الغياب حسب الفصول</div>
+                          <ResponsiveContainer width="100%" height={240}>
+                            <BarChart data={selectedSessionSummary.classRows.length ? selectedSessionSummary.classRows : [{ name: 'لا توجد بيانات', absent: 0 }]}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                              <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                              <YAxis allowDecimals={false} axisLine={false} tickLine={false} />
+                              <Tooltip />
+                              <Bar dataKey="absent" fill="#f43f5e" radius={[10, 10, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-5 rounded-[1.5rem] bg-slate-50 p-4 ring-1 ring-slate-200">
+                      <div className="text-sm font-black text-slate-800">تحضير المعلم</div>
+                      <div className="mt-1 text-xs leading-6 text-slate-500">الجميع حاضر افتراضيًا. اضغط فقط على الغائب ثم احفظ مع الإقرار.</div>
+                      {String(selectedSession.status || 'open') !== 'closed' ? (
+                        <div className="mt-4 space-y-4">
+                          <Select label="اختر الفصل" value={teacherClassKey} onChange={(e) => setTeacherClassKey(e.target.value)}>
+                            <option value="">اختر الفصل</option>
+                            {teacherClassrooms.map((row) => <option key={getClassroomKeyFromCompanyRow(row)} value={getClassroomKeyFromCompanyRow(row)}>{row.name} ({row.studentsCount})</option>)}
+                          </Select>
+                          <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="font-black text-slate-900">قائمة الطلاب</div>
+                              <Badge tone="green">الجميع حاضر افتراضيًا</Badge>
+                            </div>
+                            <div className="mt-3 max-h-[22rem] overflow-auto space-y-2">
+                              {teacherClassStudents.length ? teacherClassStudents.map((student) => {
+                                const absent = teacherAbsentIds.includes(String(student.id));
+                                return (
+                                  <button key={student.id} onClick={() => toggleAbsent(student.id)} className={cx('flex w-full items-center justify-between rounded-2xl px-4 py-3 text-right ring-1 transition', absent ? 'bg-rose-50 text-rose-900 ring-rose-200' : 'bg-emerald-50 text-emerald-900 ring-emerald-200')}>
+                                    <div>
+                                      <div className="font-black">{student.name}</div>
+                                      <div className="mt-1 text-xs opacity-80">{student.studentNumber || student.nationalId || '—'}</div>
+                                    </div>
+                                    <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-black">{absent ? 'غائب' : 'حاضر'}</span>
+                                  </button>
+                                );
+                              }) : <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">اختر الفصل لعرض الطلاب.</div>}
+                            </div>
+                          </div>
+                          <label className="flex items-start gap-3 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200">
+                            <input type="checkbox" checked={teacherAcknowledgement} onChange={(e) => setTeacherAcknowledgement(e.target.checked)} className="mt-1 h-4 w-4 rounded border-slate-300" />
+                            <span>أقر بصحة التحضير لهذه الحصة وأن البيانات المدخلة مطابقة لواقع الفصل.</span>
+                          </label>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <button onClick={handleTeacherSubmit} className="rounded-2xl bg-sky-700 px-5 py-3 text-sm font-black text-white">اعتماد التحضير</button>
+                            {teacherStatus ? <Badge tone={/تم/.test(teacherStatus) ? 'green' : 'amber'}>{teacherStatus}</Badge> : null}
+                            {existingTeacherSubmission ? <Badge tone="blue">آخر حفظ: {new Date(existingTeacherSubmission.submittedAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</Badge> : null}
+                          </div>
+                        </div>
+                      ) : <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-4 text-sm font-bold text-amber-900 ring-1 ring-amber-200">الجلسة الحالية مغلقة.</div>}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : <div className="rounded-[1.8rem] bg-white p-8 text-center text-sm font-bold text-slate-500 ring-1 ring-slate-200">اختر جلسة من القائمة أو أنشئ جلسة جديدة للبدء.</div>}
+          </div>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function ReportsPage({ schools, scanLog, actionLog, gateSyncEvents = [], selectedSchool, settings, executiveReport, onExportAttendance, onExportStudents, onExportSchools, onExportBackup }) {
+  const schoolLeavePasses = getLeavePasses(selectedSchool);
   const schoolLogs = scanLog.filter((item) => item.schoolId === selectedSchool.id);
   const schoolActions = (actionLog || []).filter((item) => item.schoolId === selectedSchool.id);
   const schoolStudents = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true });
@@ -9648,6 +12235,934 @@ function ReportsPage({ schools, scanLog, actionLog, selectedSchool, settings, ex
     acc[key] = row;
     return acc;
   }, {})).sort((a, b) => b.count - a.count).slice(0, 5);
+  const parentPortalSummary = executiveReport?.parentPortalSummary || null;
+  const parentPortalRows = parentPortalSummary ? [
+    { metric: 'حالة البوابة', value: parentPortalSummary.portalEnabled ? 'مفعلة' : 'مقفلة' },
+    { metric: 'سياسة تحديث الرقم', value: parentPortalSummary.approvalMode === 'manual' ? 'يدوي' : 'تلقائي' },
+    { metric: 'أولياء الأمور المرتبطون', value: Number(parentPortalSummary.linkedParents || 0) },
+    { metric: 'أولياء الأمور النشطون', value: Number(parentPortalSummary.activeParents || 0) },
+    { metric: 'الحسابات المعلقة', value: Number(parentPortalSummary.suspendedParents || 0) },
+    { metric: 'الطلبات المعلقة', value: Number(parentPortalSummary.pendingRequests || 0) },
+    { metric: 'الاعتمادات المنفذة اليوم', value: Number(parentPortalSummary.approvedToday || 0) },
+    { metric: 'تعثرات الإرسال', value: Number(parentPortalSummary.failedDeliveries || 0) },
+    { metric: 'الأرقام الإضافية', value: Number(parentPortalSummary.extraContacts || 0) },
+    { metric: 'تغطية أولياء الأمور', value: `${Number(parentPortalSummary.coverageRate || 0)}%` },
+    { metric: 'تغطية أرقام أولياء الأمور للطلاب', value: `${Number(parentPortalSummary.guardianCoverageRate || 0)}%` },
+    { metric: 'تفضيل واتساب', value: Number(parentPortalSummary.preferredWhatsappCount || 0) },
+  ] : [];
+  const exportExecutiveParentPortal = (format = 'xlsx') => {
+    if (!parentPortalRows.length) {
+      window.alert('لا توجد بيانات بوابة ولي الأمر ضمن التقرير التنفيذي حاليًا.');
+      return;
+    }
+    if (format === 'csv') {
+      downloadFile(`${settings.exportPrefix || 'school'}-${selectedSchool?.code || 'school'}-parent-portal-summary.csv`, buildCsv(parentPortalRows, [
+        { key: 'metric', label: 'المؤشر' },
+        { key: 'value', label: 'القيمة' },
+      ]), 'text/csv;charset=utf-8;');
+      return;
+    }
+    exportRowsToWorkbook(`${settings.exportPrefix || 'school'}-${selectedSchool?.code || 'school'}-parent-portal-summary.xlsx`, 'ParentPortalSummary', parentPortalRows, [
+      { key: 'metric', label: 'المؤشر' },
+      { key: 'value', label: 'القيمة' },
+    ]);
+  };
+  const printExecutiveSchoolReport = () => {
+    const summaryRows = [
+      ['طلاب المدرسة', summary.totalStudents],
+      ['الحاضرون اليوم', summary.presentToday],
+      ['نسبة الحضور', `${summary.attendanceRate}%`],
+      ['المكافآت اليوم', summary.rewardsToday],
+      ['الخصومات اليوم', summary.violationsToday],
+      ['البرامج اليوم', summary.programsToday],
+    ].map(([label, value]) => `<div class="stat"><div class="k">${label}</div><div class="v">${value}</div></div>`).join('');
+    const parentRowsHtml = parentPortalRows.map((row) => `<tr><td>${String(row.metric || '').replace(/</g,'&lt;')}</td><td>${String(row.value || '').replace(/</g,'&lt;')}</td></tr>`).join('');
+    const renderTable = (title, columns, rows) => {
+      const head = columns.map((col) => `<th>${col.label}</th>`).join('');
+      const body = rows.map((row) => `<tr>${columns.map((col) => `<td>${String(row[col.key] ?? '').replace(/</g,'&lt;')}</td>`).join('')}</tr>`).join('');
+      return `<h1 style="font-size:20px;margin-top:24px">${title}</h1><table><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${columns.length}">لا توجد بيانات متاحة.</td></tr>`}</tbody></table>`;
+    };
+    printHtmlContent(`التقرير التنفيذي — ${selectedSchool?.name || 'المدرسة'}`, `<h2>بوابة ولي الأمر</h2><table><thead><tr><th>المؤشر</th><th>القيمة</th></tr></thead><tbody>${parentRowsHtml || '<tr><td colspan="2">لا توجد بيانات متاحة.</td></tr>'}</tbody></table>${renderTable('أعلى الطلاب', [{ key: 'rank', label: '#' }, { key: 'studentName', label: 'الطالب' }, { key: 'className', label: 'الفصل' }, { key: 'points', label: 'النقاط' }, { key: 'attendanceRate', label: 'الحضور %' }], executiveTopStudents)}${renderTable('أعلى الفصول', [{ key: 'rank', label: '#' }, { key: 'className', label: 'الفصل' }, { key: 'averagePoints', label: 'متوسط النقاط' }, { key: 'rewards', label: 'المكافآت' }, { key: 'students', label: 'الطلاب' }], executiveTopClasses)}${renderTable('أعلى المعلمين', [{ key: 'rank', label: '#' }, { key: 'teacherName', label: 'المعلم' }, { key: 'totalActions', label: 'الإجراءات' }, { key: 'submittedLessons', label: 'تحضير الحصص' }, { key: 'specialPoints', label: 'الرصيد التخصصي' }], executiveTopTeachers)}${renderTable('أكثر البنود استخدامًا', [{ key: 'rank', label: '#' }, { key: 'title', label: 'البند' }, { key: 'typeLabel', label: 'النوع' }, { key: 'count', label: 'مرات الاستخدام' }], executiveTopBehaviorItems)}${renderTable('أعلى الطلاب غيابًا', [{ key: 'rank', label: '#' }, { key: 'studentName', label: 'الطالب' }, { key: 'className', label: 'الفصل' }, { key: 'lessonAbsenceCount', label: 'غياب الحصص' }, { key: 'lateCount', label: 'التأخر' }, { key: 'attendanceRate', label: 'الحضور %' }], executiveTopAbsentStudents)}${renderTable('أعلى الطلاب تأخرًا', [{ key: 'rank', label: '#' }, { key: 'studentName', label: 'الطالب' }, { key: 'className', label: 'الفصل' }, { key: 'lateCount', label: 'التأخر' }, { key: 'lessonAbsenceCount', label: 'غياب الحصص' }, { key: 'points', label: 'النقاط' }], executiveTopLateStudents)}${renderTable('أعلى المعلمين مكافآت', [{ key: 'rank', label: '#' }, { key: 'teacherName', label: 'المعلم' }, { key: 'rewards', label: 'المكافآت' }, { key: 'totalActions', label: 'إجمالي الإجراءات' }, { key: 'submittedLessons', label: 'تحضير الحصص' }], executiveTopRewardTeachers)}${renderTable('أعلى المعلمين خصومات', [{ key: 'rank', label: '#' }, { key: 'teacherName', label: 'المعلم' }, { key: 'violations', label: 'الخصومات' }, { key: 'totalActions', label: 'إجمالي الإجراءات' }, { key: 'submittedLessons', label: 'تحضير الحصص' }], executiveTopViolationTeachers)}${renderTable('أعلى الفصول مكافآت', [{ key: 'rank', label: '#' }, { key: 'className', label: 'الفصل' }, { key: 'rewards', label: 'المكافآت' }, { key: 'averagePoints', label: 'متوسط النقاط' }, { key: 'students', label: 'الطلاب' }], executiveTopRewardClasses)}${renderTable('أعلى الفصول خصومات', [{ key: 'rank', label: '#' }, { key: 'className', label: 'الفصل' }, { key: 'violations', label: 'الخصومات' }, { key: 'lateCount', label: 'التأخر' }, { key: 'students', label: 'الطلاب' }], executiveTopViolationClasses)}`, { subtitle: `${selectedSchool?.name || 'المدرسة'} • ${formatDateTime(new Date().toISOString())}`, accent: '#0f766e', summaryCards: [ { label: 'طلاب المدرسة', value: summary.totalStudents, tone: 'tone-blue' }, { label: 'الحاضرون اليوم', value: summary.presentToday, tone: 'tone-green' }, { label: 'نسبة الحضور', value: `${summary.attendanceRate}%`, tone: 'tone-violet' }, { label: 'مكافآت / خصومات / برامج', value: `${summary.rewardsToday} / ${summary.violationsToday} / ${summary.programsToday}`, tone: 'tone-amber' } ] });
+  };
+
+
+  const [reportTab, setReportTab] = useState('attendance');
+  const [reportFromDate, setReportFromDate] = useState('');
+  const [reportToDate, setReportToDate] = useState('');
+  const [reportClassKey, setReportClassKey] = useState('all');
+  const [reportTeacherName, setReportTeacherName] = useState('all');
+  const [reportStudentId, setReportStudentId] = useState('all');
+  const [reportStatus, setReportStatus] = useState('all');
+  const schoolGateSyncEvents = useMemo(() => hydrateGateSyncCenterEvents(gateSyncEvents).filter((item) => Number(item.schoolId) === Number(selectedSchool?.id)), [gateSyncEvents, selectedSchool?.id]);
+
+  const classroomRows = useMemo(() => getUnifiedCompanyRows(selectedSchool, { preferStructure: true }), [selectedSchool]);
+  const lessonSessions = useMemo(() => getLessonAttendanceSessions(selectedSchool), [selectedSchool]);
+  const rewardStore = useMemo(() => getRewardStore(selectedSchool), [selectedSchool]);
+  const rewardStoreSummary = useMemo(() => buildRewardStoreSummary(selectedSchool), [selectedSchool]);
+  const rewardItems = useMemo(() => (rewardStore.items || []).map((item) => normalizeRewardStoreItem(item)), [rewardStore]);
+  const rewardRequests = useMemo(() => Array.isArray(rewardStore.redemptionRequests) ? rewardStore.redemptionRequests : [], [rewardStore]);
+
+  const matchesReportDate = useCallback((isoDate) => {
+    const raw = String(isoDate || '').slice(0, 10);
+    if (!raw) return true;
+    if (reportFromDate && raw < reportFromDate) return false;
+    if (reportToDate && raw > reportToDate) return false;
+    return true;
+  }, [reportFromDate, reportToDate]);
+
+  const attendanceRows = useMemo(() => {
+    return schoolStudents.map((student) => {
+      const classKey = String(student.classroomId || student.companyId || '');
+      const studentScans = schoolLogs.filter((entry) => String(entry.studentId) === String(student.id) && matchesReportDate(entry.isoDate));
+      const lateCount = studentScans.filter((entry) => String(entry.result || '').includes('تأخر')).length;
+      const earlyCount = studentScans.filter((entry) => String(entry.result || '').includes('مبكر')).length;
+      const ontimeCount = studentScans.filter((entry) => String(entry.result || '').includes('في الوقت')).length;
+      const sessionAbsences = lessonSessions.reduce((sum, session) => sum + (Array.isArray(session.submissions) ? session.submissions.reduce((subSum, submission) => subSum + ((submission.absentStudentIds || []).map(String).includes(String(student.id)) && matchesReportDate(session.dateIso) ? 1 : 0), 0) : 0), 0);
+      const lastScan = studentScans[0] || studentScans.slice().sort((a, b) => String(b.isoDate || '').localeCompare(String(a.isoDate || '')))[0] || null;
+      const lastStatus = String(lastScan?.result || student.status || '').includes('تأخر') ? 'late' : lastScan ? 'present' : 'absent';
+      return {
+        id: student.id,
+        studentName: student.name,
+        studentNumber: student.studentNumber || '—',
+        classKey,
+        className: getStudentGroupingLabel(student, selectedSchool),
+        totalScans: studentScans.length,
+        presentCount: studentScans.length,
+        lateCount,
+        earlyCount,
+        ontimeCount,
+        lessonAbsenceCount: sessionAbsences,
+        points: Number(student.points || 0),
+        status: lastStatus,
+        lastScanDate: lastScan?.isoDate || '',
+        lastScanTime: lastScan?.time || '',
+      };
+    }).filter((row) => {
+      if (reportClassKey !== 'all' && String(row.classKey) !== String(reportClassKey)) return false;
+      if (reportStudentId !== 'all' && String(row.id) !== String(reportStudentId)) return false;
+      if (reportStatus !== 'all' && String(row.status) !== String(reportStatus)) return false;
+      return true;
+    });
+  }, [schoolStudents, schoolLogs, lessonSessions, matchesReportDate, selectedSchool, reportClassKey, reportStudentId, reportStatus]);
+
+  const behaviorRows = useMemo(() => {
+    const map = {};
+    schoolActions.filter((item) => matchesReportDate(item.isoDate)).forEach((item) => {
+      const key = String(item.studentId || item.student || 'unknown');
+      const classKey = String(item.companyId || '');
+      if (!map[key]) map[key] = { studentId: item.studentId || key, studentName: item.student || 'غير معروف', classKey, className: classroomRows.find((row) => String(getClassroomKeyFromCompanyRow(row)) === classKey)?.name || '—', rewards: 0, violations: 0, programs: 0, rewardPoints: 0, violationPoints: 0, lastActionAt: `${item.isoDate || ''} ${item.time || ''}`.trim() };
+      if (item.actionType === 'reward') { map[key].rewards += 1; map[key].rewardPoints += Math.abs(Number(item.deltaPoints || 0)); }
+      else if (item.actionType === 'violation') { map[key].violations += 1; map[key].violationPoints += Math.abs(Number(item.deltaPoints || 0)); }
+      else if (item.actionType === 'program') { map[key].programs += 1; }
+      map[key].lastActionAt = `${item.isoDate || ''} ${item.time || ''}`.trim();
+    });
+    return Object.values(map).filter((row) => {
+      if (reportClassKey !== 'all' && String(row.classKey) !== String(reportClassKey)) return false;
+      if (reportStudentId !== 'all' && String(row.studentId) !== String(reportStudentId)) return false;
+      if (reportStatus === 'positive' && row.rewards <= 0) return false;
+      if (reportStatus === 'negative' && row.violations <= 0) return false;
+      return true;
+    }).sort((a, b) => (b.rewards + b.violations) - (a.rewards + a.violations));
+  }, [schoolActions, matchesReportDate, classroomRows, reportClassKey, reportStudentId, reportStatus]);
+
+  const programRows = useMemo(() => {
+    const map = {};
+    schoolActions.filter((item) => item.actionType === 'program' && matchesReportDate(item.isoDate)).forEach((item) => {
+      const key = String(item.actionTitle || 'برنامج');
+      const row = map[key] || { programTitle: key, count: 0, students: new Set(), teachers: new Set(), classes: new Set(), lastAt: '' };
+      row.count += 1;
+      if (item.studentId) row.students.add(String(item.studentId));
+      if (item.actorName) row.teachers.add(String(item.actorName));
+      if (item.companyId) row.classes.add(String(item.companyId));
+      row.lastAt = `${item.isoDate || ''} ${item.time || ''}`.trim();
+      map[key] = row;
+    });
+    return Object.values(map).map((row) => ({ ...row, studentsCount: row.students.size, teachersCount: row.teachers.size, classesCount: row.classes.size })).sort((a, b) => b.count - a.count);
+  }, [schoolActions, matchesReportDate]);
+
+  const teacherRows = useMemo(() => {
+    const map = {};
+    schoolActions.filter((item) => matchesReportDate(item.isoDate)).forEach((item) => {
+      const key = String(item.actorName || 'غير محدد');
+      if (!map[key]) map[key] = { teacherName: key, role: item.actorRole || 'teacher', rewards: 0, violations: 0, programs: 0, classes: new Set(), submittedLessons: 0, openedLessons: 0 };
+      if (item.actionType === 'reward') map[key].rewards += 1;
+      if (item.actionType === 'violation') map[key].violations += 1;
+      if (item.actionType === 'program') map[key].programs += 1;
+      if (item.companyId) map[key].classes.add(String(item.companyId));
+    });
+    lessonSessions.filter((session) => matchesReportDate(session.dateIso)).forEach((session) => {
+      (session.teacherInvites || []).forEach((invite) => {
+        const key = String(invite.teacherName || invite.teacherId || 'غير محدد');
+        if (!map[key]) map[key] = { teacherName: key, role: 'teacher', rewards: 0, violations: 0, programs: 0, classes: new Set(), submittedLessons: 0, openedLessons: 0 };
+        if (invite.openedAt) map[key].openedLessons += 1;
+      });
+      (session.submissions || []).forEach((submission) => {
+        const key = String(submission.teacherName || submission.teacherId || 'غير محدد');
+        if (!map[key]) map[key] = { teacherName: key, role: 'teacher', rewards: 0, violations: 0, programs: 0, classes: new Set(), submittedLessons: 0, openedLessons: 0 };
+        map[key].submittedLessons += 1;
+        if (submission.classKey) map[key].classes.add(String(submission.classKey));
+      });
+    });
+    return Object.values(map).map((row) => ({ ...row, classesCount: row.classes.size, totalActions: row.rewards + row.violations + row.programs })).filter((row) => reportTeacherName === 'all' || row.teacherName === reportTeacherName).sort((a, b) => (b.totalActions + b.submittedLessons) - (a.totalActions + a.submittedLessons));
+  }, [schoolActions, lessonSessions, matchesReportDate, reportTeacherName]);
+
+  const studentComprehensiveRows = useMemo(() => {
+    const behaviorMap = Object.fromEntries(behaviorRows.map((row) => [String(row.studentId), row]));
+    const storeMap = {};
+    rewardRequests.forEach((request) => {
+      if (!matchesReportDate(request.requestedAt || request.createdAt || request.decidedAt || request.deliveredAt)) return;
+      const key = String(request.studentId || '');
+      if (!storeMap[key]) storeMap[key] = { requests: 0, delivered: 0, spentPoints: 0 };
+      storeMap[key].requests += 1;
+      if (String(request.status || '') === 'delivered') storeMap[key].delivered += 1;
+      storeMap[key].spentPoints += Math.max(0, Number(request.pointsCost || 0));
+    });
+    return attendanceRows.map((row) => ({
+      ...row,
+      rewards: behaviorMap[String(row.id)]?.rewards || 0,
+      violations: behaviorMap[String(row.id)]?.violations || 0,
+      programs: behaviorMap[String(row.id)]?.programs || 0,
+      storeRequests: storeMap[String(row.id)]?.requests || 0,
+      storeDelivered: storeMap[String(row.id)]?.delivered || 0,
+      storeSpentPoints: storeMap[String(row.id)]?.spentPoints || 0,
+    })).sort((a, b) => b.points - a.points);
+  }, [attendanceRows, behaviorRows, rewardRequests, matchesReportDate]);
+
+  const lessonRows = useMemo(() => {
+    return lessonSessions.filter((session) => matchesReportDate(session.dateIso)).flatMap((session) => (session.submissions || []).map((submission) => ({
+      sessionId: session.id,
+      sessionLabel: buildLessonAttendanceSessionLabel(session),
+      dateIso: session.dateIso,
+      status: session.status || 'open',
+      teacherName: submission.teacherName || '—',
+      classKey: submission.classKey || '',
+      className: submission.className || '—',
+      presentCount: Number(submission.presentCount || 0),
+      absentCount: Number(submission.absentCount || 0),
+      totalStudents: Number(submission.totalStudents || 0),
+      submittedAt: submission.submittedAt || '',
+      acknowledged: submission.acknowledged ? 'نعم' : 'لا',
+      absentStudents: Array.isArray(submission.absentStudents) ? submission.absentStudents.map((item) => item.name).join('، ') : '',
+    }))).filter((row) => {
+      if (reportClassKey !== 'all' && String(row.classKey) !== String(reportClassKey)) return false;
+      if (reportTeacherName !== 'all' && row.teacherName !== reportTeacherName) return false;
+      if (reportStatus !== 'all') {
+        if (reportStatus === 'submitted' && !row.submittedAt) return false;
+        if (reportStatus === 'missing' && row.submittedAt) return false;
+      }
+      return true;
+    });
+  }, [lessonSessions, matchesReportDate, reportClassKey, reportTeacherName, reportStatus]);
+
+  const leavePassRows = useMemo(() => {
+    return schoolLeavePasses
+      .filter((item) => matchesReportDate(item.createdAt || item.sentAt || item.viewedAt || item.updatedAt))
+      .map((item) => ({
+        id: item.id,
+        studentId: item.studentId,
+        studentName: item.studentName || 'طالب',
+        studentNumber: item.studentNumber || '—',
+        className: item.className || item.companyName || '—',
+        teacherName: item.teacherName || '—',
+        destinationLabel: getLeavePassDestinationLabel(item.destination),
+        reason: item.reason || '—',
+        status: String(item.status || 'created'),
+        statusLabel: getLeavePassStatusLabel(item.status),
+        sendModeLabel: item.sendMode === 'manual' ? 'واتساب يدوي' : item.sendMode === 'system' ? 'من خلال النظام' : (item.sendPreference === 'manual' ? 'واتساب يدوي' : 'من خلال النظام'),
+        approvalLabel: item.approvedAt ? `${item.approvedByName || 'الإدارة'} — ${formatDateTime(item.approvedAt)}` : item.completedAt ? `${item.completedByName || 'الإدارة'} — ${formatDateTime(item.completedAt)}` : '—',
+        createdAtLabel: item.createdAt ? formatDateTime(item.createdAt) : '—',
+        sentAtLabel: item.sentAt ? formatDateTime(item.sentAt) : '—',
+        viewedAtLabel: item.viewedAt ? formatDateTime(item.viewedAt) : '—',
+        updatedAtLabel: item.updatedAt ? formatDateTime(item.updatedAt) : '—',
+        createdByName: item.createdByName || '—',
+      }))
+      .filter((row) => {
+        if (reportClassKey !== 'all' && String(row.className || '') !== String(classroomRows.find((item) => String(getClassroomKeyFromCompanyRow(item)) === String(reportClassKey))?.name || '')) return false;
+        if (reportTeacherName !== 'all' && row.teacherName !== reportTeacherName) return false;
+        if (reportStudentId !== 'all' && String(row.studentId) !== String(reportStudentId)) return false;
+        if (reportStatus !== 'all' && String(row.status) !== String(reportStatus)) return false;
+        return true;
+      })
+      .sort((a, b) => String(b.createdAtLabel || '').localeCompare(String(a.createdAtLabel || '')));
+  }, [schoolLeavePasses, matchesReportDate, reportClassKey, reportTeacherName, reportStudentId, reportStatus, classroomRows]);
+
+  const storeItemRows = useMemo(() => rewardItems.filter((item) => {
+    if (reportStatus !== 'all') {
+      if (reportStatus === 'active' && item.approvalStatus !== 'active') return false;
+      if (reportStatus === 'awaiting' && !['awaiting_receipt','received_pending_activation'].includes(item.approvalStatus)) return false;
+      if (reportStatus === 'depleted' && item.approvalStatus !== 'depleted') return false;
+    }
+    return true;
+  }).map((item) => ({
+    title: item.title,
+    donorName: getRewardStoreDonorLabel(item),
+    sourceType: item.sourceType,
+    quantity: item.quantity,
+    remainingQuantity: item.remainingQuantity,
+    deliveredQuantity: item.deliveredQuantity,
+    pointsCost: item.pointsCost,
+    approvalStatus: getRewardStoreStatusLabel(item.approvalStatus),
+  })), [rewardItems, reportStatus]);
+
+  const storeRequestRows = useMemo(() => rewardRequests.filter((request) => matchesReportDate(request.requestedAt || request.createdAt || request.decidedAt || request.deliveredAt)).map((request) => ({
+    studentName: request.studentName || request.student || '—',
+    className: request.className || getStudentGroupingLabel(schoolStudents.find((item) => String(item.id) === String(request.studentId)) || {}, selectedSchool),
+    itemTitle: request.itemTitle || '—',
+    status: String(request.status || 'pending'),
+    statusLabel: String(request.status || 'pending') === 'pending' ? 'بانتظار الاعتماد' : String(request.status || '') === 'approved' ? 'بانتظار التسليم' : String(request.status || '') === 'delivered' ? 'تم التسليم' : 'مرفوض',
+    sourceLabel: request.requestedByRole === 'parent' ? 'ولي الأمر' : request.requestedByRole === 'student' ? 'الطالب' : request.requestedByRole === 'delegated_staff' ? 'موظف مفوض' : 'الإدارة',
+    pointsCost: Number(request.pointsCost || 0),
+    requestedAt: request.requestedAt || request.createdAt || '',
+    deliveredAt: request.deliveredAt || '',
+  })).filter((row) => {
+    if (reportStatus !== 'all' && row.status !== reportStatus) return false;
+    return true;
+  }), [rewardRequests, matchesReportDate, schoolStudents, selectedSchool, reportStatus]);
+
+  const parentDetailedRows = useMemo(() => parentPortalRows.map((row, index) => ({ id: index + 1, metric: row.metric, value: row.value })), [parentPortalRows]);
+
+  const selectedStudentReport = useMemo(() => {
+    if (reportStudentId === 'all') return null;
+    const student = schoolStudents.find((item) => String(item.id) === String(reportStudentId));
+    if (!student) return null;
+    const attendance = attendanceRows.find((row) => String(row.id) === String(reportStudentId));
+    const behavior = behaviorRows.find((row) => String(row.studentId) === String(reportStudentId));
+    const store = studentComprehensiveRows.find((row) => String(row.id) === String(reportStudentId));
+    const studentActions = schoolActions
+      .filter((item) => String(item.studentId) === String(reportStudentId) && matchesReportDate(item.isoDate))
+      .slice()
+      .sort((a, b) => `${b.isoDate || ''} ${b.time || ''}`.localeCompare(`${a.isoDate || ''} ${a.time || ''}`));
+    const recentActions = studentActions.slice(0, 6).map((item) => ({
+      title: item.actionTitle || 'إجراء',
+      typeLabel: item.actionType === 'reward' ? 'مكافأة' : item.actionType === 'violation' ? 'خصم' : 'برنامج',
+      actorName: item.actorName || '—',
+      dateLabel: `${item.isoDate || ''} ${item.time || ''}`.trim() || '—',
+    }));
+    const recentStoreRequests = rewardRequests
+      .filter((request) => String(request.studentId) === String(reportStudentId) && matchesReportDate(request.requestedAt || request.createdAt || request.decidedAt || request.deliveredAt))
+      .slice()
+      .sort((a, b) => `${b.requestedAt || b.createdAt || ''}`.localeCompare(`${a.requestedAt || a.createdAt || ''}`))
+      .slice(0, 5)
+      .map((request) => ({
+        itemTitle: request.itemTitle || '—',
+        statusLabel: String(request.status || 'pending') === 'pending' ? 'بانتظار الاعتماد' : String(request.status || '') === 'approved' ? 'بانتظار التسليم' : String(request.status || '') === 'delivered' ? 'تم التسليم' : 'مرفوض',
+        dateLabel: request.requestedAt || request.createdAt || request.deliveredAt || '—',
+      }));
+    const recentLessonAbsences = lessonSessions.filter((session) => matchesReportDate(session.dateIso)).flatMap((session) => (session.submissions || []).filter((submission) => (submission.absentStudentIds || []).map(String).includes(String(reportStudentId))).map((submission) => ({ sessionLabel: buildLessonAttendanceSessionLabel(session), className: submission.className || '—', submittedAt: submission.submittedAt || '', }))).slice(0, 5);
+    const attendanceRate = Number(attendance?.presentCount || 0) + Number(attendance?.lateCount || 0) + Number(attendance?.lessonAbsenceCount || 0) > 0
+      ? Math.max(0, Math.round((Number(attendance?.presentCount || 0) / Math.max(1, Number(attendance?.presentCount || 0) + Number(attendance?.lateCount || 0) + Number(attendance?.lessonAbsenceCount || 0))) * 100))
+      : 0;
+    return {
+      id: student.id,
+      name: student.name,
+      className: getStudentGroupingLabel(student, selectedSchool),
+      points: Number(student.points || attendance?.points || 0),
+      presentCount: Number(attendance?.presentCount || 0),
+      lateCount: Number(attendance?.lateCount || 0),
+      lessonAbsenceCount: Number(attendance?.lessonAbsenceCount || 0),
+      rewards: Number(behavior?.rewards || 0),
+      violations: Number(behavior?.violations || 0),
+      programs: Number(behavior?.programs || 0),
+      storeRequests: Number(store?.storeRequests || 0),
+      storeDelivered: Number(store?.storeDelivered || 0),
+      storeSpentPoints: Number(store?.storeSpentPoints || 0),
+      parentName: student.parentName || student.guardianName || '—',
+      parentMobile: student.parentMobile || student.guardianMobile || student.mobile || '—',
+      attendanceRate,
+      recentActions,
+      recentStoreRequests,
+      recentLessonAbsences,
+    };
+  }, [reportStudentId, schoolStudents, attendanceRows, behaviorRows, studentComprehensiveRows, selectedSchool, schoolActions, rewardRequests, lessonSessions, matchesReportDate]);
+
+  const selectedTeacherReport = useMemo(() => {
+    if (reportTeacherName === 'all') return null;
+    const teacher = teacherRows.find((row) => row.teacherName === reportTeacherName);
+    if (!teacher) return null;
+    const specialMeta = (selectedSchool?.appMeta?.teacherSpecialSummaries || {})[reportTeacherName] || {};
+    const teacherActions = schoolActions
+      .filter((item) => String(item.actorName || '') === String(reportTeacherName) && matchesReportDate(item.isoDate))
+      .slice()
+      .sort((a, b) => `${b.isoDate || ''} ${b.time || ''}`.localeCompare(`${a.isoDate || ''} ${a.time || ''}`));
+    const recentActions = teacherActions.slice(0, 6).map((item) => ({
+      title: item.actionTitle || 'إجراء',
+      typeLabel: item.actionType === 'reward' ? 'مكافأة' : item.actionType === 'violation' ? 'خصم' : 'برنامج',
+      studentName: item.studentName || schoolStudents.find((row) => String(row.id) === String(item.studentId))?.name || '—',
+      className: getStudentGroupingLabel(schoolStudents.find((row) => String(row.id) === String(item.studentId)) || {}, selectedSchool),
+      dateLabel: `${item.isoDate || ''} ${item.time || ''}`.trim() || '—',
+    }));
+    const lessonSubmissions = lessonRows.filter((row) => row.teacherName === reportTeacherName).slice(0, 6).map((row) => ({
+      sessionLabel: row.sessionLabel,
+      className: row.className,
+      absentCount: row.absentCount,
+      submittedAt: row.submittedAt || '—',
+    }));
+    const classNames = Array.from(teacher.classes || []).map((key) => classroomRows.find((row) => String(getClassroomKeyFromCompanyRow(row)) === String(key))?.name || String(key));
+    return {
+      ...teacher,
+      specialPoints: Number(specialMeta.specialPoints || 0),
+      specialAchievements: Number(specialMeta.specialAchievements || 0),
+      specialItemsCount: Number(specialMeta.specialItemsCount || 0),
+      recentActions,
+      lessonSubmissions,
+      classNames,
+    };
+  }, [reportTeacherName, teacherRows, selectedSchool, schoolActions, schoolStudents, matchesReportDate, lessonRows, classroomRows]);
+
+  const executiveReportRows = useMemo(() => ([
+    { metric: 'إجمالي الطلاب', value: schoolStudents.length },
+    { metric: 'إجمالي المعلمين النشطين', value: teacherRows.length },
+    { metric: 'الحضور الصباحي', value: attendanceRows.filter((row) => row.status === 'present').length },
+    { metric: 'المتأخرون', value: attendanceRows.filter((row) => row.status === 'late').length },
+    { metric: 'غياب الحصص', value: attendanceRows.reduce((sum, row) => sum + Number(row.lessonAbsenceCount || 0), 0) },
+    { metric: 'إجمالي المكافآت', value: behaviorRows.reduce((sum, row) => sum + Number(row.rewards || 0), 0) },
+    { metric: 'إجمالي الخصومات', value: behaviorRows.reduce((sum, row) => sum + Number(row.violations || 0), 0) },
+    { metric: 'البرامج المنفذة', value: programRows.reduce((sum, row) => sum + Number(row.count || 0), 0) },
+    { metric: 'جلسات تحضير الحصص', value: lessonSessions.length },
+    { metric: 'المتجر — الجوائز المعتمدة', value: rewardStoreSummary.activeItems || 0 },
+    { metric: 'المتجر — تم التسليم', value: rewardStoreSummary.deliveredRedemptions || 0 },
+    { metric: 'بوابة ولي الأمر — أولياء مرتبطون', value: parentPortalSummary?.linkedParents || 0 },
+  ]), [schoolStudents.length, teacherRows.length, attendanceRows, behaviorRows, programRows, lessonSessions.length, rewardStoreSummary, parentPortalSummary]);
+
+  const executiveTopStudents = useMemo(() => [...studentComprehensiveRows]
+    .sort((a, b) => (Number(b.points || 0) - Number(a.points || 0)) || (Number(b.rewards || 0) - Number(a.rewards || 0)))
+    .slice(0, 8)
+    .map((row, index) => ({
+      rank: index + 1,
+      studentName: row.studentName,
+      className: row.className,
+      points: Number(row.points || 0),
+      attendanceRate: Number(row.attendanceRate || 0),
+      rewards: Number(row.rewards || 0),
+      violations: Number(row.violations || 0),
+    })), [studentComprehensiveRows]);
+
+  const executiveTopClasses = useMemo(() => {
+    const map = new Map();
+    studentComprehensiveRows.forEach((row) => {
+      const key = String(row.className || 'بدون فصل');
+      if (!map.has(key)) map.set(key, { className: key, students: 0, points: 0, rewards: 0, violations: 0, lateCount: 0, delivered: 0 });
+      const entry = map.get(key);
+      entry.students += 1;
+      entry.points += Number(row.points || 0);
+      entry.rewards += Number(row.rewards || 0);
+      entry.violations += Number(row.violations || 0);
+      entry.lateCount += Number(row.lateCount || 0);
+      entry.delivered += Number(row.storeDelivered || 0);
+    });
+    return Array.from(map.values())
+      .map((row, index) => ({ ...row, averagePoints: row.students ? Math.round(row.points / row.students) : 0 }))
+      .sort((a, b) => (b.averagePoints - a.averagePoints) || (b.rewards - a.rewards))
+      .slice(0, 8)
+      .map((row, index) => ({ ...row, rank: index + 1 }));
+  }, [studentComprehensiveRows]);
+
+  const executiveTopTeachers = useMemo(() => [...teacherRows]
+    .sort((a, b) => ((Number(b.totalActions || 0) + Number(b.submittedLessons || 0) + Number(b.specialPoints || 0)) - (Number(a.totalActions || 0) + Number(a.submittedLessons || 0) + Number(a.specialPoints || 0))))
+    .slice(0, 8)
+    .map((row, index) => ({
+      rank: index + 1,
+      teacherName: row.teacherName,
+      totalActions: Number(row.totalActions || 0),
+      submittedLessons: Number(row.submittedLessons || 0),
+      specialPoints: Number(row.specialPoints || 0),
+      classesCount: Number(row.classesCount || 0),
+    })), [teacherRows]);
+
+  const executiveTopBehaviorItems = useMemo(() => {
+    const map = new Map();
+    schoolActions.forEach((item) => {
+      if (!matchesReportDate(item.isoDate || item.createdAt || item.date || '')) return;
+      const title = String(item.actionTitle || item.title || item.action || 'بدون اسم');
+      const key = `${item.actionType || 'other'}::${title}`;
+      if (!map.has(key)) map.set(key, { title, actionType: item.actionType || 'other', count: 0 });
+      map.get(key).count += 1;
+    });
+    return Array.from(map.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8)
+      .map((row, index) => ({
+        rank: index + 1,
+        title: row.title,
+        typeLabel: row.actionType === 'reward' ? 'مكافأة' : row.actionType === 'violation' ? 'خصم' : row.actionType === 'program' ? 'برنامج' : 'إجراء',
+        count: row.count,
+      }));
+  }, [schoolActions, matchesReportDate]);
+
+
+  const executiveTopAbsentStudents = useMemo(() => [...studentComprehensiveRows]
+    .sort((a, b) => (Number(b.lessonAbsenceCount || 0) - Number(a.lessonAbsenceCount || 0)) || (Number(b.lateCount || 0) - Number(a.lateCount || 0)))
+    .filter((row) => Number(row.lessonAbsenceCount || 0) > 0)
+    .slice(0, 8)
+    .map((row, index) => ({
+      rank: index + 1,
+      studentName: row.studentName,
+      className: row.className,
+      lessonAbsenceCount: Number(row.lessonAbsenceCount || 0),
+      lateCount: Number(row.lateCount || 0),
+      attendanceRate: Number(row.attendanceRate || 0),
+    })), [studentComprehensiveRows]);
+
+  const executiveTopLateStudents = useMemo(() => [...studentComprehensiveRows]
+    .sort((a, b) => (Number(b.lateCount || 0) - Number(a.lateCount || 0)) || (Number(b.lessonAbsenceCount || 0) - Number(a.lessonAbsenceCount || 0)))
+    .filter((row) => Number(row.lateCount || 0) > 0)
+    .slice(0, 8)
+    .map((row, index) => ({
+      rank: index + 1,
+      studentName: row.studentName,
+      className: row.className,
+      lateCount: Number(row.lateCount || 0),
+      lessonAbsenceCount: Number(row.lessonAbsenceCount || 0),
+      points: Number(row.points || 0),
+    })), [studentComprehensiveRows]);
+
+  const executiveTopRewardTeachers = useMemo(() => [...teacherRows]
+    .sort((a, b) => (Number(b.rewards || 0) - Number(a.rewards || 0)) || (Number(b.totalActions || 0) - Number(a.totalActions || 0)))
+    .filter((row) => Number(row.rewards || 0) > 0)
+    .slice(0, 8)
+    .map((row, index) => ({
+      rank: index + 1,
+      teacherName: row.teacherName,
+      rewards: Number(row.rewards || 0),
+      totalActions: Number(row.totalActions || 0),
+      submittedLessons: Number(row.submittedLessons || 0),
+    })), [teacherRows]);
+
+  const executiveTopViolationTeachers = useMemo(() => [...teacherRows]
+    .sort((a, b) => (Number(b.violations || 0) - Number(a.violations || 0)) || (Number(b.totalActions || 0) - Number(a.totalActions || 0)))
+    .filter((row) => Number(row.violations || 0) > 0)
+    .slice(0, 8)
+    .map((row, index) => ({
+      rank: index + 1,
+      teacherName: row.teacherName,
+      violations: Number(row.violations || 0),
+      totalActions: Number(row.totalActions || 0),
+      submittedLessons: Number(row.submittedLessons || 0),
+    })), [teacherRows]);
+
+  const executiveTopRewardClasses = useMemo(() => [...executiveTopClasses]
+    .sort((a, b) => (Number(b.rewards || 0) - Number(a.rewards || 0)) || (Number(b.averagePoints || 0) - Number(a.averagePoints || 0)))
+    .filter((row) => Number(row.rewards || 0) > 0)
+    .slice(0, 8)
+    .map((row, index) => ({ ...row, rank: index + 1 })), [executiveTopClasses]);
+
+  const executiveTopViolationClasses = useMemo(() => [...executiveTopClasses]
+    .sort((a, b) => (Number(b.violations || 0) - Number(a.violations || 0)) || (Number(b.lateCount || 0) - Number(a.lateCount || 0)))
+    .filter((row) => Number(row.violations || 0) > 0)
+    .slice(0, 8)
+    .map((row, index) => ({ ...row, rank: index + 1 })), [executiveTopClasses]);
+
+  const printExecutiveDataset = (title, columns, rows) => {
+    const head = columns.map((col) => `<th>${col.label}</th>`).join('');
+    const body = rows.map((row) => `<tr>${columns.map((col) => `<td>${String(row[col.key] ?? '').replace(/</g, '&lt;')}</td>`).join('')}</tr>`).join('');
+    printHtmlContent(`${title} — ${selectedSchool?.name || 'المدرسة'}`, `<h1>${title}</h1><div class="meta">${selectedSchool?.name || 'المدرسة'} • ${formatDateTime(new Date().toISOString())}</div><table><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${columns.length}">لا توجد بيانات متاحة.</td></tr>`}</tbody></table>`);
+  };
+
+  const printSelectedStudentReport = () => {
+    if (!selectedStudentReport) return;
+    const rows = [
+      ['الطالب', selectedStudentReport.name],
+      ['الفصل', selectedStudentReport.className],
+      ['ولي الأمر', selectedStudentReport.parentName],
+      ['جوال ولي الأمر', selectedStudentReport.parentMobile],
+      ['النقاط', selectedStudentReport.points],
+      ['معدل الحضور', `${selectedStudentReport.attendanceRate}%`],
+      ['الحضور', selectedStudentReport.presentCount],
+      ['التأخر', selectedStudentReport.lateCount],
+      ['غياب الحصص', selectedStudentReport.lessonAbsenceCount],
+      ['المكافآت', selectedStudentReport.rewards],
+      ['الخصومات', selectedStudentReport.violations],
+      ['البرامج', selectedStudentReport.programs],
+      ['طلبات المتجر', selectedStudentReport.storeRequests],
+      ['الجوائز المسلمة', selectedStudentReport.storeDelivered],
+      ['النقاط المصروفة', selectedStudentReport.storeSpentPoints],
+    ].map(([label, value]) => `<tr><td>${label}</td><td>${String(value ?? '').replace(/</g, '&lt;')}</td></tr>`).join('');
+    const actionsRows = (selectedStudentReport.recentActions || []).map((row) => `<tr><td>${String(row.typeLabel || '').replace(/</g,'&lt;')}</td><td>${String(row.title || '').replace(/</g,'&lt;')}</td><td>${String(row.actorName || '').replace(/</g,'&lt;')}</td><td>${String(row.dateLabel || '').replace(/</g,'&lt;')}</td></tr>`).join('');
+    const storeRows = (selectedStudentReport.recentStoreRequests || []).map((row) => `<tr><td>${String(row.itemTitle || '').replace(/</g,'&lt;')}</td><td>${String(row.statusLabel || '').replace(/</g,'&lt;')}</td><td>${String(row.dateLabel || '').replace(/</g,'&lt;')}</td></tr>`).join('');
+    printHtmlContent(`تقرير الطالب — ${selectedStudentReport.name}`, `<h1>التقرير الشامل للطالب</h1><div class="meta">${selectedSchool?.name || 'المدرسة'} • ${formatDateTime(new Date().toISOString())}</div><div class="stats"><div class="stat"><div class="k">النقاط الحالية</div><div class="v">${selectedStudentReport.points}</div></div><div class="stat"><div class="k">المكافآت</div><div class="v">${selectedStudentReport.rewards}</div></div><div class="stat"><div class="k">الخصومات</div><div class="v">${selectedStudentReport.violations}</div></div><div class="stat"><div class="k">جوائز المتجر</div><div class="v">${selectedStudentReport.storeDelivered}</div></div></div><h1 style="font-size:20px;margin-top:24px">البيانات الأساسية</h1><table><thead><tr><th>المؤشر</th><th>القيمة</th></tr></thead><tbody>${rows}</tbody></table><h1 style="font-size:20px;margin-top:24px">آخر الإجراءات المرتبطة بالطالب</h1><table><thead><tr><th>النوع</th><th>البند</th><th>المنفذ</th><th>التاريخ</th></tr></thead><tbody>${actionsRows || '<tr><td colspan="4">لا توجد إجراءات حديثة.</td></tr>'}</tbody></table><h1 style="font-size:20px;margin-top:24px">آخر طلبات المتجر</h1><table><thead><tr><th>الجائزة</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>${storeRows || '<tr><td colspan="3">لا توجد طلبات متجر.</td></tr>'}</tbody></table>`);
+  };
+
+  const printSelectedTeacherReport = () => {
+    if (!selectedTeacherReport) return;
+    const rows = [
+      ['المعلم', selectedTeacherReport.teacherName],
+      ['المكافآت', selectedTeacherReport.rewards],
+      ['الخصومات', selectedTeacherReport.violations],
+      ['البرامج', selectedTeacherReport.programs],
+      ['تحضير الحصص', selectedTeacherReport.submittedLessons],
+      ['فتح روابط الحصص', selectedTeacherReport.openedLessons],
+      ['عدد الفصول', selectedTeacherReport.classesCount],
+      ['الرصيد التخصصي', selectedTeacherReport.specialPoints],
+      ['الإنجازات التخصصية', selectedTeacherReport.specialAchievements],
+      ['البنود التخصصية', selectedTeacherReport.specialItemsCount],
+      ['إجمالي الإجراءات', selectedTeacherReport.totalActions],
+    ].map(([label, value]) => `<tr><td>${label}</td><td>${String(value ?? '').replace(/</g, '&lt;')}</td></tr>`).join('');
+    const classRows = (selectedTeacherReport.classNames || []).map((name) => `<tr><td>${String(name || '').replace(/</g,'&lt;')}</td></tr>`).join('');
+    const actionRows = (selectedTeacherReport.recentActions || []).map((row) => `<tr><td>${String(row.typeLabel || '').replace(/</g,'&lt;')}</td><td>${String(row.title || '').replace(/</g,'&lt;')}</td><td>${String(row.studentName || '').replace(/</g,'&lt;')}</td><td>${String(row.className || '').replace(/</g,'&lt;')}</td><td>${String(row.dateLabel || '').replace(/</g,'&lt;')}</td></tr>`).join('');
+    const lessonRowsHtml = (selectedTeacherReport.lessonSubmissions || []).map((row) => `<tr><td>${String(row.sessionLabel || '').replace(/</g,'&lt;')}</td><td>${String(row.className || '').replace(/</g,'&lt;')}</td><td>${String(row.absentCount || 0)}</td><td>${String(row.submittedAt || '').replace(/</g,'&lt;')}</td></tr>`).join('');
+    printHtmlContent(`تقرير المعلم — ${selectedTeacherReport.teacherName}`, `<h1>التقرير الشامل للمعلم</h1><div class="meta">${selectedSchool?.name || 'المدرسة'} • ${formatDateTime(new Date().toISOString())}</div><div class="stats"><div class="stat"><div class="k">الرصيد التخصصي</div><div class="v">${selectedTeacherReport.specialPoints}</div></div><div class="stat"><div class="k">الإجراءات</div><div class="v">${selectedTeacherReport.totalActions}</div></div><div class="stat"><div class="k">تحضير الحصص</div><div class="v">${selectedTeacherReport.submittedLessons}</div></div><div class="stat"><div class="k">الفصول</div><div class="v">${selectedTeacherReport.classesCount}</div></div></div><h1 style="font-size:20px;margin-top:24px">البيانات الأساسية</h1><table><thead><tr><th>المؤشر</th><th>القيمة</th></tr></thead><tbody>${rows}</tbody></table><h1 style="font-size:20px;margin-top:24px">الفصول المرتبطة</h1><table><thead><tr><th>الفصل</th></tr></thead><tbody>${classRows || '<tr><td>لا توجد فصول مرتبطة.</td></tr>'}</tbody></table><h1 style="font-size:20px;margin-top:24px">آخر الإجراءات المنفذة</h1><table><thead><tr><th>النوع</th><th>البند</th><th>الطالب</th><th>الفصل</th><th>التاريخ</th></tr></thead><tbody>${actionRows || '<tr><td colspan="5">لا توجد إجراءات حديثة.</td></tr>'}</tbody></table><h1 style="font-size:20px;margin-top:24px">آخر جلسات التحضير</h1><table><thead><tr><th>الجلسة</th><th>الفصل</th><th>الغائبون</th><th>وقت الاعتماد</th></tr></thead><tbody>${lessonRowsHtml || '<tr><td colspan="4">لا توجد جلسات حديثة.</td></tr>'}</tbody></table>`);
+  };
+
+  const reportTabs = [
+    { key: 'attendance', label: 'الحضور والتأخر', description: 'حضور الصباح، التأخر، وغياب الحصص.' },
+    { key: 'behavior', label: 'السلوكيات', description: 'المكافآت، الخصومات، والسلوكيات الإيجابية والسلبية.' },
+    { key: 'programs', label: 'البرامج', description: 'البرامج المنفذة وعدد الطلاب والمعلمين المرتبطين بها.' },
+    { key: 'teachers', label: 'المعلمون', description: 'أداء المعلمين، التحضير الحصصي، والنشاط العام.' },
+    { key: 'students', label: 'الطلاب', description: 'نقاط الطلاب، السلوك، الحضور، والاستفادة من المتجر.' },
+    { key: 'parents', label: 'أولياء الأمور', description: 'التفعيل، التفاعل، وارتباط الحسابات والتنبيهات.' },
+    { key: 'store', label: 'المتجر', description: 'الجوائز، الطلبات، المخزون، والمتبرعون.' },
+    { key: 'lessons', label: 'تحضير الحصص', description: 'الجلسات، اعتماد المعلمين، والغياب الحصصي.' },
+    { key: 'leavePass', label: 'الاستئذان', description: 'طلبات الاستئذان، حالاتها، وجهتها، ومسار اطلاع المعلم.' },
+    { key: 'gateSync', label: 'مزامنة البوابات', description: 'السجل المركزي لمزامنة عمليات البوابة بين الأجهزة والخادم.' },
+    { key: 'executive', label: 'التقرير التنفيذي', description: 'ملخص المدرسة التنفيذي لأهم المؤشرات.' },
+  ];
+  const reportQuickCards = reportTabs.map((tab) => ({
+    ...tab,
+    count:
+      tab.key === 'attendance' ? attendanceRows.length :
+      tab.key === 'behavior' ? behaviorRows.length :
+      tab.key === 'programs' ? programRows.length :
+      tab.key === 'teachers' ? teacherRows.length :
+      tab.key === 'students' ? studentComprehensiveRows.length :
+      tab.key === 'parents' ? parentDetailedRows.length :
+      tab.key === 'store' ? (storeRequestRows.length + storeItemRows.length) :
+      tab.key === 'leavePass' ? leavePassRows.length :
+      tab.key === 'gateSync' ? schoolGateSyncEvents.length :
+      tab.key === 'executive' ? executiveReportRows.length :
+      lessonRows.length,
+  }));
+
+  const getPrintCellHtml = (reportKey, columnKey, rawValue) => {
+    const value = rawValue ?? '';
+    const safe = escapePrintHtml(value);
+    if (columnKey === 'status') {
+      const statusText = String(value || '—');
+      if (statusText.includes('حاضر') || statusText.includes('تمت')) return `<span class="pill pill-green">${safe}</span>`;
+      if (statusText.includes('متأخر') || statusText.includes('بانتظار')) return `<span class="pill pill-amber">${safe}</span>`;
+      if (statusText.includes('مكرر')) return `<span class="pill pill-blue">${safe}</span>`;
+      if (statusText.includes('غائب') || statusText.includes('غير ممسوح') || statusText.includes('مرفوض') || statusText.includes('خطأ')) return `<span class="pill pill-rose">${safe}</span>`;
+      if (statusText.includes('تفريغ')) return `<span class="pill pill-slate">${safe}</span>`;
+      return `<span class="pill pill-slate">${safe}</span>`;
+    }
+    if (columnKey === 'acknowledged') {
+      return String(value).includes('نعم') ? `<span class="pill pill-green">${safe}</span>` : `<span class="pill pill-rose">${safe}</span>`;
+    }
+    if (columnKey === 'statusLabel') {
+      const text = String(value || '—');
+      if (text.includes('تسليم') || text.includes('تم')) return `<span class="pill pill-green">${safe}</span>`;
+      if (text.includes('رفض')) return `<span class="pill pill-rose">${safe}</span>`;
+      if (text.includes('انتظار')) return `<span class="pill pill-amber">${safe}</span>`;
+      return `<span class="pill pill-blue">${safe}</span>`;
+    }
+    if (columnKey === 'sourceLabel') {
+      const text = String(value || '—');
+      if (text.includes('ولي')) return `<span class="pill pill-violet">${safe}</span>`;
+      if (text.includes('متبر')) return `<span class="pill pill-green">${safe}</span>`;
+      if (text.includes('مدرس')) return `<span class="pill pill-blue">${safe}</span>`;
+      return safe;
+    }
+    return safe;
+  };
+
+  const getPrintRowClass = (reportKey, row) => {
+    if (reportKey === 'attendance') {
+      if (row.status === 'absent') return 'row-negative';
+      if (row.status === 'late') return 'row-warning';
+      if (row.status === 'present') return 'row-positive';
+    }
+    if (reportKey === 'behavior') {
+      if (Number(row.violations || 0) > 0 && Number(row.rewards || 0) <= 0) return 'row-negative';
+      if (Number(row.rewards || 0) > 0 && Number(row.violations || 0) <= 0) return 'row-positive';
+      if (Number(row.programs || 0) > 0) return 'row-info';
+    }
+    if (reportKey === 'students') {
+      if (Number(row.violations || 0) > Number(row.rewards || 0)) return 'row-negative';
+      if (Number(row.rewards || 0) > Number(row.violations || 0)) return 'row-positive';
+      if (Number(row.points || 0) >= 100) return 'row-highlight';
+    }
+    if (reportKey === 'teachers') {
+      if (Number(row.totalActions || 0) >= 10 || Number(row.submittedLessons || 0) >= 5) return 'row-info';
+    }
+    if (reportKey === 'store') {
+      const status = String(row.statusLabel || '');
+      if (status.includes('تم')) return 'row-positive';
+      if (status.includes('رفض')) return 'row-negative';
+      if (status.includes('انتظار')) return 'row-warning';
+      if (status.includes('معتمد')) return 'row-info';
+    }
+    if (reportKey === 'lessons') {
+      if (String(row.acknowledged || '').includes('نعم')) return 'row-positive';
+      return 'row-warning';
+    }
+    if (reportKey === 'leavePass') {
+      const status = String(row.status || row.statusLabel || '');
+      if (status.includes('completed') || status.includes('تم التنفيذ')) return 'row-positive';
+      if (status.includes('cancelled') || status.includes('ملغي')) return 'row-negative';
+      if (status.includes('viewed') || status.includes('اطلع')) return 'row-info';
+      return 'row-warning';
+    }
+    return '';
+  };
+
+  const currentPrintSummaryCards = useMemo(() => {
+    if (reportTab === 'attendance') return [
+      { label: 'إجمالي الطلاب', value: attendanceRows.length, tone: 'tone-blue' },
+      { label: 'حاضرون', value: attendanceRows.filter((row) => row.status === 'present').length, tone: 'tone-green' },
+      { label: 'متأخرون', value: attendanceRows.filter((row) => row.status === 'late').length, tone: 'tone-amber' },
+      { label: 'غير ممسوحين / غياب', value: attendanceRows.filter((row) => row.status === 'absent').length, tone: 'tone-rose' },
+    ];
+    if (reportTab === 'behavior') return [
+      { label: 'السجلات', value: behaviorRows.length, tone: 'tone-blue' },
+      { label: 'إيجابي', value: behaviorRows.filter((row) => Number(row.rewards || 0) > 0).length, tone: 'tone-green' },
+      { label: 'سلبي', value: behaviorRows.filter((row) => Number(row.violations || 0) > 0).length, tone: 'tone-rose' },
+      { label: 'برامج', value: behaviorRows.reduce((sum, row) => sum + Number(row.programs || 0), 0), tone: 'tone-violet' },
+    ];
+    if (reportTab === 'programs') return [
+      { label: 'البرامج', value: programRows.length, tone: 'tone-blue' },
+      { label: 'إجمالي التنفيذ', value: programRows.reduce((sum, row) => sum + Number(row.count || 0), 0), tone: 'tone-green' },
+      { label: 'الطلاب المستفيدون', value: programRows.reduce((sum, row) => sum + Number(row.studentsCount || 0), 0), tone: 'tone-violet' },
+      { label: 'المعلمون المشاركون', value: programRows.reduce((sum, row) => sum + Number(row.teachersCount || 0), 0), tone: 'tone-amber' },
+    ];
+    if (reportTab === 'teachers') return [
+      { label: 'المعلمون', value: teacherRows.length, tone: 'tone-blue' },
+      { label: 'المكافآت', value: teacherRows.reduce((sum, row) => sum + Number(row.rewards || 0), 0), tone: 'tone-green' },
+      { label: 'الخصومات', value: teacherRows.reduce((sum, row) => sum + Number(row.violations || 0), 0), tone: 'tone-rose' },
+      { label: 'تحضير الحصص', value: teacherRows.reduce((sum, row) => sum + Number(row.submittedLessons || 0), 0), tone: 'tone-amber' },
+    ];
+    if (reportTab === 'students') return [
+      { label: 'الطلاب', value: studentComprehensiveRows.length, tone: 'tone-blue' },
+      { label: 'مجموع النقاط', value: studentComprehensiveRows.reduce((sum, row) => sum + Number(row.points || 0), 0), tone: 'tone-violet' },
+      { label: 'المكافآت', value: studentComprehensiveRows.reduce((sum, row) => sum + Number(row.rewards || 0), 0), tone: 'tone-green' },
+      { label: 'الخصومات', value: studentComprehensiveRows.reduce((sum, row) => sum + Number(row.violations || 0), 0), tone: 'tone-rose' },
+    ];
+    if (reportTab === 'store') return [
+      { label: 'طلبات المتجر', value: storeRequestRows.length, tone: 'tone-blue' },
+      { label: 'بانتظار الاعتماد', value: storeRequestRows.filter((row) => String(row.statusLabel || '').includes('انتظار')).length, tone: 'tone-amber' },
+      { label: 'تم التسليم', value: storeRequestRows.filter((row) => String(row.statusLabel || '').includes('تم')).length, tone: 'tone-green' },
+      { label: 'الجوائز النشطة', value: storeItemRows.filter((row) => String(row.statusLabel || '').includes('معتمدة')).length, tone: 'tone-violet' },
+    ];
+    if (reportTab === 'lessons') return [
+      { label: 'جلسات التحضير', value: lessonRows.length, tone: 'tone-blue' },
+      { label: 'معتمدة', value: lessonRows.filter((row) => String(row.acknowledged || '').includes('نعم')).length, tone: 'tone-green' },
+      { label: 'غير معتمدة', value: lessonRows.filter((row) => !String(row.acknowledged || '').includes('نعم')).length, tone: 'tone-amber' },
+      { label: 'إجمالي الغياب الحصصي', value: lessonRows.reduce((sum, row) => sum + Number(row.absentCount || 0), 0), tone: 'tone-rose' },
+    ];
+    if (reportTab === 'gateSync') return [
+      { label: 'إجمالي سجلات المزامنة', value: schoolGateSyncEvents.length, tone: 'tone-blue' },
+      { label: 'تمت', value: schoolGateSyncEvents.filter((row) => row.status === 'synced').length, tone: 'tone-green' },
+      { label: 'مكرر', value: schoolGateSyncEvents.filter((row) => row.status === 'duplicate').length, tone: 'tone-violet' },
+      { label: 'بانتظار / مرفوض', value: `${schoolGateSyncEvents.filter((row) => row.status === 'pending').length} / ${schoolGateSyncEvents.filter((row) => ['rejected','error'].includes(row.status)).length}`, tone: 'tone-amber' },
+    ];
+    if (reportTab === 'leavePass') return [
+      { label: 'طلبات الاستئذان', value: leavePassRows.length, tone: 'tone-blue' },
+      { label: 'بانتظار التنفيذ', value: leavePassRows.filter((row) => ['created','sent-system','sent-manual'].includes(String(row.status || ''))).length, tone: 'tone-amber' },
+      { label: 'اطلع المعلم', value: leavePassRows.filter((row) => String(row.status || '') === 'viewed').length, tone: 'tone-sky' },
+      { label: 'اعتمادات الجهة', value: leavePassRows.filter((row) => ['approved-agent','approved-counselor','released-guardian'].includes(String(row.status || ''))).length, tone: 'tone-blue' },
+      { label: 'تم التنفيذ', value: leavePassRows.filter((row) => String(row.status || '') === 'completed').length, tone: 'tone-green' },
+    ];
+    return [
+      { label: 'السجلات', value: currentReportMeta.rows?.length || 0, tone: 'tone-blue' },
+    ];
+  }, [reportTab, attendanceRows, behaviorRows, programRows, teacherRows, studentComprehensiveRows, storeRequestRows, storeItemRows, lessonRows, leavePassRows, schoolGateSyncEvents, currentReportMeta.rows]);
+
+  const currentPrintLegend = useMemo(() => {
+    if (reportTab === 'attendance') return [
+      { label: 'أخضر = حاضر', tone: 'pill-green' },
+      { label: 'أصفر = متأخر', tone: 'pill-amber' },
+      { label: 'وردي = غياب / غير ممسوح', tone: 'pill-rose' },
+    ];
+    if (reportTab === 'behavior' || reportTab === 'students') return [
+      { label: 'أخضر = جانب إيجابي', tone: 'pill-green' },
+      { label: 'وردي = جانب سلبي', tone: 'pill-rose' },
+      { label: 'بنفسجي = نقاط أو تميّز', tone: 'pill-violet' },
+    ];
+    if (reportTab === 'store') return [
+      { label: 'أصفر = بانتظار', tone: 'pill-amber' },
+      { label: 'أخضر = تم', tone: 'pill-green' },
+      { label: 'وردي = مرفوض', tone: 'pill-rose' },
+    ];
+    if (reportTab === 'gateSync') return [
+      { label: 'أخضر = تمت', tone: 'pill-green' },
+      { label: 'أزرق = مكرر', tone: 'pill-blue' },
+      { label: 'أصفر = بانتظار', tone: 'pill-amber' },
+      { label: 'وردي = مرفوض / خطأ', tone: 'pill-rose' },
+    ];
+    if (reportTab === 'leavePass') return [
+      { label: 'أصفر = جديد أو مرسل', tone: 'pill-amber' },
+      { label: 'أزرق = اطلع المعلم', tone: 'pill-blue' },
+      { label: 'أخضر = تم التنفيذ', tone: 'pill-green' },
+      { label: 'وردي = ملغي', tone: 'pill-rose' },
+    ];
+    return [];
+  }, [reportTab]);
+
+  const currentReportMeta = useMemo(() => {
+    if (reportTab === 'attendance') return { title: 'تقرير الحضور والتأخر', rows: attendanceRows, columns: [
+      { key: 'studentName', label: 'الطالب' },
+      { key: 'studentNumber', label: 'الرقم' },
+      { key: 'className', label: 'الفصل' },
+      { key: 'presentCount', label: 'الحضور' },
+      { key: 'lateCount', label: 'التأخر' },
+      { key: 'lessonAbsenceCount', label: 'غياب الحصص' },
+      { key: 'status', label: 'الحالة' },
+      { key: 'lastScanDate', label: 'آخر تاريخ' },
+    ] };
+    if (reportTab === 'behavior') return { title: 'تقرير السلوكيات والمكافآت والخصومات', rows: behaviorRows, columns: [
+      { key: 'studentName', label: 'الطالب' },
+      { key: 'className', label: 'الفصل' },
+      { key: 'rewards', label: 'المكافآت' },
+      { key: 'violations', label: 'الخصومات' },
+      { key: 'programs', label: 'البرامج' },
+      { key: 'lastActionAt', label: 'آخر إجراء' },
+    ] };
+    if (reportTab === 'programs') return { title: 'تقرير البرامج', rows: programRows, columns: [
+      { key: 'programTitle', label: 'البرنامج' },
+      { key: 'count', label: 'مرات التنفيذ' },
+      { key: 'studentsCount', label: 'الطلاب' },
+      { key: 'teachersCount', label: 'المعلمون' },
+      { key: 'classesCount', label: 'الفصول' },
+      { key: 'lastAt', label: 'آخر تنفيذ' },
+    ] };
+    if (reportTab === 'teachers') return { title: 'تقرير المعلمين', rows: teacherRows, columns: [
+      { key: 'teacherName', label: 'المعلم' },
+      { key: 'rewards', label: 'المكافآت' },
+      { key: 'violations', label: 'الخصومات' },
+      { key: 'programs', label: 'البرامج' },
+      { key: 'submittedLessons', label: 'تحضير الحصص' },
+      { key: 'openedLessons', label: 'فتح الرابط' },
+      { key: 'classesCount', label: 'الفصول' },
+    ] };
+    if (reportTab === 'students') return { title: 'التقرير الشامل للطلاب', rows: studentComprehensiveRows, columns: [
+      { key: 'studentName', label: 'الطالب' },
+      { key: 'className', label: 'الفصل' },
+      { key: 'points', label: 'النقاط' },
+      { key: 'lateCount', label: 'التأخر' },
+      { key: 'rewards', label: 'المكافآت' },
+      { key: 'violations', label: 'الخصومات' },
+      { key: 'programs', label: 'البرامج' },
+      { key: 'storeDelivered', label: 'جوائز مسلمة' },
+    ] };
+    if (reportTab === 'parents') return { title: 'تقرير أولياء الأمور', rows: parentDetailedRows, columns: [
+      { key: 'metric', label: 'المؤشر' },
+      { key: 'value', label: 'القيمة' },
+    ] };
+    if (reportTab === 'store') return { title: 'تقرير متجر النقاط — الطلبات', rows: storeRequestRows, columns: [
+      { key: 'studentName', label: 'الطالب' },
+      { key: 'className', label: 'الفصل' },
+      { key: 'itemTitle', label: 'الجائزة' },
+      { key: 'statusLabel', label: 'الحالة' },
+      { key: 'sourceLabel', label: 'جهة الطلب' },
+      { key: 'pointsCost', label: 'النقاط' },
+      { key: 'requestedAt', label: 'تاريخ الطلب' },
+    ] };
+    if (reportTab === 'leavePass') return { title: 'تقرير الاستئذان', rows: leavePassRows, columns: [
+      { key: 'studentName', label: 'الطالب' },
+      { key: 'className', label: 'الفصل' },
+      { key: 'teacherName', label: 'المعلم' },
+      { key: 'destinationLabel', label: 'الوجهة' },
+      { key: 'reason', label: 'السبب' },
+      { key: 'statusLabel', label: 'الحالة' },
+      { key: 'sendModeLabel', label: 'الإرسال' },
+      { key: 'createdAtLabel', label: 'وقت الإنشاء' },
+    ] };
+    if (reportTab === 'gateSync') return { title: 'التقرير المركزي لمزامنة البوابات', rows: schoolGateSyncEvents.filter((row) => matchesReportDate((row.syncedAt || row.createdAt || row.capturedAt || '').slice(0, 10))), columns: [
+      { key: 'gateName', label: 'البوابة' },
+      { key: 'status', label: 'الحالة' },
+      { key: 'studentName', label: 'الطالب' },
+      { key: 'barcode', label: 'الباركود' },
+      { key: 'method', label: 'الطريقة' },
+      { key: 'capturedAtLocal', label: 'وقت الالتقاط المحلي' },
+      { key: 'syncedAt', label: 'وقت المزامنة' },
+      { key: 'operationId', label: 'معرف العملية' },
+      { key: 'message', label: 'الرسالة التشغيلية' },
+    ] };
+    if (reportTab === 'executive') return { title: 'التقرير التنفيذي للمدرسة', rows: executiveReportRows, columns: [
+      { key: 'metric', label: 'المؤشر' },
+      { key: 'value', label: 'القيمة' },
+    ] };
+    return { title: 'تقرير تحضير الحصص', rows: lessonRows, columns: [
+      { key: 'sessionLabel', label: 'الجلسة' },
+      { key: 'teacherName', label: 'المعلم' },
+      { key: 'className', label: 'الفصل' },
+      { key: 'presentCount', label: 'حاضر' },
+      { key: 'absentCount', label: 'غائب' },
+      { key: 'acknowledged', label: 'الإقرار' },
+      { key: 'submittedAt', label: 'وقت الاعتماد' },
+    ] };
+  }, [reportTab, attendanceRows, behaviorRows, programRows, teacherRows, studentComprehensiveRows, parentDetailedRows, storeRequestRows, executiveReportRows, lessonRows, leavePassRows, schoolGateSyncEvents, matchesReportDate]);
+
+  const exportCurrentReport = (format = 'xlsx') => {
+    const rows = currentReportMeta.rows || [];
+    if (!rows.length) { window.alert('لا توجد بيانات متاحة للتصدير بعد تطبيق الفلاتر الحالية.'); return; }
+    const filenameBase = `${settings.exportPrefix || 'school'}-${selectedSchool?.code || 'school'}-${reportTab}`;
+    if (format === 'csv') {
+      downloadFile(`${filenameBase}.csv`, buildCsv(rows, currentReportMeta.columns), 'text/csv;charset=utf-8;');
+      return;
+    }
+    exportRowsToWorkbook(`${filenameBase}.xlsx`, 'Report', rows, currentReportMeta.columns);
+  };
+
+  const printCurrentReport = () => {
+    const rows = currentReportMeta.rows || [];
+    const head = (currentReportMeta.columns || []).map((col) => `<th>${escapePrintHtml(col.label)}</th>`).join('');
+    const body = rows.map((row) => `<tr class="${getPrintRowClass(reportTab, row)}">${(currentReportMeta.columns || []).map((col) => `<td>${getPrintCellHtml(reportTab, col.key, row[col.key])}</td>`).join('')}</tr>`).join('');
+    const accentMap = {
+      attendance: '#0369a1',
+      behavior: '#7c3aed',
+      programs: '#0f766e',
+      teachers: '#1d4ed8',
+      students: '#7c3aed',
+      parents: '#334155',
+      store: '#b45309',
+      lessons: '#0f766e',
+      leavePass: '#7c3aed',
+      gateSync: '#0369a1',
+      executive: '#0f766e',
+    };
+    printHtmlContent(`${currentReportMeta.title} — ${selectedSchool?.name || 'المدرسة'}`, `<table><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${(currentReportMeta.columns || []).length || 1}">لا توجد بيانات متاحة.</td></tr>`}</tbody></table>`, {
+      subtitle: `${selectedSchool?.name || 'المدرسة'} • ${formatDateTime(new Date().toISOString())}`,
+      accent: accentMap[reportTab] || '#0f172a',
+      summaryCards: currentPrintSummaryCards,
+      legend: currentPrintLegend,
+    });
+  };
+
+  const reportChartData = useMemo(() => {
+    if (reportTab === 'attendance') return [
+      { name: 'الحاضرون', value: attendanceRows.filter((row) => row.status === 'present').length },
+      { name: 'المتأخرون', value: attendanceRows.filter((row) => row.status === 'late').length },
+      { name: 'غير الممسوحين', value: attendanceRows.filter((row) => row.status === 'absent').length },
+    ];
+    if (reportTab === 'gateSync') return [
+      { name: 'تمت', value: schoolGateSyncEvents.filter((row) => row.status === 'synced').length },
+      { name: 'مكرر', value: schoolGateSyncEvents.filter((row) => row.status === 'duplicate').length },
+      { name: 'بانتظار', value: schoolGateSyncEvents.filter((row) => row.status === 'pending').length },
+      { name: 'مرفوض / خطأ', value: schoolGateSyncEvents.filter((row) => ['rejected','error'].includes(row.status)).length },
+    ];
+    if (reportTab === 'behavior') return [
+      { name: 'مكافآت', value: behaviorRows.reduce((sum, row) => sum + row.rewards, 0) },
+      { name: 'خصومات', value: behaviorRows.reduce((sum, row) => sum + row.violations, 0) },
+      { name: 'برامج', value: behaviorRows.reduce((sum, row) => sum + row.programs, 0) },
+    ];
+    if (reportTab === 'programs') return programRows.slice(0, 8).map((row) => ({ name: row.programTitle, value: row.count }));
+    if (reportTab === 'teachers') return teacherRows.slice(0, 8).map((row) => ({ name: row.teacherName, value: row.totalActions + row.submittedLessons }));
+    if (reportTab === 'students') return studentComprehensiveRows.slice(0, 8).map((row) => ({ name: row.studentName, value: row.points }));
+    if (reportTab === 'store') return [
+      { name: 'بانتظار الاعتماد', value: storeRequestRows.filter((row) => row.status === 'pending').length },
+      { name: 'بانتظار التسليم', value: storeRequestRows.filter((row) => row.status === 'approved').length },
+      { name: 'تم التسليم', value: storeRequestRows.filter((row) => row.status === 'delivered').length },
+      { name: 'مرفوض', value: storeRequestRows.filter((row) => row.status === 'rejected').length },
+    ];
+    if (reportTab === 'lessons') return lessonRows.slice(0, 8).map((row) => ({ name: row.className, value: row.absentCount }));
+    if (reportTab === 'leavePass') return [
+      { name: 'جديد / مرسل', value: leavePassRows.filter((row) => ['created','sent-system','sent-manual'].includes(String(row.status || ''))).length },
+      { name: 'اطلع المعلم', value: leavePassRows.filter((row) => String(row.status || '') === 'viewed').length },
+      { name: 'اعتمادات الجهة', value: leavePassRows.filter((row) => ['approved-agent','approved-counselor','released-guardian'].includes(String(row.status || ''))).length },
+      { name: 'تم التنفيذ', value: leavePassRows.filter((row) => String(row.status || '') === 'completed').length },
+      { name: 'ملغي', value: leavePassRows.filter((row) => String(row.status || '') === 'cancelled').length },
+    ];
+    return parentDetailedRows.map((row) => ({ name: row.metric, value: Number(String(row.value).replace(/[^0-9.-]/g, '')) || 0 })).slice(0, 8);
+  }, [reportTab, attendanceRows, behaviorRows, programRows, teacherRows, studentComprehensiveRows, storeRequestRows, lessonRows, leavePassRows, schoolGateSyncEvents, parentDetailedRows]);
 
   return (
     <div className="space-y-6">
@@ -9690,6 +13205,8 @@ function ReportsPage({ schools, scanLog, actionLog, selectedSchool, settings, ex
               <button onClick={onExportAttendance} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><Download className="h-4 w-4" /> تقرير الحضور CSV</button>
               <button onClick={onExportStudents} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><Download className="h-4 w-4" /> تقرير الطلاب CSV</button>
               <button onClick={onExportSchools} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><Download className="h-4 w-4" /> تقرير المدارس CSV</button>
+              <button onClick={() => exportExecutiveParentPortal('xlsx')} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-50 px-4 py-3 font-bold text-emerald-700 ring-1 ring-emerald-100"><Download className="h-4 w-4" /> بوابة ولي الأمر Excel</button>
+              <button onClick={printExecutiveSchoolReport} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 font-bold text-slate-700 ring-1 ring-slate-200"><Printer className="h-4 w-4" /> طباعة التقرير التنفيذي</button>
               <button onClick={onExportBackup} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-sky-700 px-4 py-3 font-bold text-white"><ClipboardCheck className="h-4 w-4" /> نسخ احتياطي JSON</button>
             </div>
           </div>
@@ -9709,6 +13226,161 @@ function ReportsPage({ schools, scanLog, actionLog, selectedSchool, settings, ex
           </div>
         </div>
        </SectionCard>
+
+      {parentPortalSummary ? <SectionCard title="بوابة ولي الأمر ضمن التقرير التنفيذي" icon={MonitorSmartphone} action={<div className="flex flex-wrap items-center gap-2"><Badge tone={parentPortalSummary.portalEnabled ? 'green' : 'rose'}>{parentPortalSummary.portalEnabled ? 'البوابة مفعلة' : 'البوابة مقفلة'}</Badge><button onClick={() => exportExecutiveParentPortal('csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV</button><button onClick={() => exportExecutiveParentPortal('xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel</button><button onClick={printExecutiveSchoolReport} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button></div>}>
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-6">
+          <SummaryBox label="الأولياء المرتبطون" value={parentPortalSummary.linkedParents || 0} color="text-sky-700" />
+          <SummaryBox label="الأولياء النشطون" value={parentPortalSummary.activeParents || 0} color="text-emerald-700" />
+          <SummaryBox label="الطلبات المعلقة" value={parentPortalSummary.pendingRequests || 0} color="text-amber-700" />
+          <SummaryBox label="الحسابات المعلقة" value={parentPortalSummary.suspendedParents || 0} color="text-rose-700" />
+          <SummaryBox label="تغطية أولياء الأمور" value={`${parentPortalSummary.coverageRate || 0}%`} color="text-violet-700" />
+          <SummaryBox label="تغطية الجوالات" value={`${parentPortalSummary.guardianCoverageRate || 0}%`} color="text-slate-700" />
+        </div>
+        <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200 xl:col-span-2">
+            <div className="mb-4 font-bold text-slate-800">ملخص مؤشرات بوابة ولي الأمر</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {parentPortalRows.map((row) => <div key={row.metric} className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200"><div className="text-sm font-bold text-slate-700">{row.metric}</div><div className="text-sm font-black text-slate-900">{row.value}</div></div>)}
+            </div>
+          </div>
+          <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+            <div className="mb-4 font-bold text-slate-800">جاهزية التواصل</div>
+            <div className="space-y-3">
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الأرقام الإضافية</div><div className="mt-2 text-3xl font-black text-slate-900">{parentPortalSummary.extraContacts || 0}</div></div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">تفضيل واتساب</div><div className="mt-2 text-3xl font-black text-emerald-700">{parentPortalSummary.preferredWhatsappCount || 0}</div></div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">آخر تنبيه إداري</div><div className="mt-2 text-sm font-black text-slate-900">{parentPortalSummary.lastAlertAt ? formatDateTime(parentPortalSummary.lastAlertAt) : 'لا يوجد'}</div></div>
+            </div>
+          </div>
+        </div>
+      </SectionCard> : null}
+
+      <SectionCard title="مركز التقارير الشاملة" icon={BarChart3} action={<div className="flex flex-wrap items-center gap-2"><button onClick={() => exportCurrentReport('csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV</button><button onClick={() => exportCurrentReport('xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel</button><button onClick={printCurrentReport} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button></div>}>
+        <div className="flex flex-wrap gap-2">{reportTabs.map((tab) => <button key={tab.key} onClick={() => setReportTab(tab.key)} className={cx('rounded-2xl px-4 py-2 text-sm font-black transition', reportTab === tab.key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200')}>{tab.label}</button>)}</div>
+        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{reportQuickCards.map((card) => {
+          const active = reportTab === card.key;
+          return <button key={card.key} onClick={() => setReportTab(card.key)} className={cx('rounded-3xl p-4 text-right ring-1 transition', active ? 'bg-slate-900 text-white ring-slate-900 shadow-lg' : 'bg-slate-50 text-slate-800 ring-slate-200 hover:bg-white')}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className={cx('text-sm font-black', active ? 'text-white' : 'text-slate-900')}>{card.label}</div>
+                <div className={cx('mt-1 text-xs leading-6', active ? 'text-white/75' : 'text-slate-500')}>{card.description}</div>
+              </div>
+              <div className={cx('rounded-2xl px-3 py-2 text-center', active ? 'bg-white/10' : 'bg-white ring-1 ring-slate-200')}>
+                <div className={cx('text-2xl font-black', active ? 'text-white' : 'text-slate-900')}>{card.count}</div>
+                <div className={cx('text-[11px] font-bold', active ? 'text-white/70' : 'text-slate-500')}>سجل</div>
+              </div>
+            </div>
+          </button>;
+        })}</div>
+        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div><label className="mb-1 block text-xs font-bold text-slate-600">من تاريخ</label><input type="date" value={reportFromDate} onChange={(e) => setReportFromDate(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" /></div>
+          <div><label className="mb-1 block text-xs font-bold text-slate-600">إلى تاريخ</label><input type="date" value={reportToDate} onChange={(e) => setReportToDate(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm" /></div>
+          <div><label className="mb-1 block text-xs font-bold text-slate-600">الفصل</label><select value={reportClassKey} onChange={(e) => setReportClassKey(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="all">كل الفصول</option>{classroomRows.map((row) => <option key={getClassroomKeyFromCompanyRow(row)} value={getClassroomKeyFromCompanyRow(row)}>{row.name}</option>)}</select></div>
+          <div><label className="mb-1 block text-xs font-bold text-slate-600">المعلم</label><select value={reportTeacherName} onChange={(e) => setReportTeacherName(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="all">كل المعلمين</option>{teacherRows.map((row) => <option key={row.teacherName} value={row.teacherName}>{row.teacherName}</option>)}</select></div>
+          <div><label className="mb-1 block text-xs font-bold text-slate-600">الطالب</label><select value={reportStudentId} onChange={(e) => setReportStudentId(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="all">كل الطلاب</option>{schoolStudents.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></div>
+          <div><label className="mb-1 block text-xs font-bold text-slate-600">الحالة</label><select value={reportStatus} onChange={(e) => setReportStatus(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="all">كل الحالات</option>{reportTab === 'attendance' ? <><option value="present">حاضر</option><option value="late">متأخر</option><option value="absent">غير ممسوح / غائب</option></> : null}{reportTab === 'behavior' ? <><option value="positive">إيجابي</option><option value="negative">سلبي</option></> : null}{reportTab === 'store' ? <><option value="pending">بانتظار الاعتماد</option><option value="approved">بانتظار التسليم</option><option value="delivered">تم التسليم</option><option value="rejected">مرفوض</option><option value="active">جوائز معتمدة</option><option value="awaiting">جوائز بانتظار الاعتماد</option><option value="depleted">منتهية الكمية</option></> : null}{reportTab === 'lessons' ? <><option value="submitted">تم الاعتماد</option><option value="missing">لم يعتمد</option></> : null}{reportTab === 'leavePass' ? <><option value="created">جديد</option><option value="sent-system">أرسل بالنظام</option><option value="sent-manual">أرسل يدويًا</option><option value="viewed">اطلع المعلم</option><option value="approved-agent">اعتمده الوكيل</option><option value="approved-counselor">اعتمده المرشد</option><option value="released-guardian">سُلّم مع ولي الأمر</option><option value="completed">تم التنفيذ</option><option value="cancelled">ملغي</option></> : null}</select></div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div className="rounded-2xl bg-white px-4 py-2 text-sm text-slate-500 ring-1 ring-slate-200">فلترة التقرير الحالي بحسب التاريخ، الفصل، المعلم، الطالب، والحالة.</div>
+          <button onClick={() => { setReportFromDate(''); setReportToDate(''); setReportClassKey('all'); setReportTeacherName('all'); setReportStudentId('all'); setReportStatus('all'); }} className="rounded-2xl bg-slate-200 px-4 py-2 text-sm font-bold text-slate-700">إعادة تعيين الفلاتر</button>
+          {selectedStudentReport ? <button onClick={printSelectedStudentReport} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">طباعة تقرير الطالب المحدد</button> : null}
+          {selectedTeacherReport ? <button onClick={printSelectedTeacherReport} className="rounded-2xl bg-violet-50 px-4 py-2 text-sm font-bold text-violet-700 ring-1 ring-violet-100">طباعة تقرير المعلم المحدد</button> : null}
+          {reportTab === 'executive' ? <button onClick={printExecutiveSchoolReport} className="rounded-2xl bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 ring-1 ring-emerald-100">طباعة التقرير التنفيذي للمدرسة</button> : null}
+        </div>
+        {(selectedStudentReport || selectedTeacherReport || reportTab === 'executive') ? <div className="mt-5 space-y-4">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+            {selectedStudentReport ? <div className="rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-100"><div className="mb-3 flex items-center justify-between gap-3"><div><div className="font-black text-slate-900">تقرير الطالب المحدد</div><div className="text-sm text-slate-500">{selectedStudentReport.name} • {selectedStudentReport.className}</div></div><Badge tone="blue">{selectedStudentReport.points} نقطة</Badge></div><div className="mb-3 flex flex-wrap gap-2 text-xs"><Badge tone="slate">ولي الأمر: {selectedStudentReport.parentName}</Badge><Badge tone="sky">جوال: {selectedStudentReport.parentMobile}</Badge><Badge tone="green">معدل الحضور {selectedStudentReport.attendanceRate}%</Badge></div><div className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">الحضور</div><div className="mt-1 text-xl font-black text-slate-900">{selectedStudentReport.presentCount}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">التأخر</div><div className="mt-1 text-xl font-black text-amber-700">{selectedStudentReport.lateCount}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">المكافآت</div><div className="mt-1 text-xl font-black text-emerald-700">{selectedStudentReport.rewards}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">الخصومات</div><div className="mt-1 text-xl font-black text-rose-700">{selectedStudentReport.violations}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">البرامج</div><div className="mt-1 text-xl font-black text-violet-700">{selectedStudentReport.programs}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">جوائز المتجر</div><div className="mt-1 text-xl font-black text-slate-900">{selectedStudentReport.storeDelivered}</div></div></div></div> : null}
+            {selectedTeacherReport ? <div className="rounded-3xl bg-violet-50 p-5 ring-1 ring-violet-100"><div className="mb-3 flex items-center justify-between gap-3"><div><div className="font-black text-slate-900">تقرير المعلم المحدد</div><div className="text-sm text-slate-500">{selectedTeacherReport.teacherName}</div></div><Badge tone="violet">{selectedTeacherReport.specialPoints} تخصصي</Badge></div><div className="mb-3 flex flex-wrap gap-2 text-xs">{(selectedTeacherReport.classNames || []).slice(0, 3).map((name, index) => <Badge key={`${name}-${index}`} tone="slate">{name}</Badge>)}{(selectedTeacherReport.classNames || []).length > 3 ? <Badge tone="slate">+{selectedTeacherReport.classNames.length - 3}</Badge> : null}</div><div className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">المكافآت</div><div className="mt-1 text-xl font-black text-emerald-700">{selectedTeacherReport.rewards}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">الخصومات</div><div className="mt-1 text-xl font-black text-rose-700">{selectedTeacherReport.violations}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">البرامج</div><div className="mt-1 text-xl font-black text-sky-700">{selectedTeacherReport.programs}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">تحضير الحصص</div><div className="mt-1 text-xl font-black text-slate-900">{selectedTeacherReport.submittedLessons}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">الإنجازات التخصصية</div><div className="mt-1 text-xl font-black text-violet-700">{selectedTeacherReport.specialAchievements}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">الفصول</div><div className="mt-1 text-xl font-black text-slate-900">{selectedTeacherReport.classesCount}</div></div></div></div> : null}
+            {reportTab === 'executive' ? <div className="rounded-3xl bg-emerald-50 p-5 ring-1 ring-emerald-100"><div className="mb-3 flex items-center justify-between gap-3"><div><div className="font-black text-slate-900">ملخص تنفيذي سريع</div><div className="text-sm text-slate-500">{selectedSchool?.name || 'المدرسة'}</div></div><Badge tone="green">جاهز للطباعة</Badge></div><div className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-2xl bg-white p-3 ring-1 ring-emerald-100"><div className="text-slate-500">نسبة المتأخرين</div><div className="mt-1 text-xl font-black text-amber-700">{attendanceRows.length ? Math.round((attendanceRows.filter((row) => row.status === 'late').length / attendanceRows.length) * 100) : 0}%</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-emerald-100"><div className="text-slate-500">إجمالي النقاط</div><div className="mt-1 text-xl font-black text-slate-900">{studentComprehensiveRows.reduce((sum, row) => sum + Number(row.points || 0), 0)}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-emerald-100"><div className="text-slate-500">الجوائز المسلمة</div><div className="mt-1 text-xl font-black text-rose-700">{rewardStoreSummary.deliveredRedemptions || 0}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-emerald-100"><div className="text-slate-500">الجلسات المعتمدة</div><div className="mt-1 text-xl font-black text-sky-700">{lessonRows.filter((row) => row.submittedAt).length}</div></div></div></div> : null}
+          </div>
+          {reportTab === 'executive' ? <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <SectionCard title="أعلى الطلاب" icon={GraduationCap} action={<button onClick={() => printExecutiveDataset('أعلى الطلاب', [{ key: 'rank', label: '#' }, { key: 'studentName', label: 'الطالب' }, { key: 'className', label: 'الفصل' }, { key: 'points', label: 'النقاط' }, { key: 'attendanceRate', label: 'معدل الحضور %' }, { key: 'rewards', label: 'المكافآت' }, { key: 'violations', label: 'الخصومات' }], executiveTopStudents)} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة</button>}>
+              <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+                <table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">#</th><th className="px-4 py-3 text-right font-black text-slate-700">الطالب</th><th className="px-4 py-3 text-right font-black text-slate-700">الفصل</th><th className="px-4 py-3 text-right font-black text-slate-700">النقاط</th><th className="px-4 py-3 text-right font-black text-slate-700">الحضور</th></tr></thead><tbody>{executiveTopStudents.length ? executiveTopStudents.map((row) => <tr key={`exec-student-${row.rank}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-black text-slate-900">{row.rank}</td><td className="px-4 py-3 font-bold text-slate-900">{row.studentName}</td><td className="px-4 py-3 text-slate-600">{row.className}</td><td className="px-4 py-3 font-black text-sky-700">{row.points}</td><td className="px-4 py-3 text-slate-600">{row.attendanceRate}%</td></tr>) : <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+              </div>
+            </SectionCard>
+            <SectionCard title="أعلى الفصول" icon={School2} action={<button onClick={() => printExecutiveDataset('أعلى الفصول', [{ key: 'rank', label: '#' }, { key: 'className', label: 'الفصل' }, { key: 'averagePoints', label: 'متوسط النقاط' }, { key: 'rewards', label: 'المكافآت' }, { key: 'students', label: 'الطلاب' }, { key: 'lateCount', label: 'التأخر' }], executiveTopClasses)} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة</button>}>
+              <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+                <table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">#</th><th className="px-4 py-3 text-right font-black text-slate-700">الفصل</th><th className="px-4 py-3 text-right font-black text-slate-700">متوسط النقاط</th><th className="px-4 py-3 text-right font-black text-slate-700">المكافآت</th><th className="px-4 py-3 text-right font-black text-slate-700">الطلاب</th></tr></thead><tbody>{executiveTopClasses.length ? executiveTopClasses.map((row) => <tr key={`exec-class-${row.rank}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-black text-slate-900">{row.rank}</td><td className="px-4 py-3 font-bold text-slate-900">{row.className}</td><td className="px-4 py-3 font-black text-emerald-700">{row.averagePoints}</td><td className="px-4 py-3 text-slate-600">{row.rewards}</td><td className="px-4 py-3 text-slate-600">{row.students}</td></tr>) : <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+              </div>
+            </SectionCard>
+            <SectionCard title="أعلى المعلمين" icon={Users} action={<button onClick={() => printExecutiveDataset('أعلى المعلمين', [{ key: 'rank', label: '#' }, { key: 'teacherName', label: 'المعلم' }, { key: 'totalActions', label: 'الإجراءات' }, { key: 'submittedLessons', label: 'تحضير الحصص' }, { key: 'specialPoints', label: 'الرصيد التخصصي' }, { key: 'classesCount', label: 'الفصول' }], executiveTopTeachers)} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة</button>}>
+              <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+                <table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">#</th><th className="px-4 py-3 text-right font-black text-slate-700">المعلم</th><th className="px-4 py-3 text-right font-black text-slate-700">الإجراءات</th><th className="px-4 py-3 text-right font-black text-slate-700">تحضير الحصص</th><th className="px-4 py-3 text-right font-black text-slate-700">التخصصي</th></tr></thead><tbody>{executiveTopTeachers.length ? executiveTopTeachers.map((row) => <tr key={`exec-teacher-${row.rank}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-black text-slate-900">{row.rank}</td><td className="px-4 py-3 font-bold text-slate-900">{row.teacherName}</td><td className="px-4 py-3 text-slate-600">{row.totalActions}</td><td className="px-4 py-3 text-slate-600">{row.submittedLessons}</td><td className="px-4 py-3 font-black text-violet-700">{row.specialPoints}</td></tr>) : <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+              </div>
+            </SectionCard>
+            <SectionCard title="أكثر البنود استخدامًا" icon={Sparkles} action={<button onClick={() => printExecutiveDataset('أكثر البنود استخدامًا', [{ key: 'rank', label: '#' }, { key: 'title', label: 'البند' }, { key: 'typeLabel', label: 'النوع' }, { key: 'count', label: 'مرات الاستخدام' }], executiveTopBehaviorItems)} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة</button>}>
+              <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+                <table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">#</th><th className="px-4 py-3 text-right font-black text-slate-700">البند</th><th className="px-4 py-3 text-right font-black text-slate-700">النوع</th><th className="px-4 py-3 text-right font-black text-slate-700">مرات الاستخدام</th></tr></thead><tbody>{executiveTopBehaviorItems.length ? executiveTopBehaviorItems.map((row) => <tr key={`exec-item-${row.rank}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-black text-slate-900">{row.rank}</td><td className="px-4 py-3 font-bold text-slate-900">{row.title}</td><td className="px-4 py-3 text-slate-600">{row.typeLabel}</td><td className="px-4 py-3 font-black text-amber-700">{row.count}</td></tr>) : <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="أعلى الطلاب غيابًا" icon={FileClock} action={<button onClick={() => printExecutiveDataset('أعلى الطلاب غيابًا', [{ key: 'rank', label: '#' }, { key: 'studentName', label: 'الطالب' }, { key: 'className', label: 'الفصل' }, { key: 'lessonAbsenceCount', label: 'غياب الحصص' }, { key: 'lateCount', label: 'التأخر' }, { key: 'attendanceRate', label: 'الحضور %' }], executiveTopAbsentStudents)} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة</button>}>
+              <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+                <table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">#</th><th className="px-4 py-3 text-right font-black text-slate-700">الطالب</th><th className="px-4 py-3 text-right font-black text-slate-700">الفصل</th><th className="px-4 py-3 text-right font-black text-slate-700">غياب الحصص</th><th className="px-4 py-3 text-right font-black text-slate-700">التأخر</th><th className="px-4 py-3 text-right font-black text-slate-700">الحضور</th></tr></thead><tbody>{executiveTopAbsentStudents.length ? executiveTopAbsentStudents.map((row) => <tr key={`exec-absent-${row.rank}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-black text-slate-900">{row.rank}</td><td className="px-4 py-3 font-bold text-slate-900">{row.studentName}</td><td className="px-4 py-3 text-slate-600">{row.className}</td><td className="px-4 py-3 font-black text-rose-700">{row.lessonAbsenceCount}</td><td className="px-4 py-3 text-slate-600">{row.lateCount}</td><td className="px-4 py-3 text-slate-600">{row.attendanceRate}%</td></tr>) : <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+              </div>
+            </SectionCard>
+            <SectionCard title="أعلى الطلاب تأخرًا" icon={FileClock} action={<button onClick={() => printExecutiveDataset('أعلى الطلاب تأخرًا', [{ key: 'rank', label: '#' }, { key: 'studentName', label: 'الطالب' }, { key: 'className', label: 'الفصل' }, { key: 'lateCount', label: 'التأخر' }, { key: 'lessonAbsenceCount', label: 'غياب الحصص' }, { key: 'points', label: 'النقاط' }], executiveTopLateStudents)} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة</button>}>
+              <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+                <table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">#</th><th className="px-4 py-3 text-right font-black text-slate-700">الطالب</th><th className="px-4 py-3 text-right font-black text-slate-700">الفصل</th><th className="px-4 py-3 text-right font-black text-slate-700">التأخر</th><th className="px-4 py-3 text-right font-black text-slate-700">غياب الحصص</th><th className="px-4 py-3 text-right font-black text-slate-700">النقاط</th></tr></thead><tbody>{executiveTopLateStudents.length ? executiveTopLateStudents.map((row) => <tr key={`exec-late-${row.rank}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-black text-slate-900">{row.rank}</td><td className="px-4 py-3 font-bold text-slate-900">{row.studentName}</td><td className="px-4 py-3 text-slate-600">{row.className}</td><td className="px-4 py-3 font-black text-amber-700">{row.lateCount}</td><td className="px-4 py-3 text-slate-600">{row.lessonAbsenceCount}</td><td className="px-4 py-3 text-slate-600">{row.points}</td></tr>) : <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+              </div>
+            </SectionCard>
+            <SectionCard title="أعلى المعلمين مكافآت" icon={Gift} action={<button onClick={() => printExecutiveDataset('أعلى المعلمين مكافآت', [{ key: 'rank', label: '#' }, { key: 'teacherName', label: 'المعلم' }, { key: 'rewards', label: 'المكافآت' }, { key: 'totalActions', label: 'الإجراءات' }, { key: 'submittedLessons', label: 'تحضير الحصص' }], executiveTopRewardTeachers)} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة</button>}>
+              <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+                <table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">#</th><th className="px-4 py-3 text-right font-black text-slate-700">المعلم</th><th className="px-4 py-3 text-right font-black text-slate-700">المكافآت</th><th className="px-4 py-3 text-right font-black text-slate-700">الإجراءات</th><th className="px-4 py-3 text-right font-black text-slate-700">الحصص</th></tr></thead><tbody>{executiveTopRewardTeachers.length ? executiveTopRewardTeachers.map((row) => <tr key={`exec-reward-teacher-${row.rank}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-black text-slate-900">{row.rank}</td><td className="px-4 py-3 font-bold text-slate-900">{row.teacherName}</td><td className="px-4 py-3 font-black text-emerald-700">{row.rewards}</td><td className="px-4 py-3 text-slate-600">{row.totalActions}</td><td className="px-4 py-3 text-slate-600">{row.submittedLessons}</td></tr>) : <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+              </div>
+            </SectionCard>
+            <SectionCard title="أعلى المعلمين خصومات" icon={ShieldAlert} action={<button onClick={() => printExecutiveDataset('أعلى المعلمين خصومات', [{ key: 'rank', label: '#' }, { key: 'teacherName', label: 'المعلم' }, { key: 'violations', label: 'الخصومات' }, { key: 'totalActions', label: 'الإجراءات' }, { key: 'submittedLessons', label: 'تحضير الحصص' }], executiveTopViolationTeachers)} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة</button>}>
+              <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+                <table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">#</th><th className="px-4 py-3 text-right font-black text-slate-700">المعلم</th><th className="px-4 py-3 text-right font-black text-slate-700">الخصومات</th><th className="px-4 py-3 text-right font-black text-slate-700">الإجراءات</th><th className="px-4 py-3 text-right font-black text-slate-700">الحصص</th></tr></thead><tbody>{executiveTopViolationTeachers.length ? executiveTopViolationTeachers.map((row) => <tr key={`exec-violation-teacher-${row.rank}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-black text-slate-900">{row.rank}</td><td className="px-4 py-3 font-bold text-slate-900">{row.teacherName}</td><td className="px-4 py-3 font-black text-rose-700">{row.violations}</td><td className="px-4 py-3 text-slate-600">{row.totalActions}</td><td className="px-4 py-3 text-slate-600">{row.submittedLessons}</td></tr>) : <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+              </div>
+            </SectionCard>
+            <SectionCard title="أعلى الفصول مكافآت" icon={School2} action={<button onClick={() => printExecutiveDataset('أعلى الفصول مكافآت', [{ key: 'rank', label: '#' }, { key: 'className', label: 'الفصل' }, { key: 'rewards', label: 'المكافآت' }, { key: 'averagePoints', label: 'متوسط النقاط' }, { key: 'students', label: 'الطلاب' }], executiveTopRewardClasses)} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة</button>}>
+              <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+                <table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">#</th><th className="px-4 py-3 text-right font-black text-slate-700">الفصل</th><th className="px-4 py-3 text-right font-black text-slate-700">المكافآت</th><th className="px-4 py-3 text-right font-black text-slate-700">متوسط النقاط</th><th className="px-4 py-3 text-right font-black text-slate-700">الطلاب</th></tr></thead><tbody>{executiveTopRewardClasses.length ? executiveTopRewardClasses.map((row) => <tr key={`exec-reward-class-${row.rank}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-black text-slate-900">{row.rank}</td><td className="px-4 py-3 font-bold text-slate-900">{row.className}</td><td className="px-4 py-3 font-black text-emerald-700">{row.rewards}</td><td className="px-4 py-3 text-slate-600">{row.averagePoints}</td><td className="px-4 py-3 text-slate-600">{row.students}</td></tr>) : <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+              </div>
+            </SectionCard>
+            <SectionCard title="أعلى الفصول خصومات" icon={School2} action={<button onClick={() => printExecutiveDataset('أعلى الفصول خصومات', [{ key: 'rank', label: '#' }, { key: 'className', label: 'الفصل' }, { key: 'violations', label: 'الخصومات' }, { key: 'lateCount', label: 'التأخر' }, { key: 'students', label: 'الطلاب' }], executiveTopViolationClasses)} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة</button>}>
+              <div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+                <table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">#</th><th className="px-4 py-3 text-right font-black text-slate-700">الفصل</th><th className="px-4 py-3 text-right font-black text-slate-700">الخصومات</th><th className="px-4 py-3 text-right font-black text-slate-700">التأخر</th><th className="px-4 py-3 text-right font-black text-slate-700">الطلاب</th></tr></thead><tbody>{executiveTopViolationClasses.length ? executiveTopViolationClasses.map((row) => <tr key={`exec-violation-class-${row.rank}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3 font-black text-slate-900">{row.rank}</td><td className="px-4 py-3 font-bold text-slate-900">{row.className}</td><td className="px-4 py-3 font-black text-rose-700">{row.violations}</td><td className="px-4 py-3 text-slate-600">{row.lateCount}</td><td className="px-4 py-3 text-slate-600">{row.students}</td></tr>) : <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+              </div>
+            </SectionCard>
+          </div> : null}
+          {(selectedStudentReport || selectedTeacherReport) ? <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {selectedStudentReport ? <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200"><div className="mb-4 font-black text-slate-900">آخر نشاط الطالب</div><div className="space-y-3">{selectedStudentReport.recentActions?.length ? selectedStudentReport.recentActions.map((row, index) => <div key={`student-action-${index}`} className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="flex items-center justify-between gap-3"><div><div className="font-bold text-slate-900">{row.title}</div><div className="mt-1 text-xs text-slate-500">{row.actorName} • {row.dateLabel}</div></div><Badge tone={row.typeLabel === 'مكافأة' ? 'green' : row.typeLabel === 'خصم' ? 'rose' : 'violet'}>{row.typeLabel}</Badge></div></div>) : <div className="rounded-2xl bg-slate-50 px-4 py-6 text-sm font-bold text-slate-500 ring-1 ring-slate-200">لا توجد إجراءات حديثة على الطالب.</div>}</div><div className="mt-4 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="mb-3 font-bold text-slate-800">آخر طلبات المتجر</div><div className="space-y-2">{selectedStudentReport.recentStoreRequests?.length ? selectedStudentReport.recentStoreRequests.map((row, index) => <div key={`student-store-${index}`} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200"><div><div className="font-bold text-slate-900">{row.itemTitle}</div><div className="mt-1 text-xs text-slate-500">{row.dateLabel}</div></div><Badge tone={row.statusLabel === 'تم التسليم' ? 'green' : row.statusLabel === 'مرفوض' ? 'rose' : row.statusLabel === 'بانتظار التسليم' ? 'blue' : 'amber'}>{row.statusLabel}</Badge></div>) : <div className="rounded-2xl bg-white px-4 py-4 text-sm font-bold text-slate-500 ring-1 ring-slate-200">لا توجد طلبات متجر حديثة.</div>}</div></div></div> : null}
+            {selectedTeacherReport ? <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200"><div className="mb-4 font-black text-slate-900">آخر نشاط المعلم</div><div className="space-y-3">{selectedTeacherReport.recentActions?.length ? selectedTeacherReport.recentActions.map((row, index) => <div key={`teacher-action-${index}`} className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="flex items-center justify-between gap-3"><div><div className="font-bold text-slate-900">{row.title}</div><div className="mt-1 text-xs text-slate-500">{row.studentName} • {row.className} • {row.dateLabel}</div></div><Badge tone={row.typeLabel === 'مكافأة' ? 'green' : row.typeLabel === 'خصم' ? 'rose' : 'violet'}>{row.typeLabel}</Badge></div></div>) : <div className="rounded-2xl bg-slate-50 px-4 py-6 text-sm font-bold text-slate-500 ring-1 ring-slate-200">لا توجد إجراءات حديثة على المعلم.</div>}</div><div className="mt-4 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="mb-3 font-bold text-slate-800">آخر جلسات التحضير</div><div className="space-y-2">{selectedTeacherReport.lessonSubmissions?.length ? selectedTeacherReport.lessonSubmissions.map((row, index) => <div key={`teacher-lesson-${index}`} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200"><div><div className="font-bold text-slate-900">{row.sessionLabel}</div><div className="mt-1 text-xs text-slate-500">{row.className} • {formatDateTime(row.submittedAt)}</div></div><Badge tone={Number(row.absentCount || 0) > 0 ? 'rose' : 'green'}>{Number(row.absentCount || 0)} غائب</Badge></div>) : <div className="rounded-2xl bg-white px-4 py-4 text-sm font-bold text-slate-500 ring-1 ring-slate-200">لا توجد جلسات تحضير حديثة.</div>}</div></div></div> : null}
+          </div> : null}
+        </div> : null}
+        <div className="mt-5 grid grid-cols-2 gap-4 xl:grid-cols-6">
+          <SummaryBox label="نوع التقرير" value={reportTabs.find((tab) => tab.key === reportTab)?.label || '—'} color="text-slate-900" />
+          <SummaryBox label="عدد السجلات" value={currentReportMeta.rows.length} color="text-sky-700" />
+          <SummaryBox label="الطلاب" value={schoolStudents.length} color="text-emerald-700" />
+          <SummaryBox label="المعلمون النشطون" value={teacherRows.length} color="text-violet-700" />
+          <SummaryBox label="جلسات الحصص" value={lessonSessions.length} color="text-amber-700" />
+          <SummaryBox label="جوائز المتجر" value={rewardStoreSummary.activeItems || 0} color="text-rose-700" />
+        </div>
+        <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200 xl:col-span-2">
+            <div className="mb-4 font-bold text-slate-800">{currentReportMeta.title}</div>
+            <div className="h-80 rounded-3xl bg-white p-4 ring-1 ring-slate-200">
+              <ResponsiveContainer width="100%" height="100%">{['parents','store'].includes(reportTab) ? <PieChart><Pie data={reportChartData.filter((item) => Number(item.value || 0) > 0)} dataKey="value" nameKey="name" outerRadius={110} label>{reportChartData.map((entry, index) => <Cell key={`${entry.name}-${index}`} fill={["#0ea5e9","#10b981","#f59e0b","#ef4444","#8b5cf6","#14b8a6"][index % 6]} />)}</Pie><Tooltip /></PieChart> : <BarChart data={reportChartData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" hide={reportChartData.length > 8} /><YAxis /><Tooltip /><Bar dataKey="value" fill="#0ea5e9" radius={[8,8,0,0]} /></BarChart>}</ResponsiveContainer>
+            </div>
+          </div>
+          <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+            <div className="mb-4 font-bold text-slate-800">ملخص سريع</div>
+            <div className="space-y-3">
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">النطاق الزمني</div><div className="mt-2 text-sm font-black text-slate-900">{reportFromDate || 'من البداية'} → {reportToDate || 'حتى اليوم'}</div></div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الفصل المحدد</div><div className="mt-2 text-sm font-black text-slate-900">{reportClassKey === 'all' ? 'كل الفصول' : (classroomRows.find((row) => String(getClassroomKeyFromCompanyRow(row)) === String(reportClassKey))?.name || '—')}</div></div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">المعلم المحدد</div><div className="mt-2 text-sm font-black text-slate-900">{reportTeacherName === 'all' ? 'كل المعلمين' : reportTeacherName}</div></div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الطالب المحدد</div><div className="mt-2 text-sm font-black text-slate-900">{reportStudentId === 'all' ? 'كل الطلاب' : (schoolStudents.find((item) => String(item.id) === String(reportStudentId))?.name || '—')}</div></div>
+            </div>
+          </div>
+        </div>
+        {reportTab === 'store' ? <div className="mt-6 grid grid-cols-2 gap-4 xl:grid-cols-6"><SummaryBox label="المتجر المعتمد" value={rewardStoreSummary.activeItems || 0} color="text-emerald-700" /><SummaryBox label="بانتظار الاستلام" value={rewardStoreSummary.awaitingReceipt || 0} color="text-amber-700" /><SummaryBox label="المقترحات المعلقة" value={rewardStoreSummary.pendingProposals || 0} color="text-violet-700" /><SummaryBox label="طلبات بانتظار الاعتماد" value={rewardStoreSummary.pendingRedemptions || 0} color="text-sky-700" /><SummaryBox label="تم التسليم" value={rewardStoreSummary.deliveredRedemptions || 0} color="text-rose-700" /><SummaryBox label="عدد المتبرعين" value={rewardStoreSummary.donorCount || 0} color="text-slate-700" /></div> : null}
+        <div className="mt-6 overflow-x-auto rounded-3xl ring-1 ring-slate-200">
+          <table className="w-full text-sm"><thead className="bg-slate-100"><tr>{currentReportMeta.columns.map((column) => <th key={column.key} className="px-4 py-3 text-right font-black text-slate-700">{column.label}</th>)}</tr></thead><tbody>{!currentReportMeta.rows.length ? <tr><td colSpan={currentReportMeta.columns.length} className="px-4 py-8 text-center text-slate-500">لا توجد بيانات مطابقة للفلاتر الحالية.</td></tr> : currentReportMeta.rows.slice(0, 300).map((row, index) => <tr key={`${reportTab}-${index}`} className="border-t border-slate-100 hover:bg-slate-50">{currentReportMeta.columns.map((column) => <td key={column.key} className="px-4 py-3 text-slate-700">{String(row[column.key] ?? '—')}</td>)}</tr>)}</tbody></table>
+        </div>
+        {reportTab === 'store' ? <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2"><div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="mb-4 font-bold text-slate-800">تقرير الجوائز والمخزون</div><div className="overflow-x-auto rounded-3xl ring-1 ring-slate-200"><table className="w-full text-sm"><thead className="bg-slate-100"><tr><th className="px-4 py-3 text-right font-black text-slate-700">الجائزة</th><th className="px-4 py-3 text-right font-black text-slate-700">المتبرع</th><th className="px-4 py-3 text-center font-black text-slate-700">الكمية</th><th className="px-4 py-3 text-center font-black text-slate-700">المتبقي</th><th className="px-4 py-3 text-center font-black text-slate-700">النقاط</th><th className="px-4 py-3 text-right font-black text-slate-700">الحالة</th></tr></thead><tbody>{!storeItemRows.length ? <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">لا توجد جوائز مطابقة.</td></tr> : storeItemRows.map((row, index) => <tr key={`item-${index}`} className="border-t border-slate-100 hover:bg-slate-50"><td className="px-4 py-3">{row.title}</td><td className="px-4 py-3">{row.donorName}</td><td className="px-4 py-3 text-center">{row.quantity}</td><td className="px-4 py-3 text-center">{row.remainingQuantity}</td><td className="px-4 py-3 text-center">{row.pointsCost}</td><td className="px-4 py-3">{row.approvalStatus}</td></tr>)}</tbody></table></div></div><div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="mb-4 font-bold text-slate-800">تقرير الشراكة المجتمعية</div><div className="grid grid-cols-2 gap-3"><div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">جوائز المدرسة</div><div className="mt-2 text-3xl font-black text-slate-900">{rewardStoreSummary.schoolSourceCount || 0}</div></div><div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">جوائز أولياء الأمور</div><div className="mt-2 text-3xl font-black text-violet-700">{rewardStoreSummary.parentSourceCount || 0}</div></div><div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">جوائز المتبرعين</div><div className="mt-2 text-3xl font-black text-emerald-700">{rewardStoreSummary.externalSourceCount || 0}</div></div><div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">المتبرعون</div><div className="mt-2 text-3xl font-black text-amber-700">{rewardStoreSummary.donorCount || 0}</div></div></div></div></div> : null}
+      </SectionCard>
 
       {/* تقرير نقاط المعلمين التفصيلي */}
       <TeacherPointsReport schoolActions={schoolActions} settings={settings} />
@@ -9878,6 +13550,19 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
   const [authLogs, setAuthLogs] = useState([]);
   const [authLogsBusy, setAuthLogsBusy] = useState(false);
   const [authLogFilter, setAuthLogFilter] = useState('all');
+  const canManageParentPortal = ['superadmin', 'principal'].includes(String(currentUser?.role || ''));
+  const canViewParentPortal = canManageParentPortal || String(currentUser?.role || '') === 'supervisor';
+  const [parentPortalConfig, setParentPortalConfig] = useState({
+    loaded: false,
+    loading: false,
+    saving: false,
+    mode: 'auto',
+    enabled: true,
+    alerts: [],
+    totalRequests: 0,
+    pendingRequests: 0,
+    error: '',
+  });
   const fileRef = useRef(null);
   const importRef = useRef(null);
 
@@ -9908,20 +13593,67 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
   }, [currentUser]);
 
   useEffect(() => {
-    if (tab === 'auth' && currentUser && currentUser.role !== 'student') {
-      loadAuthLogs();
+    let cancelled = false;
+    const loadParentPortalConfig = async () => {
+      if (!canViewParentPortal || tab !== 'parentPortal') return;
+      setParentPortalConfig((current) => ({ ...current, loading: true, error: '' }));
+      try {
+        const response = await apiRequest('/api/admin/parent-primary-requests', { token: getSessionToken() });
+        if (cancelled) return;
+        const requests = Array.isArray(response.requests) ? response.requests : [];
+        const alerts = Array.isArray(response.alerts) ? response.alerts : [];
+        setParentPortalConfig((current) => ({
+          ...current,
+          loaded: true,
+          loading: false,
+          mode: response.policy?.mode || 'auto',
+          enabled: response.portalSettings?.enabled !== false,
+          alerts,
+          totalRequests: requests.length,
+          pendingRequests: requests.filter((item) => item.status === 'pending').length,
+          error: '',
+        }));
+      } catch (error) {
+        if (cancelled) return;
+        setParentPortalConfig((current) => ({ ...current, loading: false, loaded: true, error: error.message || 'تعذر تحميل إعدادات بوابة ولي الأمر.' }));
+      }
+    };
+    loadParentPortalConfig();
+    return () => { cancelled = true; };
+  }, [tab, canViewParentPortal]);
+
+  const saveParentPortalMode = async (mode) => {
+    if (!canManageParentPortal) return;
+    setParentPortalConfig((current) => ({ ...current, saving: true, error: '' }));
+    try {
+      await apiRequest('/api/admin/parent-primary-requests/policy', { method: 'POST', token: getSessionToken(), body: { mode } });
+      setParentPortalConfig((current) => ({ ...current, saving: false, mode, error: '' }));
+      window.alert(mode === 'auto' ? 'تم تفعيل الاعتماد التلقائي لتحديث الرقم الأساسي.' : 'تم التحويل إلى الاعتماد اليدوي لطلبات تحديث الرقم الأساسي.');
+    } catch (error) {
+      setParentPortalConfig((current) => ({ ...current, saving: false, error: error.message || 'تعذر تحديث سياسة البوابة.' }));
     }
-  }, [tab, currentUser, loadAuthLogs]);
+  };
+
+  const saveParentPortalEnabled = async (enabled) => {
+    if (!canManageParentPortal) return;
+    setParentPortalConfig((current) => ({ ...current, saving: true, error: '' }));
+    try {
+      await apiRequest('/api/admin/parent-primary-requests/portal-settings', { method: 'POST', token: getSessionToken(), body: { enabled } });
+      setParentPortalConfig((current) => ({ ...current, saving: false, enabled, error: '' }));
+      window.alert(enabled ? 'تم تفعيل بوابة ولي الأمر.' : 'تم إيقاف بوابة ولي الأمر.');
+    } catch (error) {
+      setParentPortalConfig((current) => ({ ...current, saving: false, error: error.message || 'تعذر تحديث حالة البوابة.' }));
+    }
+  };
 
   const tabs = forcedTab ? [
     { key: forcedTab, label: forcedTab === 'auth' ? "الدخول والمصادقة" : "الإعدادات" },
   ] : [
     { key: "general", label: "هوية وتشغيل" },
     { key: "attendance", label: "الحضور" },
-    { key: "points", label: "النقاط" },
-    { key: "actions", label: "الإجراءات" },
     { key: "import", label: "الطلاب" },
     { key: "devices", label: "الأجهزة" },
+    ...(canViewParentPortal ? [{ key: "parentPortal", label: "بوابة ولي الأمر" }] : []),
     ...(currentUser?.role === 'superadmin' ? [{ key: "backup", label: "النسخ الاحتياطي" }] : []),
     { key: "diagnostics", label: "جاهزية المدرسة" },
   ];
@@ -10024,14 +13756,6 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
       tab: 'attendance',
     },
     {
-      key: 'actions',
-      title: 'بنود الإجراءات',
-      value: `${localSettings?.actions?.rewards?.length || 0}/${localSettings?.actions?.violations?.length || 0}/${localSettings?.actions?.programs?.length || 0}`,
-      detail: 'مكافآت / خصومات / برامج',
-      tone: 'violet',
-      tab: 'actions',
-    },
-    {
       key: 'devices',
       title: 'الأجهزة والتشغيل',
       value: `${localSettings?.devices?.barcodeEnabled ? 'QR' : ''}${localSettings?.devices?.barcodeEnabled && localSettings?.devices?.faceEnabled ? ' + ' : ''}${localSettings?.devices?.faceEnabled ? 'Face' : ''}` || 'غير مفعل',
@@ -10039,7 +13763,15 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
       tone: 'amber',
       tab: 'devices',
     },
-  ]), [selectedSchool, localSettings, attendanceMethod]);
+    ...(canViewParentPortal ? [{
+      key: 'parentPortal',
+      title: 'بوابة ولي الأمر',
+      value: parentPortalConfig.enabled ? 'مفعلة' : 'مقفلة',
+      detail: `${parentPortalConfig.mode === 'auto' ? 'التحديث تلقائي' : 'التحديث يدوي'} • ${parentPortalConfig.pendingRequests || 0} طلب بانتظار المراجعة`,
+      tone: parentPortalConfig.enabled ? 'green' : 'slate',
+      tab: 'parentPortal',
+    }] : []),
+  ]), [selectedSchool, localSettings, attendanceMethod, canViewParentPortal, parentPortalConfig]);
 
   const exportAuthLogs = (format = 'xlsx') => {
     const rows = filteredAuthLogs.map((entry) => {
@@ -10265,49 +13997,12 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
         )}
 
         {tab === "points" && (
-          <div className="space-y-5">
-            <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
-              <div className="rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><div className="text-xs text-emerald-700">الحضور المبكر</div><div className="mt-2 text-3xl font-black text-emerald-700">{localSettings?.points?.early ?? 0}</div></div>
-              <div className="rounded-3xl bg-sky-50 p-4 ring-1 ring-sky-100"><div className="text-xs text-sky-700">الحضور في الوقت</div><div className="mt-2 text-3xl font-black text-sky-700">{localSettings?.points?.onTime ?? 0}</div></div>
-              <div className="rounded-3xl bg-rose-50 p-4 ring-1 ring-rose-100"><div className="text-xs text-rose-700">خصم التأخر</div><div className="mt-2 text-3xl font-black text-rose-700">{localSettings?.points?.late ?? 0}</div></div>
-              <div className="rounded-3xl bg-violet-50 p-4 ring-1 ring-violet-100"><div className="text-xs text-violet-700">المبادرة</div><div className="mt-2 text-3xl font-black text-violet-700">{localSettings?.points?.initiative ?? 0}</div></div>
-              <div className="rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-100"><div className="text-xs text-amber-700">السلوك</div><div className="mt-2 text-3xl font-black text-amber-700">{localSettings?.points?.behavior ?? 0}</div></div>
-            </div>
-            <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
-              <div className="mb-4">
-                <div className="font-black text-slate-900">سياسات النقاط المعتمدة</div>
-                <div className="mt-1 text-sm leading-7 text-slate-500">هذه القيم تؤثر مباشرة في ترتيب الطلاب، التفاعل اليومي، ومؤشرات المدرسة؛ لذلك يفضّل ضبطها بعناية وبشكل موحد.</div>
-              </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <Input label="نقاط الحضور المبكر" type="number" value={localSettings.points.early} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, early: safeNumber(e.target.value) } })} />
-                <Input label="نقاط الحضور في الوقت" type="number" value={localSettings.points.onTime} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, onTime: safeNumber(e.target.value) } })} />
-                <Input label="خصم التأخر" type="number" value={localSettings.points.late} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, late: safeNumber(e.target.value) } })} />
-                <Input label="نقاط المبادرة" type="number" value={localSettings.points.initiative} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, initiative: safeNumber(e.target.value) } })} />
-                <Input label="نقاط السلوك" type="number" value={localSettings.points.behavior} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, behavior: safeNumber(e.target.value) } })} />
-              </div>
-            </div>
-            {/* نقاط المعلمين */}
-            <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
-              <div className="mb-4">
-                <div className="font-black text-slate-900">نقاط المعلمين (نقاطي)</div>
-                <div className="mt-1 text-sm leading-7 text-slate-500">حدد عدد النقاط التي يكسبها المعلم مقابل كل إجراء ينفذه. تُحسب يومياً وإجمالياً وتظهر في صفحة المعلم وتقاريره.</div>
-              </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <Input label="نقاط مقابل كل مكافأة" type="number" value={localSettings.teacherPoints?.perReward ?? 5} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perReward: safeNumber(e.target.value) } })} />
-                <Input label="نقاط مقابل كل خصم/مخالفة" type="number" value={localSettings.teacherPoints?.perViolation ?? 2} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perViolation: safeNumber(e.target.value) } })} />
-                <Input label="نقاط مقابل كل برنامج" type="number" value={localSettings.teacherPoints?.perProgram ?? 10} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perProgram: safeNumber(e.target.value) } })} />
-              </div>
-            </div>
+          <div className="rounded-3xl bg-amber-50 p-5 text-amber-900 ring-1 ring-amber-200">
+            <div className="font-black">تم نقل هذا القسم</div>
+            <div className="mt-2 text-sm leading-7">إعدادات النقاط والمكافآت والخصومات والبرامج أصبحت في القائمة الجانبية ضمن صفحة «النقاط والمكافآت» لتسهيل الوصول إليها.</div>
           </div>
         )}
 
-        {tab === "actions" && (
-          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <ActionCatalogEditor title="المكافآت المعتمدة" description="هذه البنود تظهر للمعلم والمدير عند تنفيذ المكافآت على الطلاب." mode="reward" items={localSettings.actions?.rewards || []} onChange={(items) => setLocalSettings({ ...localSettings, actions: { ...localSettings.actions, rewards: items } })} />
-            <ActionCatalogEditor title="الخصومات والمخالفات" description="هذه البنود تظهر عند تنفيذ الخصومات أو تسجيل المخالفات على الطالب." mode="violation" items={localSettings.actions?.violations || []} onChange={(items) => setLocalSettings({ ...localSettings, actions: { ...localSettings.actions, violations: items } })} />
-            <ActionCatalogEditor title="البرامج المعتمدة" description="هذه البنود تظهر للمعلم عند اعتماد البرامج أو الأنشطة التي ينفذها للطالب." mode="program" items={localSettings.actions?.programs || []} onChange={(items) => setLocalSettings({ ...localSettings, actions: { ...localSettings.actions, programs: items } })} />
-          </div>
-        )}
 
         {tab === "import" && (
           <div className="space-y-4">
@@ -10700,7 +14395,7 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
   );
 }
 
-function ActionCatalogEditor({ title, description, mode, items, onChange }) {
+function ActionCatalogEditor({ title, description, mode, items, onChange, suggestions = [] }) {
   const defaultPoints = mode === "violation" ? 3 : 5;
   const [draft, setDraft] = useState({ title: "", points: defaultPoints, description: "" });
 
@@ -10730,10 +14425,47 @@ function ActionCatalogEditor({ title, description, mode, items, onChange }) {
     onChange(items.map((item) => item.id !== id ? item : { ...item, ...patch }));
   };
 
+  const addSuggestion = (suggestion) => {
+    const suggestionTitle = String(suggestion?.title || '').trim();
+    if (!suggestionTitle) return;
+    const exists = items.some((item) => String(item.title || '').trim() === suggestionTitle);
+    if (exists) return;
+    onChange([
+      ...items,
+      {
+        id: `${mode}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        title: suggestionTitle,
+        points: normalizePoints(suggestion.points ?? defaultPoints),
+        description: String(suggestion.description || '').trim(),
+      },
+    ]);
+  };
+
   return (
     <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
       <div className="font-bold text-slate-800">{title}</div>
       <div className="mt-2 text-sm leading-7 text-slate-600">{description}</div>
+      {suggestions.length ? (
+        <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-black text-slate-800">بنك مقترح جاهز</div>
+              <div className="mt-1 text-sm leading-7 text-slate-500">اختر من القيم والسلوكيات أو البرامج المقترحة لإضافتها بسرعة دون الكتابة من الصفر.</div>
+            </div>
+            <Badge tone={tone}>{suggestions.length} مقترح</Badge>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {suggestions.map((suggestion, idx) => {
+              const exists = items.some((item) => String(item.title || '').trim() === String(suggestion.title || '').trim());
+              return (
+                <button key={`${mode}-suggestion-${idx}`} type="button" disabled={exists} onClick={() => addSuggestion(suggestion)} className={`rounded-2xl px-3 py-2 text-xs font-bold transition ${exists ? 'cursor-not-allowed bg-slate-100 text-slate-400' : tone === 'green' ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : tone === 'rose' ? 'bg-rose-50 text-rose-700 hover:bg-rose-100' : 'bg-sky-50 text-sky-700 hover:bg-sky-100'}`}>
+                  {suggestion.title}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       <div className="mt-4 space-y-3">
         {items.map((item) => (
           <div key={item.id} className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
@@ -10772,10 +14504,105 @@ function ActionCatalogEditor({ title, description, mode, items, onChange }) {
   );
 }
 
-function StudentRolePage({ selectedSchool, currentUser }) {
+const REWARD_SUGGESTIONS_BANK = [
+  { title: 'الانضباط والالتزام', points: 5, description: 'يستحق الطالب مكافأة على الانضباط والالتزام بالتعليمات.' },
+  { title: 'حسن التعامل والاحترام', points: 5, description: 'مكافأة على الأدب واحترام الآخرين داخل المدرسة.' },
+  { title: 'المبادرة والمساعدة', points: 6, description: 'مكافأة على المبادرة الإيجابية ومساعدة الزملاء.' },
+  { title: 'المشاركة الصفية', points: 4, description: 'مكافأة على المشاركة الإيجابية داخل الحصة.' },
+  { title: 'المحافظة على الممتلكات', points: 4, description: 'مكافأة على المحافظة على مرافق المدرسة وممتلكاتها.' },
+  { title: 'التحسن الملحوظ', points: 6, description: 'مكافأة على وجود تحسن واضح في السلوك أو الأداء.' },
+  { title: 'الالتزام بالزي', points: 4, description: 'مكافأة على الالتزام بالزي والنظام العام.' },
+  { title: 'التعاون وروح الفريق', points: 5, description: 'مكافأة على التعاون الإيجابي والعمل بروح الفريق.' },
+];
+
+const VIOLATION_SUGGESTIONS_BANK = [
+  { title: 'التأخر عن الحصة', points: 3, description: 'خصم عند التأخر عن الحصة أو عدم الالتزام بالوقت.' },
+  { title: 'إزعاج داخل الفصل', points: 3, description: 'خصم عند الإزعاج أو تعطيل سير الحصة.' },
+  { title: 'عدم إحضار الأدوات', points: 2, description: 'خصم عند تكرار عدم إحضار الأدوات أو الدفتر.' },
+  { title: 'ضعف الانضباط', points: 4, description: 'خصم عند ضعف الانضباط وعدم الالتزام بالتوجيهات.' },
+  { title: 'العبث بالممتلكات', points: 5, description: 'خصم عند العبث بمرافق المدرسة أو ممتلكاتها.' },
+  { title: 'عدم احترام الزملاء', points: 4, description: 'خصم عند وجود سلوك غير مناسب تجاه الزملاء.' },
+  { title: 'عدم احترام المعلم', points: 5, description: 'خصم عند تجاوز حدود الاحترام مع المعلم.' },
+  { title: 'تكرار المخالفة', points: 5, description: 'خصم إضافي عند تكرار نفس المخالفة.' },
+];
+
+const PROGRAM_SUGGESTIONS_BANK = [
+  { title: 'برنامج متابعة الانضباط', points: 10, description: 'برنامج علاجي أو تحفيزي لمتابعة الانضباط.' },
+  { title: 'برنامج تحسين السلوك', points: 10, description: 'برنامج مقترح لتحسين السلوك ومتابعته.' },
+  { title: 'برنامج تعزيز الحضور', points: 8, description: 'برنامج يهدف إلى رفع الالتزام بالحضور.' },
+  { title: 'برنامج دعم التحصيل', points: 8, description: 'برنامج لمساندة الطالب أكاديميًا.' },
+  { title: 'برنامج علاج التأخر', points: 8, description: 'برنامج للحد من التأخر المتكرر.' },
+  { title: 'برنامج الشراكة الأسرية', points: 10, description: 'برنامج مقترح لتعزيز متابعة الأسرة.' },
+  { title: 'برنامج الإرشاد الطلابي', points: 9, description: 'برنامج إرشادي لمعالجة حالة محددة.' },
+  { title: 'برنامج الطالب المتميز', points: 12, description: 'برنامج تحفيزي للطلاب ذوي الأداء المتميز.' },
+];
+
+function PointsRewardsConfigPage({ selectedSchool, settings, currentUser, onSaveSettings }) {
+  const [localSettings, setLocalSettings] = useState(settings);
+
+  useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings]);
+
+  const save = () => onSaveSettings({
+    ...localSettings,
+    actions: hydrateActionCatalog(localSettings.actions),
+  });
+
+  const overview = [
+    { label: 'بنود المكافآت', value: localSettings.actions?.rewards?.length || 0, tone: 'emerald' },
+    { label: 'بنود الخصم', value: localSettings.actions?.violations?.length || 0, tone: 'rose' },
+    { label: 'البرامج المعتمدة', value: localSettings.actions?.programs?.length || 0, tone: 'sky' },
+    { label: 'نقاط المعلم للمكافأة', value: localSettings.teacherPoints?.perReward ?? 5, tone: 'amber' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <SectionCard title="النقاط والمكافآت والخصومات والبرامج" icon={Trophy} action={<div className="flex gap-2"><button onClick={() => setLocalSettings(settings)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> التراجع</button><button onClick={save} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-4 py-3 font-bold text-white"><Save className="h-4 w-4" /> حفظ التعديلات</button></div>}>
+        <div className="mb-5 rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-100">
+          <div className="font-black text-sky-900">وصول أسرع لبنود النقاط</div>
+          <div className="mt-2 text-sm leading-7 text-sky-900">تم جمع إعدادات النقاط وبنود المكافآت والخصومات والبرامج في صفحة مستقلة داخل القائمة الجانبية حتى تكون أوضح وأسهل للمدير في الوصول والتحرير والمتابعة.</div>
+        </div>
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+          {overview.map((item) => <div key={item.label} className="rounded-3xl bg-white p-5 ring-1 ring-slate-200"><div className="text-sm font-bold text-slate-500">{item.label}</div><div className={`mt-3 text-3xl font-black ${item.tone === 'emerald' ? 'text-emerald-700' : item.tone === 'rose' ? 'text-rose-700' : item.tone === 'amber' ? 'text-amber-700' : 'text-sky-700'}`}>{item.value}</div></div>)}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="درجات النقاط الأساسية" icon={BadgeCheck}>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <Input label="نقاط الحضور المبكر" type="number" value={localSettings.points?.early ?? 0} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, early: safeNumber(e.target.value) } })} />
+          <Input label="نقاط الحضور في الوقت" type="number" value={localSettings.points?.onTime ?? 0} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, onTime: safeNumber(e.target.value) } })} />
+          <Input label="خصم التأخر" type="number" value={localSettings.points?.late ?? 0} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, late: safeNumber(e.target.value) } })} />
+          <Input label="نقاط المبادرة" type="number" value={localSettings.points?.initiative ?? 0} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, initiative: safeNumber(e.target.value) } })} />
+          <Input label="نقاط السلوك" type="number" value={localSettings.points?.behavior ?? 0} onChange={(e) => setLocalSettings({ ...localSettings, points: { ...localSettings.points, behavior: safeNumber(e.target.value) } })} />
+        </div>
+        <div className="mt-5 rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+          <div className="font-black text-slate-900">نقاط المعلمين</div>
+          <div className="mt-2 text-sm leading-7 text-slate-500">هذه القيم تضبط الرصيد العام للمعلم عند تنفيذ المكافآت والخصومات والبرامج.</div>
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <Input label="نقاط المعلم لكل مكافأة" type="number" value={localSettings.teacherPoints?.perReward ?? 5} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perReward: safeNumber(e.target.value) } })} />
+            <Input label="نقاط المعلم لكل خصم" type="number" value={localSettings.teacherPoints?.perViolation ?? 2} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perViolation: safeNumber(e.target.value) } })} />
+            <Input label="نقاط المعلم لكل برنامج" type="number" value={localSettings.teacherPoints?.perProgram ?? 10} onChange={(e) => setLocalSettings({ ...localSettings, teacherPoints: { ...localSettings.teacherPoints, perProgram: safeNumber(e.target.value) } })} />
+          </div>
+        </div>
+      </SectionCard>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <ActionCatalogEditor title="بنك المكافآت والقيم" description="اختر القيم والسلوكيات التي تستحق المكافأة، وأضف بنودًا جديدة عند الحاجة." mode="reward" items={localSettings.actions?.rewards || []} suggestions={REWARD_SUGGESTIONS_BANK} onChange={(items) => setLocalSettings({ ...localSettings, actions: { ...localSettings.actions, rewards: items } })} />
+        <ActionCatalogEditor title="بنك الخصومات والسلوكيات" description="اختر السلوكيات أو المخالفات التي تستحق الخصم، مع إمكانية تعديل الدرجة والوصف." mode="violation" items={localSettings.actions?.violations || []} suggestions={VIOLATION_SUGGESTIONS_BANK} onChange={(items) => setLocalSettings({ ...localSettings, actions: { ...localSettings.actions, violations: items } })} />
+        <ActionCatalogEditor title="بنك البرامج المقترحة" description="هذه البرامج تظهر للمعلم في قائمة منسدلة عند تسجيل البرامج أو الأنشطة للطالب." mode="program" items={localSettings.actions?.programs || []} suggestions={PROGRAM_SUGGESTIONS_BANK} onChange={(items) => setLocalSettings({ ...localSettings, actions: { ...localSettings.actions, programs: items } })} />
+      </div>
+    </div>
+  );
+}
+
+function StudentRolePage({ selectedSchool, currentUser, onCreateRewardRedemptionRequest }) {
   const forcedStudentId = currentUser?.studentId || null;
   const roleStudents = useMemo(() => getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }), [selectedSchool]);
   const [studentId, setStudentId] = useState(forcedStudentId || roleStudents[0]?.id || null);
+  const [selectedCatalogItemId, setSelectedCatalogItemId] = useState('');
+  const [requestNote, setRequestNote] = useState('');
+  const [requestStatus, setRequestStatus] = useState('');
 
   useEffect(() => {
     setStudentId(forcedStudentId || getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true })[0]?.id || null);
@@ -10784,6 +14611,24 @@ function StudentRolePage({ selectedSchool, currentUser }) {
   const student = roleStudents.find((item) => String(item.id) === String(forcedStudentId || studentId)) || roleStudents[0];
   const company = getUnifiedCompanyRows(selectedSchool, { preferStructure: true }).find((item) => (student?.source === 'structure' ? String(item.rawId || item.id) === String(student.classroomId) : String(item.id) === String(student?.companyId)));
   if (!student) return null;
+
+  const store = getRewardStore(selectedSchool);
+  const catalog = getApprovedRewardStoreItems(selectedSchool);
+  const affordableCatalog = catalog.filter((item) => Number(student.points || 0) >= Number(item.pointsCost || 0));
+  const selectedCatalogItem = catalog.find((item) => String(item.id) === String(selectedCatalogItemId)) || affordableCatalog[0] || catalog[0] || null;
+  const myRequests = (store.redemptionRequests || []).filter((item) => String(item.studentId || '') === String(student.id));
+  const studentStoreNotifications = (store.notifications || []).filter((item) => !item.studentId || String(item.studentId) === String(student.id)).slice(0, 4);
+
+  useEffect(() => {
+    if (!selectedCatalogItemId && selectedCatalogItem?.id) setSelectedCatalogItemId(selectedCatalogItem.id);
+  }, [selectedCatalogItemId, selectedCatalogItem?.id]);
+
+  const submitStudentRequest = (itemId, note = '') => {
+    const result = onCreateRewardRedemptionRequest?.({ studentId: student.id, itemId, note: note || 'طلب من حساب الطالب' });
+    setRequestStatus(result?.message || (result?.ok ? 'تم إرسال الطلب.' : 'تعذر إرسال الطلب.'));
+    if (result?.ok) setRequestNote('');
+    if (result?.message) window.alert(result.message);
+  };
 
   return (
     <div className="space-y-6">
@@ -10819,6 +14664,1312 @@ function StudentRolePage({ selectedSchool, currentUser }) {
           </div>
         </div>
       </SectionCard>
+
+      <SectionCard title="متجر النقاط" icon={Gift}>
+        <div className="grid gap-4 lg:grid-cols-[1.15fr,0.85fr]">
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">رصيد الطالب</div><div className="mt-2 text-3xl font-black text-slate-900">{student.points}</div></div>
+              <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">جوائز المتجر</div><div className="mt-2 text-3xl font-black text-sky-700">{catalog.length}</div></div>
+              <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">جوائز ضمن الرصيد</div><div className="mt-2 text-3xl font-black text-emerald-700">{affordableCatalog.length}</div></div>
+              <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">طلباتي</div><div className="mt-2 text-3xl font-black text-violet-700">{myRequests.length}</div></div>
+            </div>
+
+            {catalog.length ? (
+              <>
+                <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-black text-slate-800">اختيار الجائزة</div>
+                      <div className="mt-1 text-xs text-slate-500">يمكنك طلب الجائزة بنفسك من هنا، أو من خلال ولي الأمر، أو من خلال إدارة المدرسة.</div>
+                    </div>
+                    <Badge tone={affordableCatalog.length ? 'green' : 'amber'}>{affordableCatalog.length ? `${affordableCatalog.length} جائزة ضمن الرصيد` : 'الرصيد الحالي لا يغطي أي جائزة'}</Badge>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-[1fr,1fr]">
+                    <select value={selectedCatalogItemId} onChange={(e) => setSelectedCatalogItemId(e.target.value)} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none">
+                      {catalog.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.pointsCost} نقطة — المتبقي {item.remainingQuantity}</option>)}
+                    </select>
+                    <Input label="ملاحظة الطلب" value={requestNote} onChange={(e) => setRequestNote(e.target.value)} placeholder="اختياري: مثال تم اختياري لها من قبل المعلم" />
+                  </div>
+                  {selectedCatalogItem ? (
+                    <div className="mt-4 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                      <div className="grid gap-0 lg:grid-cols-[1fr,1.1fr]">
+                        <div className="aspect-[16/10] bg-slate-100">{selectedCatalogItem.image ? <img src={selectedCatalogItem.image} alt={selectedCatalogItem.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400">بدون صورة</div>}</div>
+                        <div className="space-y-3 p-5">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <div className="text-2xl font-black text-slate-900">{selectedCatalogItem.title}</div>
+                              <div className="mt-1 text-sm text-slate-500">{getRewardStoreDonorLabel(selectedCatalogItem)} • المتبقي {selectedCatalogItem.remainingQuantity}/{selectedCatalogItem.quantity}</div>
+                            </div>
+                            <Badge tone={Number(student.points || 0) >= Number(selectedCatalogItem.pointsCost || 0) ? 'green' : 'rose'}>{selectedCatalogItem.pointsCost} نقطة</Badge>
+                          </div>
+                          <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600 ring-1 ring-slate-200">{selectedCatalogItem.note || 'جائزة تحفيزية معتمدة في متجر المدرسة.'}</div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">رصيدك الآن</div><div className="mt-1 text-xl font-black text-slate-900">{student.points}</div></div>
+                            <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">قيمة الجائزة</div><div className="mt-1 text-xl font-black text-sky-700">{selectedCatalogItem.pointsCost}</div></div>
+                            <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">بعد الاستبدال</div><div className="mt-1 text-xl font-black text-emerald-700">{Math.max(0, Number(student.points || 0) - Number(selectedCatalogItem.pointsCost || 0))}</div></div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" disabled={Number(student.points || 0) < Number(selectedCatalogItem.pointsCost || 0)} onClick={() => submitStudentRequest(selectedCatalogItem.id, requestNote)} className="rounded-2xl bg-sky-700 px-5 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-slate-300">طلب هذه الجائزة</button>
+                            <button type="button" onClick={() => { const first = affordableCatalog[0]; if (!first) { window.alert('لا توجد جائزة متاحة ضمن رصيد الطالب الحالي.'); return; } setSelectedCatalogItemId(first.id); submitStudentRequest(first.id, requestNote || 'طلب سريع من حساب الطالب'); }} className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-700">طلب أسرع جائزة ضمن الرصيد</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                  {requestStatus ? <div className="mt-3 rounded-2xl bg-sky-50 px-4 py-3 text-sm font-bold text-sky-800 ring-1 ring-sky-100">{requestStatus}</div> : null}
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {catalog.map((item) => {
+                    const affordable = Number(student.points || 0) >= Number(item.pointsCost || 0);
+                    return (
+                      <button key={item.id} type="button" onClick={() => setSelectedCatalogItemId(item.id)} className={cx('overflow-hidden rounded-3xl border bg-white text-right shadow-sm transition', String(selectedCatalogItemId) === String(item.id) ? 'border-sky-300 ring-2 ring-sky-100' : 'border-slate-200 hover:border-sky-200')}>
+                        <div className="aspect-[16/10] bg-slate-100">{item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400">بدون صورة</div>}</div>
+                        <div className="space-y-2 p-4">
+                          <div className="flex items-start justify-between gap-2"><div><div className="font-black text-slate-900">{item.title}</div><div className="mt-1 text-xs text-slate-500">{getRewardStoreDonorLabel(item)}</div></div><Badge tone={affordable ? 'green' : 'rose'}>{item.pointsCost} نقطة</Badge></div>
+                          <div className="text-xs text-slate-500">المتبقي {item.remainingQuantity}/{item.quantity}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد جوائز معتمدة حاليًا.</div>}
+          </div>
+
+          <div className="space-y-3 rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+            <div className="text-lg font-black text-slate-900">طلباتي الأخيرة</div>
+            {myRequests.length ? myRequests.slice(0, 8).map((item) => (
+              <div key={item.id} className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+                <div className="flex items-center justify-between gap-2"><div className="font-bold text-slate-800">{item.itemTitle}</div><Badge tone={item.status === 'delivered' ? 'violet' : item.status === 'approved' ? 'green' : item.status === 'rejected' ? 'rose' : 'amber'}>{item.status === 'delivered' ? 'تم التسليم' : item.status === 'approved' ? 'بانتظار التسليم' : item.status === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد'}</Badge></div>
+                <div className="mt-1 text-xs text-slate-500">{item.pointsCost} نقطة • {formatDateTime(item.createdAt)}</div>
+                {(item.decisionNote || item.deliveryNote || item.note) ? <div className="mt-2 text-xs leading-6 text-slate-500">{item.deliveryNote || item.decisionNote || item.note}</div> : null}
+              </div>
+            )) : <div className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">لا توجد طلبات استبدال بعد.</div>}
+            <div className="rounded-2xl bg-white p-4 text-xs leading-7 text-slate-500 ring-1 ring-slate-200">يمكنك رؤية المتجر من حساب الطالب، أو من بوابة ولي الأمر، أو عبر المدرسة إذا ساعدك المدير أو الوكيل أو المرشد في تقديم الطلب.</div>
+            <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200">
+              <div className="text-sm font-black text-slate-900">آخر تنبيهات المتجر</div>
+              <div className="mt-3 space-y-2">
+                {studentStoreNotifications.length ? studentStoreNotifications.map((note) => (
+                  <div key={note.id} className="rounded-2xl bg-slate-50 px-4 py-3 text-xs ring-1 ring-slate-200">
+                    <div className="flex items-center justify-between gap-2"><div className="font-bold text-slate-800">{note.title}</div><span className="text-slate-400">{formatDateTime(note.createdAt)}</span></div>
+                    <div className="mt-1 leading-6 text-slate-500">{note.body || 'تم تحديث حالة متعلقة بمتجر النقاط.'}</div>
+                  </div>
+                )) : <div className="rounded-2xl border border-dashed border-slate-300 p-4 text-xs text-slate-500">لا توجد تنبيهات حديثة للمتجر.</div>}
+              </div>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem, onDecideProposal, onCreateRedemptionRequest, onDecideRedemption, onActivateRewardItem, onUpdateRewardItemMeta }) {
+  const summary = useMemo(() => buildRewardStoreSummary(selectedSchool), [selectedSchool]);
+  const store = useMemo(() => getRewardStore(selectedSchool), [selectedSchool]);
+  const students = useMemo(() => getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }), [selectedSchool]);
+  const [draft, setDraft] = useState({ title: '', quantity: 1, image: '', note: '', sourceType: 'school', donorName: '', showDonorName: true, showOnScreens: true, featured: false, displayPriority: 0 });
+  const [proposalDecisionNotes, setProposalDecisionNotes] = useState({});
+  const [redemptionDecisionNotes, setRedemptionDecisionNotes] = useState({});
+  const [activationDrafts, setActivationDrafts] = useState({});
+  const [redemptionDraft, setRedemptionDraft] = useState({ studentId: '', itemId: '', note: '' });
+
+  const handleImage = async (file) => {
+    const dataUrl = await fileToDataUrl(file);
+    if (dataUrl) setDraft((prev) => ({ ...prev, image: dataUrl }));
+  };
+
+  const updateActivationDraft = (itemId, patch) => setActivationDrafts((prev) => ({
+    ...prev,
+    [itemId]: {
+      pointsCost: prev[itemId]?.pointsCost ?? '',
+      note: prev[itemId]?.note ?? '',
+      ...prev[itemId],
+      ...patch,
+    },
+  }));
+
+  const submit = () => {
+    const result = onSaveItem?.(draft);
+    if (result?.ok) setDraft({ title: '', quantity: 1, image: '', note: '', sourceType: 'school', donorName: '', showDonorName: true, showOnScreens: true, featured: false, displayPriority: 0 });
+    window.alert(result?.message || (result?.ok ? 'تم حفظ الجائزة.' : 'تعذر الحفظ.'));
+  };
+
+  const allItems = (store.items || []).map((item) => normalizeRewardStoreItem(item));
+  const rewardNotifications = (store.notifications || []).slice(0, 12);
+  const approvedItems = getApprovedRewardStoreItems(selectedSchool);
+  const awaitingReceiptItems = allItems.filter((item) => item.approvalStatus === 'awaiting_receipt' || item.approvalStatus === 'received_pending_activation');
+  const depletedItems = allItems.filter((item) => item.approvalStatus === 'depleted');
+  const pendingProposals = (store.parentProposals || []).filter((item) => String(item.status || 'pending') === 'pending');
+  const decidedProposals = (store.parentProposals || []).filter((item) => String(item.status || 'pending') !== 'pending');
+  const pendingRedemptions = (store.redemptionRequests || []).filter((item) => String(item.status || 'pending') === 'pending');
+  const approvedRedemptions = (store.redemptionRequests || []).filter((item) => String(item.status || '') === 'approved');
+  const deliveredRedemptions = (store.redemptionRequests || []).filter((item) => String(item.status || '') === 'delivered');
+  const processedRedemptions = (store.redemptionRequests || []).filter((item) => !['pending', 'approved', 'delivered'].includes(String(item.status || 'pending')));
+  const selectedRedemptionStudent = students.find((student) => String(student.id) === String(redemptionDraft.studentId || '')) || null;
+  const selectedRedemptionItem = approvedItems.find((item) => String(item.id) === String(redemptionDraft.itemId || '')) || null;
+  const delegateLabel = currentUser?.role === 'principal' ? 'مدير المدرسة' : currentUser?.role === 'supervisor' ? 'موظف مفوض' : 'إدارة المدرسة';
+  const submitRedemption = () => {
+    const result = onCreateRedemptionRequest?.(redemptionDraft);
+    if (result?.ok) setRedemptionDraft({ studentId: '', itemId: '', note: '' });
+    window.alert(result?.message || (result?.ok ? 'تم إرسال طلب الاستبدال.' : 'تعذر إرسال الطلب.'));
+  };
+  const activateRewardItem = (item) => {
+    const payload = activationDrafts[item.id] || {};
+    const result = onActivateRewardItem?.(item.id, payload);
+    window.alert(result?.message || (result?.ok ? 'تم اعتماد الجائزة وإظهارها في المتجر.' : 'تعذر الاعتماد.'));
+  };
+
+  const rewardReportData = useMemo(() => {
+    const itemMap = new Map(allItems.map((item) => [String(item.id), item]));
+    const studentMap = new Map(students.map((student) => [String(student.id), student]));
+    const donorMap = {};
+    const sourceMap = {};
+    const itemStatsMap = {};
+    const requestStatusMap = {};
+    const studentStatsMap = {};
+    const classStatsMap = {};
+
+    const sourceLabel = (value) => value === 'parent' ? 'ولي أمر' : value === 'external' ? 'متبرع خارجي' : 'إدارة المدرسة';
+
+    allItems.forEach((item) => {
+      const donorLabel = getRewardStoreDonorLabel(item);
+      const donorKey = `${String(item.sourceType || 'school')}::${donorLabel}`;
+      if (!donorMap[donorKey]) donorMap[donorKey] = { donorName: donorLabel, sourceType: item.sourceType || 'school', sourceLabel: sourceLabel(item.sourceType || 'school'), itemsCount: 0, totalQuantity: 0, remainingQuantity: 0, deliveredQuantity: 0, activeItems: 0 };
+      donorMap[donorKey].itemsCount += 1;
+      donorMap[donorKey].totalQuantity += Number(item.quantity || 0);
+      donorMap[donorKey].remainingQuantity += Number(item.remainingQuantity || 0);
+      donorMap[donorKey].deliveredQuantity += Number(item.deliveredQuantity || 0);
+      if (item.approvalStatus === 'active') donorMap[donorKey].activeItems += 1;
+
+      const src = String(item.sourceType || 'school');
+      sourceMap[src] = (sourceMap[src] || 0) + Number(item.quantity || 0);
+      if (!itemStatsMap[String(item.id)]) itemStatsMap[String(item.id)] = { itemId: String(item.id), title: item.title || 'جائزة', donorName: donorLabel, sourceLabel: sourceLabel(src), quantity: Number(item.quantity || 0), remainingQuantity: Number(item.remainingQuantity || 0), deliveredQuantity: Number(item.deliveredQuantity || 0), pointsCost: Number(item.pointsCost || 0), statusLabel: getRewardStoreStatusLabel(item.approvalStatus), requests: 0, approved: 0, delivered: 0 };
+    });
+
+    (store.redemptionRequests || []).forEach((request) => {
+      const status = String(request.status || 'pending');
+      requestStatusMap[status] = (requestStatusMap[status] || 0) + 1;
+      const stat = itemStatsMap[String(request.itemId || '')];
+      if (stat) {
+        stat.requests += 1;
+        if (status === 'approved') stat.approved += 1;
+        if (status === 'delivered') stat.delivered += 1;
+      }
+      const student = studentMap.get(String(request.studentId || ''));
+      const className = request.className || student?.className || student?.companyName || 'غير محدد';
+      const studentKey = String(request.studentId || '');
+      if (!studentStatsMap[studentKey]) studentStatsMap[studentKey] = { studentId: studentKey, studentName: request.studentName || student?.name || 'طالب', className, requests: 0, delivered: 0, pending: 0, pointsSpent: 0 };
+      studentStatsMap[studentKey].requests += 1;
+      if (status === 'delivered') {
+        studentStatsMap[studentKey].delivered += 1;
+        studentStatsMap[studentKey].pointsSpent += Number(request.pointsCost || 0);
+      }
+      if (status === 'pending' || status === 'approved') studentStatsMap[studentKey].pending += 1;
+
+      if (!classStatsMap[className]) classStatsMap[className] = { className, requests: 0, delivered: 0, pointsSpent: 0, uniqueStudents: new Set() };
+      classStatsMap[className].requests += 1;
+      if (status === 'delivered') {
+        classStatsMap[className].delivered += 1;
+        classStatsMap[className].pointsSpent += Number(request.pointsCost || 0);
+      }
+      if (studentKey) classStatsMap[className].uniqueStudents.add(studentKey);
+    });
+
+    const donorRows = Object.values(donorMap).sort((a, b) => b.totalQuantity - a.totalQuantity || b.deliveredQuantity - a.deliveredQuantity);
+    const itemRows = Object.values(itemStatsMap).sort((a, b) => b.requests - a.requests || b.delivered - a.delivered || b.quantity - a.quantity);
+    const requestRows = (store.redemptionRequests || []).map((request) => {
+      const student = studentMap.get(String(request.studentId || ''));
+      return {
+        id: request.id,
+        studentName: request.studentName || student?.name || 'طالب',
+        className: request.className || student?.className || student?.companyName || 'غير محدد',
+        itemTitle: request.itemTitle || itemMap.get(String(request.itemId || ''))?.title || 'جائزة',
+        pointsCost: Number(request.pointsCost || 0),
+        status: String(request.status || 'pending'),
+        statusLabel: request.status === 'delivered' ? 'تم التسليم' : request.status === 'approved' ? 'بانتظار التسليم' : request.status === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد',
+        requesterLabel: request.requestedByType === 'guardian' ? 'ولي الأمر' : request.requestedByType === 'student' ? 'الطالب' : request.requestedByType === 'delegate' ? 'موظف مفوض' : 'الإدارة',
+        requesterName: request.requestedByName || '—',
+        createdAt: formatDateTime(request.createdAt),
+        decisionAt: request.decisionAt ? formatDateTime(request.decisionAt) : '—',
+        deliveryAt: request.deliveryAt ? formatDateTime(request.deliveryAt) : '—',
+      };
+    }).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt), 'ar'));
+    const studentRows = Object.values(studentStatsMap).sort((a, b) => b.pointsSpent - a.pointsSpent || b.delivered - a.delivered || b.requests - a.requests);
+    const classRows = Object.values(classStatsMap).map((row) => ({ ...row, uniqueStudents: row.uniqueStudents.size })).sort((a, b) => b.pointsSpent - a.pointsSpent || b.delivered - a.delivered || b.requests - a.requests);
+    const sourceRows = Object.entries(sourceMap).map(([key, value]) => ({ name: sourceLabel(key), value })).sort((a, b) => b.value - a.value);
+    const statusRows = Object.entries(requestStatusMap).map(([key, value]) => ({ name: key === 'delivered' ? 'تم التسليم' : key === 'approved' ? 'بانتظار التسليم' : key === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد', value })).sort((a, b) => b.value - a.value);
+    return { donorRows, itemRows, requestRows, studentRows, classRows, sourceRows, statusRows };
+  }, [allItems, store.redemptionRequests, students]);
+
+  const exportStoreDataset = (dataset, format = 'xlsx') => {
+    const maps = {
+      donors: {
+        filename: 'reward-store-donors',
+        sheet: 'المتبرعون',
+        rows: rewardReportData.donorRows,
+        columns: [
+          { key: 'donorName', label: 'اسم المتبرع/الجهة' },
+          { key: 'sourceLabel', label: 'النوع' },
+          { key: 'itemsCount', label: 'عدد الجوائز' },
+          { key: 'totalQuantity', label: 'الكمية الأصلية' },
+          { key: 'remainingQuantity', label: 'المتبقي' },
+          { key: 'deliveredQuantity', label: 'المسلّم' },
+          { key: 'activeItems', label: 'المعتمد في المتجر' },
+        ],
+      },
+      items: {
+        filename: 'reward-store-items',
+        sheet: 'الجوائز',
+        rows: rewardReportData.itemRows,
+        columns: [
+          { key: 'title', label: 'الجائزة' },
+          { key: 'donorName', label: 'المتبرع' },
+          { key: 'sourceLabel', label: 'المصدر' },
+          { key: 'quantity', label: 'الكمية الأصلية' },
+          { key: 'remainingQuantity', label: 'المتبقي' },
+          { key: 'deliveredQuantity', label: 'المسلّم' },
+          { key: 'pointsCost', label: 'النقاط' },
+          { key: 'requests', label: 'عدد الطلبات' },
+          { key: 'delivered', label: 'مرات التسليم' },
+          { key: 'statusLabel', label: 'الحالة' },
+        ],
+      },
+      requests: {
+        filename: 'reward-store-requests',
+        sheet: 'الطلبات',
+        rows: rewardReportData.requestRows,
+        columns: [
+          { key: 'studentName', label: 'الطالب' },
+          { key: 'className', label: 'الفصل' },
+          { key: 'itemTitle', label: 'الجائزة' },
+          { key: 'pointsCost', label: 'النقاط' },
+          { key: 'statusLabel', label: 'الحالة' },
+          { key: 'requesterLabel', label: 'جهة الطلب' },
+          { key: 'requesterName', label: 'المنفذ/المقدم' },
+          { key: 'createdAt', label: 'تاريخ الطلب' },
+          { key: 'decisionAt', label: 'تاريخ القرار' },
+          { key: 'deliveryAt', label: 'تاريخ التسليم' },
+        ],
+      },
+      students: {
+        filename: 'reward-store-students',
+        sheet: 'الطلاب',
+        rows: rewardReportData.studentRows,
+        columns: [
+          { key: 'studentName', label: 'الطالب' },
+          { key: 'className', label: 'الفصل' },
+          { key: 'requests', label: 'عدد الطلبات' },
+          { key: 'delivered', label: 'المسلّم' },
+          { key: 'pending', label: 'قيد المعالجة' },
+          { key: 'pointsSpent', label: 'النقاط المصروفة' },
+        ],
+      },
+      classes: {
+        filename: 'reward-store-classes',
+        sheet: 'الفصول',
+        rows: rewardReportData.classRows,
+        columns: [
+          { key: 'className', label: 'الفصل' },
+          { key: 'requests', label: 'عدد الطلبات' },
+          { key: 'delivered', label: 'المسلّم' },
+          { key: 'pointsSpent', label: 'النقاط المصروفة' },
+          { key: 'uniqueStudents', label: 'عدد الطلاب المستفيدين' },
+        ],
+      },
+    };
+    const target = maps[dataset];
+    if (!target) return;
+    const stamp = formatDateTime(new Date().toISOString()).replace(/[\s:/]+/g, '-');
+    if (format === 'csv') {
+      downloadFile(`${target.filename}-${stamp}.csv`, buildCsv(target.rows, target.columns), 'text/csv;charset=utf-8;');
+      return;
+    }
+    exportRowsToWorkbook(`${target.filename}-${stamp}.xlsx`, target.sheet, target.rows, target.columns);
+  };
+
+  const printStoreExecutiveReport = () => {
+    const statsHtml = [
+      ['إجمالي الجوائز', summary.totalItems],
+      ['المعتمدة في المتجر', summary.activeItems],
+      ['المتبرعون', summary.donorCount],
+      ['المخزون المتبقي', summary.remainingQuantity],
+      ['طلبات الاستبدال', rewardReportData.requestRows.length],
+      ['تم التسليم', deliveredRedemptions.length],
+      ['بانتظار الاعتماد', pendingRedemptions.length],
+      ['بانتظار التسليم', approvedRedemptions.length],
+    ].map(([label, value]) => `<div class="stat"><div class="k">${label}</div><div class="v">${value}</div></div>`).join('');
+    const donorRowsHtml = rewardReportData.donorRows.slice(0, 10).map((row) => `<tr><td>${row.donorName}</td><td>${row.sourceLabel}</td><td>${row.itemsCount}</td><td>${row.totalQuantity}</td><td>${row.remainingQuantity}</td><td>${row.deliveredQuantity}</td></tr>`).join('');
+    const itemRowsHtml = rewardReportData.itemRows.slice(0, 10).map((row) => `<tr><td>${row.title}</td><td>${row.donorName}</td><td>${row.quantity}</td><td>${row.remainingQuantity}</td><td>${row.pointsCost}</td><td>${row.requests}</td><td>${row.delivered}</td></tr>`).join('');
+    printHtmlContent(`تقرير متجر النقاط — ${selectedSchool?.name || 'المدرسة'}`, `<h1>تقرير متجر النقاط</h1><div class="meta">${selectedSchool?.name || 'المدرسة'} • ${formatDateTime(new Date().toISOString())}</div><div class="stats">${statsHtml}</div><h1 style="font-size:20px;margin-top:24px">أبرز المتبرعين</h1><table><thead><tr><th>المتبرع</th><th>النوع</th><th>عدد الجوائز</th><th>الكمية الأصلية</th><th>المتبقي</th><th>المسلّم</th></tr></thead><tbody>${donorRowsHtml || '<tr><td colspan="6">لا توجد بيانات.</td></tr>'}</tbody></table><h1 style="font-size:20px;margin-top:24px">أكثر الجوائز نشاطًا</h1><table><thead><tr><th>الجائزة</th><th>المتبرع</th><th>الكمية</th><th>المتبقي</th><th>النقاط</th><th>الطلبات</th><th>التسليمات</th></tr></thead><tbody>${itemRowsHtml || '<tr><td colspan="7">لا توجد بيانات.</td></tr>'}</tbody></table>`);
+  };
+
+  return <div className="space-y-6">
+    <SectionCard title="متجر النقاط" icon={Gift}>
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">إجمالي الجوائز</div><div className="mt-2 text-3xl font-black text-slate-900">{summary.totalItems}</div></div>
+        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">بانتظار الاستلام</div><div className="mt-2 text-3xl font-black text-amber-700">{summary.awaitingReceipt}</div></div>
+        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">بانتظار اعتماد المدير</div><div className="mt-2 text-3xl font-black text-sky-700">{summary.pendingActivation}</div></div>
+        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الجوائز المعروضة</div><div className="mt-2 text-3xl font-black text-emerald-700">{summary.activeItems}</div></div>
+        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">المتبرعون</div><div className="mt-2 text-3xl font-black text-violet-700">{summary.donorCount}</div></div>
+        <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200"><div className="text-sm text-slate-500">المخزون المتبقي</div><div className="mt-2 text-3xl font-black text-slate-900">{summary.remainingQuantity}</div></div>
+      </div>
+    </SectionCard>
+
+    <SectionCard title="تنبيهات المتجر" icon={Bell}>
+      <div className="grid gap-4 lg:grid-cols-[0.8fr,1.2fr]">
+        <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-2">
+          <div className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">آخر التنبيهات</div><div className="mt-2 text-3xl font-black text-slate-900">{rewardNotifications.length}</div></div>
+          <div className="rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-200"><div className="text-xs font-bold text-emerald-700">طلبات بانتظار الاعتماد</div><div className="mt-2 text-3xl font-black text-emerald-700">{pendingRedemptions.length}</div></div>
+          <div className="rounded-3xl bg-sky-50 p-4 ring-1 ring-sky-200"><div className="text-xs font-bold text-sky-700">بانتظار التسليم</div><div className="mt-2 text-3xl font-black text-sky-700">{approvedRedemptions.length}</div></div>
+          <div className="rounded-3xl bg-violet-50 p-4 ring-1 ring-violet-200"><div className="text-xs font-bold text-violet-700">تم التسليم</div><div className="mt-2 text-3xl font-black text-violet-700">{deliveredRedemptions.length}</div></div>
+        </div>
+        <div className="space-y-3">
+          {rewardNotifications.length ? rewardNotifications.map((note) => (
+            <div key={note.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3"><div className="text-sm font-black text-slate-900">{note.title}</div><Badge tone={note.type?.includes('rejected') ? 'rose' : note.type?.includes('approved') || note.type?.includes('activated') || note.type?.includes('delivered') ? 'green' : 'blue'}>{note.itemTitle || 'تنبيه متجر'}</Badge></div>
+              <div className="mt-2 text-sm leading-7 text-slate-600">{note.body || 'تم تحديث إجراء في متجر النقاط.'}</div>
+              <div className="mt-2 text-xs text-slate-400">{note.createdByName || 'النظام'} • {formatDateTime(note.createdAt)}</div>
+            </div>
+          )) : <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد تنبيهات حديثة في متجر النقاط.</div>}
+        </div>
+      </div>
+    </SectionCard>
+
+    <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
+      <SectionCard title="إضافة جائزة للمخزون" icon={Plus}>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Input label="اسم الجائزة" value={draft.title} onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))} placeholder="مثال: كوبون مقصف" />
+          <Input label="الكمية" type="number" value={draft.quantity} onChange={(e) => setDraft((prev) => ({ ...prev, quantity: e.target.value }))} />
+          <label className="grid gap-2 text-sm font-bold text-slate-700">الجهة المقدمة
+            <select value={draft.sourceType} onChange={(e) => setDraft((prev) => ({ ...prev, sourceType: e.target.value }))} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none">
+              <option value="school">إدارة المدرسة</option>
+              <option value="external">متبرع خارجي</option>
+            </select>
+          </label>
+          <Input label="اسم المتبرع أو الجهة" value={draft.donorName} onChange={(e) => setDraft((prev) => ({ ...prev, donorName: e.target.value }))} placeholder="اختياري" />
+          <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200 md:col-span-2"><input type="checkbox" checked={Boolean(draft.showDonorName)} onChange={(e) => setDraft((prev) => ({ ...prev, showDonorName: e.target.checked }))} /><span className="font-bold text-slate-700">إظهار اسم المتبرع داخل المتجر عند الاعتماد</span></label>
+          <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200"><input type="checkbox" checked={Boolean(draft.showOnScreens)} onChange={(e) => setDraft((prev) => ({ ...prev, showOnScreens: e.target.checked }))} /><span className="font-bold text-slate-700">إتاحة الجائزة للشاشات عند الاعتماد</span></label>
+          <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200"><input type="checkbox" checked={Boolean(draft.featured)} onChange={(e) => setDraft((prev) => ({ ...prev, featured: e.target.checked }))} /><span className="font-bold text-slate-700">تمييز الجائزة كجائزة مهمة</span></label>
+          <Input label="أولوية العرض في الشاشات" type="number" value={draft.displayPriority} onChange={(e) => setDraft((prev) => ({ ...prev, displayPriority: e.target.value }))} />
+          <label className="grid gap-2 text-sm font-bold text-slate-700 md:col-span-2">صورة الجائزة
+            <input type="file" accept="image/*" onChange={async (e) => { const file = e.target.files?.[0]; if (file) await handleImage(file); e.target.value=''; }} className="rounded-2xl border border-slate-300 bg-white px-4 py-3" />
+          </label>
+          {draft.image ? <img src={draft.image} alt="preview" className="h-40 w-full rounded-3xl object-cover ring-1 ring-slate-200 md:col-span-2" /> : null}
+          <label className="grid gap-2 text-sm font-bold text-slate-700 md:col-span-2">وصف أو ملاحظة
+            <textarea value={draft.note} onChange={(e) => setDraft((prev) => ({ ...prev, note: e.target.value }))} className="min-h-[110px] rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm" placeholder="مثال: تم التبرع بها للشراكة المجتمعية، وتنتظر الاستلام الفعلي ثم تحديد النقاط." />
+          </label>
+          <div className="md:col-span-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold leading-7 text-amber-800 ring-1 ring-amber-100">النقاط لا تُحدد هنا. بعد التأكد من استلام الجائزة فعليًا، يقوم مدير المدرسة بتحديد النقاط ثم اعتمادها للمتجر.</div>
+          <button type="button" onClick={submit} className="md:col-span-2 rounded-2xl bg-emerald-700 px-5 py-3 font-bold text-white">حفظ الجائزة في المخزون</button>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="مقترحات أولياء الأمور" icon={Users}>
+        <div className="space-y-4">
+          {pendingProposals.map((proposal) => <div key={proposal.id} className="rounded-3xl border border-amber-200 bg-amber-50/60 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="text-lg font-black text-slate-900">{proposal.title}</div>
+                <div className="text-sm text-slate-500">{proposal.guardianName || 'ولي الأمر'} • {proposal.mobileMasked || proposal.mobile || ''} • {proposal.createdAt ? new Date(proposal.createdAt).toLocaleString('ar-SA') : ''}</div>
+                <div className="text-sm text-slate-600">{proposal.note || 'بدون وصف إضافي'}</div>
+              </div>
+              <div className="text-left">
+                <Badge tone="amber">{proposal.quantity || 1} قطعة</Badge>
+                <div className="mt-2 text-xs font-bold text-slate-500">الاسم الظاهر: {proposal.showDonorName !== false ? (proposal.donorName || proposal.guardianName || 'ولي الأمر') : 'مخفي'}</div>
+              </div>
+            </div>
+            {proposal.image ? <img src={proposal.image} alt={proposal.title} className="mt-4 h-44 w-full rounded-3xl object-cover ring-1 ring-amber-200" /> : null}
+            <div className="mt-4 grid gap-3 md:grid-cols-[1fr,auto,auto]">
+              <Input label="ملاحظة المدير" value={proposalDecisionNotes[proposal.id] || ''} onChange={(e) => setProposalDecisionNotes((prev) => ({ ...prev, [proposal.id]: e.target.value }))} placeholder="مثال: يتم انتظار الاستلام من ولي الأمر قبل إدخالها للمتجر" />
+              <button type="button" onClick={() => onDecideProposal?.(proposal.id, 'approved', proposalDecisionNotes[proposal.id] || '')} className="rounded-2xl bg-emerald-700 px-5 py-3 font-bold text-white">قبول وتحويل للمخزون</button>
+              <button type="button" onClick={() => onDecideProposal?.(proposal.id, 'rejected', proposalDecisionNotes[proposal.id] || '')} className="rounded-2xl border border-rose-200 bg-white px-5 py-3 font-bold text-rose-700">رفض</button>
+            </div>
+          </div>)}
+          {!pendingProposals.length ? <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد مقترحات بانتظار الاعتماد.</div> : null}
+        </div>
+      </SectionCard>
+    </div>
+
+    <SectionCard title="المخزون بانتظار الاستلام أو الاعتماد" icon={PackageCheck}>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {awaitingReceiptItems.map((item) => <div key={item.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="font-black text-slate-900">{item.title}</div>
+              <div className="mt-1 text-sm text-slate-500">{getRewardStoreDonorLabel(item)} • {item.quantity} قطعة • {getRewardStoreStatusLabel(item.approvalStatus)}</div>
+            </div>
+            <Badge tone={item.sourceType === 'parent' ? 'violet' : item.sourceType === 'external' ? 'amber' : 'green'}>{item.sourceType === 'parent' ? 'ولي أمر' : item.sourceType === 'external' ? 'متبرع خارجي' : 'المدرسة'}</Badge>
+          </div>
+          {item.image ? <img src={item.image} alt={item.title} className="mt-4 h-44 w-full rounded-3xl object-cover ring-1 ring-slate-200" /> : null}
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <Input label="النقاط المعتمدة" type="number" value={activationDrafts[item.id]?.pointsCost ?? ''} onChange={(e) => updateActivationDraft(item.id, { pointsCost: e.target.value })} placeholder="مثال: 500" />
+            <Input label="ملاحظة الاعتماد" value={activationDrafts[item.id]?.note ?? ''} onChange={(e) => updateActivationDraft(item.id, { note: e.target.value })} placeholder="مثال: تم الاستلام من المتبرع واعتمادها للمتجر" />
+            <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200"><input type="checkbox" checked={activationDrafts[item.id]?.showOnScreens ?? item.showOnScreens !== false} onChange={(e) => updateActivationDraft(item.id, { showOnScreens: e.target.checked })} /><span className="font-bold text-slate-700">إظهار في الشاشات</span></label>
+            <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200"><input type="checkbox" checked={activationDrafts[item.id]?.featured ?? item.featured === true} onChange={(e) => updateActivationDraft(item.id, { featured: e.target.checked })} /><span className="font-bold text-slate-700">جائزة مهمة</span></label>
+            <Input label="أولوية العرض" type="number" value={activationDrafts[item.id]?.displayPriority ?? item.displayPriority ?? 0} onChange={(e) => updateActivationDraft(item.id, { displayPriority: e.target.value })} placeholder="0" />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" onClick={() => activateRewardItem(item)} className="rounded-2xl bg-sky-700 px-5 py-3 text-sm font-bold text-white">اعتماد وإظهارها في المتجر</button>
+            <button type="button" onClick={() => onDeleteItem?.(item.id)} className="rounded-2xl border border-rose-200 px-5 py-3 text-sm font-bold text-rose-700">حذف</button>
+          </div>
+        </div>)}
+        {!awaitingReceiptItems.length ? <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد عناصر بانتظار الاستلام أو الاعتماد.</div> : null}
+      </div>
+    </SectionCard>
+
+    <SectionCard title="جوائز المتجر المعتمدة" icon={Gift}>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {approvedItems.map((item) => <div key={item.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="aspect-[16/10] bg-slate-100">{item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400">بدون صورة</div>}</div>
+          <div className="space-y-3 p-4">
+            <div className="flex items-start justify-between gap-3"><div><div className="font-black text-slate-900">{item.title}</div><div className="mt-1 text-xs text-slate-500">{getRewardStoreDonorLabel(item)} • {item.remainingQuantity}/{item.quantity} متبقي</div></div><Badge tone="green">{item.pointsCost} نقطة</Badge></div>
+            {item.note ? <p className="text-sm leading-7 text-slate-600">{item.note}</p> : null}
+            <div className="flex flex-wrap gap-2 text-xs">{item.featured ? <span className="rounded-full bg-amber-100 px-3 py-1 font-black text-amber-800">مهمة</span> : null}{item.showOnScreens !== false ? <span className="rounded-full bg-sky-100 px-3 py-1 font-black text-sky-800">تظهر في الشاشات</span> : <span className="rounded-full bg-slate-200 px-3 py-1 font-black text-slate-700">مخفية عن الشاشات</span>}<span className="rounded-full bg-slate-100 px-3 py-1 font-black text-slate-700">أولوية {formatEnglishDigits(item.displayPriority || 0)}</span></div>
+            <div className="grid gap-2 md:grid-cols-3">
+              <label className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"><input type="checkbox" checked={item.showOnScreens !== false} onChange={(e) => onUpdateRewardItemMeta?.(item.id, { showOnScreens: e.target.checked })} />عرض في الشاشات</label>
+              <label className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"><input type="checkbox" checked={item.featured === true} onChange={(e) => onUpdateRewardItemMeta?.(item.id, { featured: e.target.checked })} />مهمة</label>
+              <Input label="أولوية العرض" type="number" value={item.displayPriority || 0} onChange={(e) => onUpdateRewardItemMeta?.(item.id, { displayPriority: e.target.value })} />
+            </div>
+            <div className="flex gap-2"><button type="button" onClick={() => onDeleteItem?.(item.id)} className="rounded-2xl border border-rose-200 px-4 py-2 text-sm font-bold text-rose-700">حذف</button></div>
+          </div>
+        </div>)}
+        {!approvedItems.length ? <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد جوائز معتمدة في المتجر حتى الآن.</div> : null}
+      </div>
+      {depletedItems.length ? <div className="mt-6"><div className="mb-3 text-sm font-bold text-slate-500">جوائز منتهية الكمية</div><div className="grid gap-3 md:grid-cols-2">{depletedItems.map((item) => <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"><div className="font-black text-slate-800">{item.title}</div><div className="mt-1 text-slate-500">{getRewardStoreDonorLabel(item)} • الكمية الأصلية {item.quantity}</div></div>)}</div></div> : null}
+    </SectionCard>
+
+    <SectionCard title="طلب استبدال لطالب أو عبر موظف مفوض" icon={ShoppingCart}>
+      <div className="mb-4 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-black text-slate-800">مسار الطلب من داخل المدرسة</div>
+            <div className="mt-1 text-xs text-slate-500">يمكن لـ {delegateLabel} أو من منحه المدير صلاحية النقاط اختيار الطالب ثم تقديم طلب الجائزة له مباشرة من هنا.</div>
+          </div>
+          <Badge tone="sky">صلاحية داخلية</Badge>
+        </div>
+        {(selectedRedemptionStudent || selectedRedemptionItem) ? <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">الطالب المحدد</div><div className="mt-1 text-sm font-black text-slate-900">{selectedRedemptionStudent?.name || '—'}</div><div className="mt-1 text-xs text-slate-500">{selectedRedemptionStudent ? `${selectedRedemptionStudent.points || 0} نقطة` : 'اختر الطالب أولًا'}</div></div>
+          <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">الجائزة المحددة</div><div className="mt-1 text-sm font-black text-slate-900">{selectedRedemptionItem?.title || '—'}</div><div className="mt-1 text-xs text-slate-500">{selectedRedemptionItem ? `${selectedRedemptionItem.pointsCost || 0} نقطة` : 'اختر الجائزة أولًا'}</div></div>
+          <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-xs font-bold text-slate-500">الرصيد بعد الطلب</div><div className="mt-1 text-sm font-black text-emerald-700">{selectedRedemptionStudent && selectedRedemptionItem ? Math.max(0, Number(selectedRedemptionStudent.points || 0) - Number(selectedRedemptionItem.pointsCost || 0)) : '—'}</div><div className="mt-1 text-xs text-slate-500">تقديري قبل الاعتماد النهائي</div></div>
+        </div> : null}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-[1fr,1fr,1.2fr,auto]">
+        <select value={redemptionDraft.studentId} onChange={(e) => setRedemptionDraft((prev) => ({ ...prev, studentId: e.target.value }))} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none">
+          <option value="">اختر الطالب</option>
+          {students.map((student) => <option key={student.id} value={student.id}>{student.name} — {student.className || student.companyName || 'بدون فصل'} — {student.points || 0} نقطة</option>)}
+        </select>
+        <select value={redemptionDraft.itemId} onChange={(e) => setRedemptionDraft((prev) => ({ ...prev, itemId: e.target.value }))} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold outline-none">
+          <option value="">اختر الجائزة</option>
+          {approvedItems.map((item) => <option key={item.id} value={item.id}>{item.title} — {item.pointsCost} نقطة — المتبقي {item.remainingQuantity}</option>)}
+        </select>
+        <Input label="ملاحظة الطلب" value={redemptionDraft.note} onChange={(e) => setRedemptionDraft((prev) => ({ ...prev, note: e.target.value }))} placeholder="مثال: تسليمها في الطابور الصباحي" />
+        <button type="button" onClick={submitRedemption} className="rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white">إرسال الطلب</button>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {pendingRedemptions.slice(0,6).map((request) => <div key={request.id} className="rounded-3xl border border-amber-200 bg-amber-50/60 p-4"><div className="flex items-start justify-between gap-3"><div><div className="font-black text-slate-900">{request.itemTitle}</div><div className="mt-1 text-sm text-slate-500">{request.studentName} • {request.pointsCost} نقطة • {request.createdByLabel || 'طلب'} </div></div><Badge tone="amber">بانتظار الاعتماد</Badge></div><div className="mt-3 grid gap-3 md:grid-cols-[1fr,auto,auto]"><Input label="ملاحظة القرار" value={redemptionDecisionNotes[request.id] || ''} onChange={(e) => setRedemptionDecisionNotes((prev) => ({ ...prev, [request.id]: e.target.value }))} placeholder="ملاحظة عند الاعتماد أو الرفض" /><button type="button" onClick={() => onDecideRedemption?.(request.id, 'approved', redemptionDecisionNotes[request.id] || '')} className="rounded-2xl bg-emerald-700 px-5 py-3 font-bold text-white">اعتماد وخصم النقاط</button><button type="button" onClick={() => onDecideRedemption?.(request.id, 'rejected', redemptionDecisionNotes[request.id] || '')} className="rounded-2xl border border-rose-200 bg-white px-5 py-3 font-bold text-rose-700">رفض</button></div></div>)}
+        {!pendingRedemptions.length ? <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">لا توجد طلبات استبدال معلقة.</div> : null}
+      </div>
+      {approvedRedemptions.length ? <div className="mt-6"><div className="mb-3 text-sm font-bold text-slate-500">طلبات معتمدة بانتظار التسليم</div><div className="grid gap-3">{approvedRedemptions.slice(0,6).map((request) => <div key={request.id} className="rounded-3xl border border-emerald-200 bg-emerald-50/60 p-4"><div className="flex items-center justify-between gap-3"><div><div className="font-black text-slate-900">{request.itemTitle} • {request.studentName}</div><div className="mt-1 text-sm text-slate-500">{request.pointsCost} نقطة • تم الاعتماد {request.decisionAt ? formatDateTime(request.decisionAt) : ''}</div></div><Badge tone="green">بانتظار التسليم</Badge></div><div className="mt-3 grid gap-3 md:grid-cols-[1fr,auto]"><Input label="ملاحظة التسليم" value={redemptionDecisionNotes[request.id] || ''} onChange={(e) => setRedemptionDecisionNotes((prev) => ({ ...prev, [request.id]: e.target.value }))} placeholder="مثال: تم التسليم في الطابور الصباحي" /><button type="button" onClick={() => onDecideRedemption?.(request.id, 'delivered', redemptionDecisionNotes[request.id] || '')} className="rounded-2xl bg-violet-700 px-5 py-3 font-bold text-white">تأكيد التسليم</button></div></div>)}</div></div> : null}
+      {deliveredRedemptions.length ? <div className="mt-6"><div className="mb-3 text-sm font-bold text-slate-500">آخر الجوائز المسلّمة</div><div className="grid gap-3">{deliveredRedemptions.slice(0,6).map((request) => <div key={request.id} className="rounded-2xl border border-violet-200 bg-violet-50/60 px-4 py-3 text-sm"><div className="flex items-center justify-between gap-3"><div className="font-bold text-slate-800">{request.itemTitle} • {request.studentName}</div><Badge tone="violet">تم التسليم</Badge></div><div className="mt-1 text-slate-500">{request.deliveryNote || request.decisionNote || request.note || '—'}</div></div>)}</div></div> : null}
+      {processedRedemptions.length ? <div className="mt-6"><div className="mb-3 text-sm font-bold text-slate-500">آخر الطلبات المرفوضة</div><div className="grid gap-3">{processedRedemptions.slice(0,6).map((request) => <div key={request.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"><div className="flex items-center justify-between gap-3"><div className="font-bold text-slate-800">{request.itemTitle} • {request.studentName}</div><Badge tone="rose">مرفوض</Badge></div><div className="mt-1 text-slate-500">{request.decisionNote || request.note || '—'}</div></div>)}</div></div> : null}
+    </SectionCard>
+
+
+    <SectionCard title="تقارير المتجر والرسوم البيانية" icon={BarChart3} action={<div className="flex flex-wrap items-center gap-2"><button onClick={printStoreExecutiveReport} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button><button onClick={() => exportStoreDataset('items', 'xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel الجوائز</button><button onClick={() => exportStoreDataset('requests', 'csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV الطلبات</button></div>}>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5">
+          <div className="text-lg font-black text-slate-900">مصادر الجوائز</div>
+          <div className="mt-1 text-sm text-slate-500">يبين مساهمة المدرسة وأولياء الأمور والمتبرعين الخارجيين حسب الكميات المدخلة.</div>
+          <div className="mt-4 h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={rewardReportData.sourceRows.length ? rewardReportData.sourceRows : [{ name: 'لا توجد بيانات', value: 1 }]} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}>
+                  {(rewardReportData.sourceRows.length ? rewardReportData.sourceRows : [{ name: 'لا توجد بيانات', value: 1 }]).map((_, index) => <Cell key={index} fill={["#10b981", "#0ea5e9", "#8b5cf6", "#f59e0b"][index % 4]} />)}
+                </Pie>
+                <Tooltip formatter={(value) => [value, 'الكمية']} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5">
+          <div className="text-lg font-black text-slate-900">حالة الطلبات</div>
+          <div className="mt-1 text-sm text-slate-500">يميز بين الطلبات المعلقة، المعتمدة بانتظار التسليم، والمسلمة فعليًا.</div>
+          <div className="mt-4 h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={rewardReportData.statusRows.length ? rewardReportData.statusRows : [{ name: 'لا توجد بيانات', value: 0 }]}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                <Tooltip formatter={(value) => [value, 'العدد']} />
+                <Bar dataKey="value" radius={[14,14,0,0]}>
+                  {(rewardReportData.statusRows.length ? rewardReportData.statusRows : [{ name: 'لا توجد بيانات', value: 0 }]).map((_, index) => <Cell key={index} fill={["#f59e0b", "#10b981", "#8b5cf6", "#ef4444"][index % 4]} />)}
+                  <LabelList dataKey="value" position="top" />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5">
+          <div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-lg font-black text-slate-900">تقرير المتبرعين</div><div className="text-sm text-slate-500">عدد المتبرعين، أسماؤهم، وما قدمه كل متبرع من جوائز وكميات.</div></div><div className="flex gap-2"><button onClick={() => exportStoreDataset('donors', 'xlsx')} className="rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Excel</button><button onClick={() => exportStoreDataset('donors', 'csv')} className="rounded-2xl bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 ring-1 ring-sky-100">CSV</button></div></div>
+          <div className="max-h-[26rem] overflow-auto rounded-2xl ring-1 ring-slate-200">
+            <table className="w-full text-sm"><thead className="bg-slate-50 text-slate-600"><tr><th className="px-3 py-3 text-right">المتبرع</th><th className="px-3 py-3 text-right">النوع</th><th className="px-3 py-3 text-center">الجوائز</th><th className="px-3 py-3 text-center">الكمية</th><th className="px-3 py-3 text-center">المتبقي</th><th className="px-3 py-3 text-center">المسلّم</th></tr></thead><tbody>{rewardReportData.donorRows.length ? rewardReportData.donorRows.map((row, idx) => <tr key={`${row.donorName}-${idx}`} className="border-t border-slate-100"><td className="px-3 py-3 font-bold text-slate-800">{row.donorName}</td><td className="px-3 py-3 text-slate-500">{row.sourceLabel}</td><td className="px-3 py-3 text-center">{row.itemsCount}</td><td className="px-3 py-3 text-center">{row.totalQuantity}</td><td className="px-3 py-3 text-center text-emerald-700">{row.remainingQuantity}</td><td className="px-3 py-3 text-center text-violet-700">{row.deliveredQuantity}</td></tr>) : <tr><td className="px-3 py-6 text-center text-slate-500" colSpan="6">لا توجد بيانات متاحة.</td></tr>}</tbody></table>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5">
+          <div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-lg font-black text-slate-900">تقرير الجوائز والمخزون</div><div className="text-sm text-slate-500">يبين الجوائز المستلمة، الكمية المتبقية، والجوائز الأكثر طلبًا.</div></div><div className="flex gap-2"><button onClick={() => exportStoreDataset('items', 'xlsx')} className="rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Excel</button><button onClick={() => exportStoreDataset('items', 'csv')} className="rounded-2xl bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 ring-1 ring-sky-100">CSV</button></div></div>
+          <div className="h-72"><ResponsiveContainer width="100%" height="100%"><BarChart data={rewardReportData.itemRows.slice(0,6).length ? rewardReportData.itemRows.slice(0,6).map((row) => ({ name: row.title, الطلبات: row.requests, التسليمات: row.delivered })) : [{ name: 'لا توجد بيانات', الطلبات: 0, التسليمات: 0 }]}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="name" tickLine={false} axisLine={false} hide /><YAxis allowDecimals={false} tickLine={false} axisLine={false} /><Tooltip /><Bar dataKey="الطلبات" radius={[14,14,0,0]} fill="#0ea5e9" /><Bar dataKey="التسليمات" radius={[14,14,0,0]} fill="#10b981" /></BarChart></ResponsiveContainer></div>
+          <div className="mt-4 max-h-[16rem] overflow-auto rounded-2xl ring-1 ring-slate-200"><table className="w-full text-sm"><thead className="bg-slate-50 text-slate-600"><tr><th className="px-3 py-3 text-right">الجائزة</th><th className="px-3 py-3 text-center">الكمية</th><th className="px-3 py-3 text-center">المتبقي</th><th className="px-3 py-3 text-center">النقاط</th><th className="px-3 py-3 text-center">الطلبات</th><th className="px-3 py-3 text-center">الحالة</th></tr></thead><tbody>{rewardReportData.itemRows.length ? rewardReportData.itemRows.slice(0,10).map((row) => <tr key={row.itemId} className="border-t border-slate-100"><td className="px-3 py-3 font-bold text-slate-800">{row.title}<div className="text-xs font-normal text-slate-500">{row.donorName}</div></td><td className="px-3 py-3 text-center">{row.quantity}</td><td className="px-3 py-3 text-center text-emerald-700">{row.remainingQuantity}</td><td className="px-3 py-3 text-center">{row.pointsCost}</td><td className="px-3 py-3 text-center text-sky-700">{row.requests}</td><td className="px-3 py-3 text-center">{row.statusLabel}</td></tr>) : <tr><td className="px-3 py-6 text-center text-slate-500" colSpan="6">لا توجد بيانات.</td></tr>}</tbody></table></div>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5">
+          <div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-lg font-black text-slate-900">تقرير الطلبات</div><div className="text-sm text-slate-500">كل طلب، حالته، الجهة التي طلبته، وتوقيت القرار أو التسليم.</div></div><div className="flex gap-2"><button onClick={() => exportStoreDataset('requests', 'xlsx')} className="rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Excel</button><button onClick={() => exportStoreDataset('requests', 'csv')} className="rounded-2xl bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 ring-1 ring-sky-100">CSV</button></div></div>
+          <div className="max-h-[26rem] overflow-auto rounded-2xl ring-1 ring-slate-200"><table className="w-full text-sm"><thead className="bg-slate-50 text-slate-600"><tr><th className="px-3 py-3 text-right">الطالب</th><th className="px-3 py-3 text-right">الفصل</th><th className="px-3 py-3 text-right">الجائزة</th><th className="px-3 py-3 text-center">الحالة</th><th className="px-3 py-3 text-right">جهة الطلب</th><th className="px-3 py-3 text-right">الطلب</th></tr></thead><tbody>{rewardReportData.requestRows.length ? rewardReportData.requestRows.slice(0,30).map((row) => <tr key={row.id} className="border-t border-slate-100"><td className="px-3 py-3 font-bold text-slate-800">{row.studentName}</td><td className="px-3 py-3 text-slate-500">{row.className}</td><td className="px-3 py-3">{row.itemTitle}<div className="text-xs text-slate-500">{row.pointsCost} نقطة</div></td><td className="px-3 py-3 text-center">{row.statusLabel}</td><td className="px-3 py-3 text-slate-500">{row.requesterLabel}<div className="text-xs">{row.requesterName}</div></td><td className="px-3 py-3 text-xs text-slate-500">{row.createdAt}</td></tr>) : <tr><td className="px-3 py-6 text-center text-slate-500" colSpan="6">لا توجد طلبات بعد.</td></tr>}</tbody></table></div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5">
+            <div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-lg font-black text-slate-900">تقرير الطلاب</div><div className="text-sm text-slate-500">من أكثر الطلاب استبدالًا وأعلى من صرفوا نقاطًا من المتجر.</div></div><div className="flex gap-2"><button onClick={() => exportStoreDataset('students', 'xlsx')} className="rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Excel</button><button onClick={() => exportStoreDataset('students', 'csv')} className="rounded-2xl bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 ring-1 ring-sky-100">CSV</button></div></div>
+            <div className="max-h-[15rem] overflow-auto rounded-2xl ring-1 ring-slate-200"><table className="w-full text-sm"><thead className="bg-slate-50 text-slate-600"><tr><th className="px-3 py-3 text-right">الطالب</th><th className="px-3 py-3 text-right">الفصل</th><th className="px-3 py-3 text-center">الطلبات</th><th className="px-3 py-3 text-center">المسلّم</th><th className="px-3 py-3 text-center">النقاط المصروفة</th></tr></thead><tbody>{rewardReportData.studentRows.length ? rewardReportData.studentRows.slice(0,12).map((row) => <tr key={row.studentId} className="border-t border-slate-100"><td className="px-3 py-3 font-bold text-slate-800">{row.studentName}</td><td className="px-3 py-3 text-slate-500">{row.className}</td><td className="px-3 py-3 text-center">{row.requests}</td><td className="px-3 py-3 text-center text-violet-700">{row.delivered}</td><td className="px-3 py-3 text-center text-emerald-700">{row.pointsSpent}</td></tr>) : <tr><td className="px-3 py-6 text-center text-slate-500" colSpan="5">لا توجد بيانات طلاب.</td></tr>}</tbody></table></div>
+          </div>
+          <div className="rounded-3xl border border-slate-200 bg-white p-5">
+            <div className="mb-3 flex items-center justify-between gap-3"><div><div className="text-lg font-black text-slate-900">تقرير الفصول</div><div className="text-sm text-slate-500">يبين أكثر الفصول استفادة من المتجر وعدد الطلاب المستفيدين داخل كل فصل.</div></div><div className="flex gap-2"><button onClick={() => exportStoreDataset('classes', 'xlsx')} className="rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Excel</button><button onClick={() => exportStoreDataset('classes', 'csv')} className="rounded-2xl bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 ring-1 ring-sky-100">CSV</button></div></div>
+            <div className="max-h-[15rem] overflow-auto rounded-2xl ring-1 ring-slate-200"><table className="w-full text-sm"><thead className="bg-slate-50 text-slate-600"><tr><th className="px-3 py-3 text-right">الفصل</th><th className="px-3 py-3 text-center">الطلبات</th><th className="px-3 py-3 text-center">المسلّم</th><th className="px-3 py-3 text-center">النقاط المصروفة</th><th className="px-3 py-3 text-center">الطلاب المستفيدون</th></tr></thead><tbody>{rewardReportData.classRows.length ? rewardReportData.classRows.slice(0,12).map((row) => <tr key={row.className} className="border-t border-slate-100"><td className="px-3 py-3 font-bold text-slate-800">{row.className}</td><td className="px-3 py-3 text-center">{row.requests}</td><td className="px-3 py-3 text-center text-violet-700">{row.delivered}</td><td className="px-3 py-3 text-center text-emerald-700">{row.pointsSpent}</td><td className="px-3 py-3 text-center">{row.uniqueStudents}</td></tr>) : <tr><td className="px-3 py-6 text-center text-slate-500" colSpan="5">لا توجد بيانات فصول.</td></tr>}</tbody></table></div>
+          </div>
+        </div>
+      </div>
+    </SectionCard>
+
+    {decidedProposals.length ? <SectionCard title="آخر المقترحات المعالجة" icon={ClipboardList}><div className="grid gap-3">{decidedProposals.slice(0,6).map((proposal) => <div key={proposal.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"><div className="flex items-center justify-between gap-3"><div className="font-bold text-slate-800">{proposal.title}</div><Badge tone={proposal.status === 'approved' ? 'green' : 'rose'}>{proposal.status === 'approved' ? 'مقبول للمخزون' : 'مرفوض'}</Badge></div><div className="mt-1 text-slate-500">{proposal.decisionNote || proposal.note || '—'}</div></div>)}</div></SectionCard> : null}
+  </div>;
+}
+
+function ParentExecutiveSummaryPage({ currentUser, selectedSchool, onNavigate }) {
+  const [state, setState] = useState({
+    loading: false,
+    error: '',
+    requests: [],
+    alerts: [],
+    parents: [],
+    audit: [],
+    portalEnabled: true,
+    portalMode: 'auto',
+    lastUpdatedAt: '',
+  });
+
+  const load = useCallback(async () => {
+    if (!selectedSchool?.id) return;
+    setState((current) => ({ ...current, loading: true, error: '' }));
+    try {
+      const query = currentUser?.role === 'superadmin' ? `?schoolId=${selectedSchool.id}` : '';
+      const [requestsResponse, parentsResponse, auditResponse] = await Promise.all([
+        apiRequest(`/api/admin/parent-primary-requests${query}`, { token: getSessionToken() }),
+        apiRequest('/api/admin/parents', { token: getSessionToken() }),
+        apiRequest('/api/admin/parents/audit-feed', { token: getSessionToken() }),
+      ]);
+      setState({
+        loading: false,
+        error: '',
+        requests: Array.isArray(requestsResponse?.requests) ? requestsResponse.requests : [],
+        alerts: Array.isArray(requestsResponse?.alerts) ? requestsResponse.alerts : [],
+        parents: Array.isArray(parentsResponse?.parents) ? parentsResponse.parents : [],
+        audit: Array.isArray(auditResponse?.entries) ? auditResponse.entries : [],
+        portalEnabled: requestsResponse?.portalSettings?.enabled !== false,
+        portalMode: requestsResponse?.policy?.mode === 'manual' ? 'manual' : 'auto',
+        lastUpdatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      setState((current) => ({ ...current, loading: false, error: error.message || 'تعذر تحميل المتابعة التنفيذية.' }));
+    }
+  }, [selectedSchool?.id, currentUser?.role]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const summary = useMemo(() => {
+    const parents = state.parents || [];
+    const requests = state.requests || [];
+    const audit = state.audit || [];
+    const pending = requests.filter((item) => item?.status === 'pending').length;
+    const approved = requests.filter((item) => item?.status === 'approved').length;
+    const rejected = requests.filter((item) => item?.status === 'rejected').length;
+    const autoApproved = (state.alerts || []).filter((item) => String(item?.action || '') === 'auto-approved').length;
+    const suspended = parents.filter((item) => item?.accountControl?.suspended).length;
+    const active = parents.filter((item) => item?.status === 'active' && !item?.accountControl?.suspended).length;
+    const extraContacts = parents.reduce((sum, item) => sum + Number(item?.extraContactsCount || 0), 0);
+    const schoolEntries = audit.filter((item) => item?.scope === 'school').length;
+    const parentEntries = audit.filter((item) => item?.scope !== 'school').length;
+    const followups = audit.filter((item) => /send_access_code|parent_reassign_student|approve_parent_primary_change|rollback_parent_primary_change|reject_parent_primary_change/i.test(String(item?.action || ''))).length;
+    const readiness = Math.max(0, Math.min(100,
+      (state.portalEnabled ? 40 : 10)
+      + (state.portalMode === 'auto' ? 20 : 8)
+      + Math.max(0, 20 - Math.min(20, pending * 3))
+      + Math.max(0, 10 - Math.min(10, suspended * 2))
+      + Math.min(10, active > 0 ? 10 : 0)
+    ));
+    return { pending, approved, rejected, autoApproved, suspended, active, extraContacts, schoolEntries, parentEntries, followups, readiness, totalParents: parents.length };
+  }, [state]);
+
+  const healthTone = !state.portalEnabled ? 'amber' : summary.pending > 0 && state.portalMode === 'manual' ? 'amber' : 'green';
+  const cardRows = [
+    { label: 'جاهزية البوابة', value: `${summary.readiness}%`, tone: summary.readiness >= 80 ? 'green' : summary.readiness >= 60 ? 'amber' : 'rose', detail: state.portalEnabled ? 'الحالة العامة للتشغيل والمتابعة' : 'البوابة مقفلة حاليًا' },
+    { label: 'أولياء الأمور النشطون', value: summary.active, tone: 'blue', detail: `من أصل ${summary.totalParents} حسابًا` },
+    { label: 'الطلبات المعلقة', value: summary.pending, tone: summary.pending > 0 ? 'amber' : 'green', detail: state.portalMode === 'manual' ? 'تحتاج اعتمادًا يدويًا' : 'الوضع التلقائي يخفف التكدس' },
+    { label: 'الحسابات المعلقة', value: summary.suspended, tone: summary.suspended > 0 ? 'rose' : 'green', detail: 'معلّقة من الإدارة' },
+    { label: 'الأرقام الإضافية', value: summary.extraContacts, tone: 'violet', detail: 'مرتبطة بحسابات أولياء الأمور' },
+    { label: 'المتابعات الرقابية', value: summary.followups, tone: 'sky', detail: 'اعتماد/رفض/إرسال/نقل' },
+  ];
+
+  const distributionRows = useMemo(() => ([
+    { name: 'نشطون', value: summary.active },
+    { name: 'معلقون', value: summary.suspended },
+    { name: 'طلبات معلقة', value: summary.pending },
+  ]).filter((item) => item.value > 0), [summary]);
+
+  const actionRows = useMemo(() => ([
+    { name: 'معتمدة', value: summary.approved },
+    { name: 'مرفوضة', value: summary.rejected },
+    { name: 'تلقائي', value: summary.autoApproved },
+    { name: 'رقابي', value: summary.parentEntries + summary.schoolEntries },
+  ]).filter((item) => item.value > 0), [summary]);
+
+  const topAttention = useMemo(() => {
+    const items = [];
+    if (!state.portalEnabled) items.push({ title: 'البوابة مقفلة', body: 'بوابة ولي الأمر متوقفة، ولن يتمكن أولياء الأمور من تسجيل الدخول حتى يعاد تفعيلها.', tone: 'amber', target: 'parentPortal' });
+    if (state.portalMode === 'manual' && summary.pending > 0) items.push({ title: 'طلبات بانتظار الاعتماد', body: `يوجد ${summary.pending} طلب يحتاج معالجة من الإدارة.`, tone: 'blue', target: 'parentPortal' });
+    if (summary.suspended > 0) items.push({ title: 'حسابات معلقة', body: `تم تعليق ${summary.suspended} حساب${summary.suspended > 1 ? 'ات' : ''} ولي أمر، راجع الأسباب والتأثير على التواصل.`, tone: 'rose', target: 'parentsAdmin' });
+    const lastAlert = (state.alerts || [])[0];
+    if (lastAlert?.message) items.push({ title: 'آخر إشعار إداري', body: lastAlert.message, tone: 'slate', target: 'parentsAudit' });
+    return items.slice(0, 4);
+  }, [state.portalEnabled, state.portalMode, state.alerts, summary.pending, summary.suspended]);
+
+  const printExecutiveSummary = () => {
+    const rows = cardRows.map((item) => `<div class="stat"><div class="k">${item.label}</div><div class="v">${item.value}</div><div class="d">${item.detail}</div></div>`).join('');
+    const attention = topAttention.map((item) => `<tr><td>${item.title}</td><td>${item.body}</td></tr>`).join('');
+    printHtmlContent('المتابعة التنفيذية لبوابة ولي الأمر', `<h1>المتابعة التنفيذية لبوابة ولي الأمر</h1><div class="meta">${selectedSchool?.name || 'المدرسة'} • ${formatDateTime(new Date().toISOString())}</div><div class="stats">${rows}</div><h1 style="font-size:20px;margin-top:24px">العناصر التي تحتاج انتباهًا</h1><table><thead><tr><th>العنصر</th><th>التفصيل</th></tr></thead><tbody>${attention || '<tr><td colspan="2">لا توجد عناصر عاجلة.</td></tr>'}</tbody></table>`);
+  };
+
+  return (
+    <div className="space-y-6">
+      <SectionCard title="المتابعة التنفيذية لبوابة ولي الأمر" icon={BarChart3} action={<div className="flex flex-wrap items-center gap-2"><button onClick={load} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">تحديث</button><button onClick={printExecutiveSummary} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button><button onClick={() => onNavigate?.('parentPortal')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white">إدارة البوابة</button></div>}>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {cardRows.map((card) => <div key={card.label} className="rounded-[1.5rem] border border-slate-200 bg-white p-5"><Badge tone={card.tone}>{card.label}</Badge><div className="mt-4 text-3xl font-black text-slate-900">{card.value}</div><div className="mt-2 text-sm leading-7 text-slate-500">{card.detail}</div></div>)}
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_.8fr]">
+          <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-black text-slate-900">لوحة الانتباه السريع</div>
+                <div className="mt-1 text-sm leading-7 text-slate-500">مختصر تنفيذي لما يحتاج قرارًا أو متابعة من المدير.</div>
+              </div>
+              <Badge tone={healthTone}>{state.portalEnabled ? (state.portalMode === 'auto' ? 'تشغيل تلقائي' : 'تشغيل يدوي') : 'مقفلة'}</Badge>
+            </div>
+            {state.error ? <div className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200">{state.error}</div> : null}
+            {state.loading ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-500">جاري تحميل المؤشرات التنفيذية...</div> : null}
+            {!state.loading && !topAttention.length ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-500">الوضع مستقر حاليًا، ولا توجد عناصر عاجلة ظاهرة.</div> : null}
+            <div className="mt-4 space-y-3">
+              {topAttention.map((item, index) => <button key={`${item.title}-${index}`} type="button" onClick={() => onNavigate?.(item.target)} className="block w-full rounded-3xl border border-slate-200 bg-slate-50 p-4 text-right transition hover:bg-slate-100"><div className="flex items-start justify-between gap-3"><div><div className="font-black text-slate-900">{item.title}</div><div className="mt-1 text-sm leading-7 text-slate-600">{item.body}</div></div><Badge tone={item.tone}>{item.tone === 'amber' ? 'تنبيه' : item.tone === 'rose' ? 'حرج' : item.tone === 'blue' ? 'متابعة' : 'معلومة'}</Badge></div></button>)}
+            </div>
+          </div>
+
+          <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5">
+            <div className="text-lg font-black text-slate-900">ملخص التشغيل</div>
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><span className="font-bold text-slate-600">حالة البوابة</span><span className="font-black text-slate-900">{state.portalEnabled ? 'مفعلة' : 'مقفلة'}</span></div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><span className="font-bold text-slate-600">سياسة التحديث</span><span className="font-black text-slate-900">{state.portalMode === 'auto' ? 'تلقائي' : 'يدوي'}</span></div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><span className="font-bold text-slate-600">السجلات الرقابية</span><span className="font-black text-slate-900">{summary.schoolEntries + summary.parentEntries}</span></div>
+              <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><span className="font-bold text-slate-600">آخر تحديث</span><span className="font-black text-slate-900">{state.lastUpdatedAt ? formatDateTime(state.lastUpdatedAt) : '—'}</span></div>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-2">
+              <button type="button" onClick={() => onNavigate?.('parentsAdmin')} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-200">فتح ملف أولياء الأمور</button>
+              <button type="button" onClick={() => onNavigate?.('parentsAudit')} className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-sky-700 ring-1 ring-sky-100 hover:bg-sky-50">فتح السجل الرقابي</button>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5">
+            <div className="text-lg font-black text-slate-900">توزيع الحالات</div>
+            <div className="mt-1 text-sm leading-7 text-slate-500">نظرة سريعة على الصحة التشغيلية لحسابات أولياء الأمور.</div>
+            <div className="mt-4 h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={distributionRows.length ? distributionRows : [{ name: 'لا توجد بيانات', value: 1 }]} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}>
+                    {(distributionRows.length ? distributionRows : [{ name: 'لا توجد بيانات', value: 1 }]).map((_, index) => <Cell key={index} fill={["#0ea5e9", "#f59e0b", "#ef4444", "#8b5cf6"][index % 4]} />)}
+                  </Pie>
+                  <Tooltip formatter={(value) => [value, 'العدد']} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="rounded-[1.75rem] border border-slate-200 bg-white p-5">
+            <div className="text-lg font-black text-slate-900">نشاط الإجراءات</div>
+            <div className="mt-1 text-sm leading-7 text-slate-500">يميز بين الاعتماد والرفض والتدخلات الرقابية خلال الفترة الحالية.</div>
+            <div className="mt-4 h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={actionRows.length ? actionRows : [{ name: 'لا توجد بيانات', value: 0 }]}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(value) => [value, 'العدد']} />
+                  <Bar dataKey="value" radius={[14, 14, 0, 0]}>
+                    {(actionRows.length ? actionRows : [{ name: 'لا توجد بيانات', value: 0 }]).map((_, index) => <Cell key={index} fill={["#10b981", "#ef4444", "#0ea5e9", "#8b5cf6"][index % 4]} />)}
+                    <LabelList dataKey="value" position="top" />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function ParentAccountsPage({ currentUser, selectedSchool }) {
+  const [state, setState] = useState({ loading: true, parents: [], summary: { total: 0, active: 0, pending: 0, extraContacts: 0 }, error: '', sending: '', detailLoading: '', detailError: '', detail: null, toggling: false });
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [detailNote, setDetailNote] = useState('');
+  const [reassigning, setReassigning] = useState(false);
+  const [reassignTarget, setReassignTarget] = useState(null);
+  const [reassignMobile, setReassignMobile] = useState('');
+  const [reassignGuardianName, setReassignGuardianName] = useState('');
+  const canManage = ['superadmin', 'admin', 'principal'].includes(String(currentUser?.role || ''));
+  const load = useCallback(async () => {
+    setState((current) => ({ ...current, loading: true, error: '' }));
+    try {
+      const response = await apiRequest('/api/admin/parents', { token: getSessionToken() });
+      setState((current) => ({ ...current, loading: false, parents: Array.isArray(response.parents) ? response.parents : [], summary: response.summary || current.summary, error: '' }));
+    } catch (error) {
+      setState((current) => ({ ...current, loading: false, error: error.message || 'تعذر تحميل بيانات أولياء الأمور.' }));
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const filteredParents = useMemo(() => {
+    const q = String(query || '').trim().toLowerCase();
+    return (state.parents || []).filter((item) => {
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'pending' && item.primaryChangeRequest?.status !== 'pending') return false;
+        if (statusFilter === 'active' && item.status !== 'active') return false;
+        if (statusFilter === 'idle' && item.status !== 'idle') return false;
+        if (statusFilter === 'suspended' && !item.accountControl?.suspended) return false;
+      }
+      if (!q) return true;
+      const haystack = [item.guardianName, item.mobile, ...(item.schoolNames || []), ...(item.studentNames || [])].join(' ').toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [state.parents, query, statusFilter]);
+  const sendAccessCode = async (mobile, channel = 'whatsapp') => {
+    setState((current) => ({ ...current, sending: mobile }));
+    try {
+      const response = await apiRequest('/api/admin/parents/send-access-code', { method: 'POST', token: getSessionToken(), body: { mobile, channel } });
+      const suffix = response.previewCode ? `\nرمز التجربة: ${response.previewCode}` : '';
+      window.alert((response.message || 'تم تنفيذ العملية بنجاح.') + suffix);
+      await load();
+    } catch (error) {
+      window.alert(error.message || 'تعذر إرسال الرمز.');
+    } finally {
+      setState((current) => ({ ...current, sending: '' }));
+    }
+  };
+  const openDetail = async (mobile) => {
+    setState((current) => ({ ...current, detailLoading: mobile, detailError: '', detail: null }));
+    setDetailNote('');
+    try {
+      const response = await apiRequest(`/api/admin/parents/details?mobile=${encodeURIComponent(mobile)}`, { token: getSessionToken() });
+      setState((current) => ({ ...current, detailLoading: '', detail: response.parent || null, detailError: '' }));
+      setDetailNote(response.parent?.accountControl?.note || '');
+    } catch (error) {
+      setState((current) => ({ ...current, detailLoading: '', detailError: error.message || 'تعذر تحميل التفاصيل.' }));
+    }
+  };
+  const closeDetail = () => {
+    setState((current) => ({ ...current, detail: null, detailError: '', detailLoading: '' }));
+    setDetailNote('');
+    setReassignTarget(null);
+    setReassignMobile('');
+    setReassignGuardianName('');
+  };
+  const toggleSuspension = async (suspended) => {
+    if (!state.detail?.mobile || !canManage) return;
+    setState((current) => ({ ...current, toggling: true }));
+    try {
+      const response = await apiRequest('/api/admin/parents/toggle-suspension', { method: 'POST', token: getSessionToken(), body: { mobile: state.detail.mobile, suspended, note: detailNote } });
+      window.alert(response.message || (suspended ? 'تم تعليق الحساب.' : 'تمت إعادة التفعيل.'));
+      await load();
+      await openDetail(state.detail.mobile);
+    } catch (error) {
+      window.alert(error.message || 'تعذر تنفيذ العملية.');
+    } finally {
+      setState((current) => ({ ...current, toggling: false }));
+    }
+  };
+  const openReassign = (student) => {
+    setReassignTarget(student);
+    setReassignMobile('');
+    setReassignGuardianName(detail?.guardianName || student?.guardianName || '');
+  };
+  const closeReassign = () => {
+    if (reassigning) return;
+    setReassignTarget(null);
+    setReassignMobile('');
+    setReassignGuardianName('');
+  };
+  const submitReassign = async () => {
+    if (!detail?.mobile || !reassignTarget || !canManage) return;
+    if (!String(reassignMobile || '').trim()) {
+      window.alert('أدخل الرقم البديل أولًا حتى لا يبقى الطالب بلا ولي أمر أساسي.');
+      return;
+    }
+    setReassigning(true);
+    try {
+      const response = await apiRequest('/api/admin/parents/reassign-student', { method: 'POST', token: getSessionToken(), body: { mobile: detail.mobile, schoolId: reassignTarget.schoolId, studentId: reassignTarget.studentId || reassignTarget.id, newMobile: reassignMobile, guardianName: reassignGuardianName } });
+      window.alert(response.message || 'تم تنفيذ النقل بنجاح.');
+      closeReassign();
+      await load();
+      await openDetail(detail.mobile);
+    } catch (error) {
+      window.alert(error.message || 'تعذر نقل الارتباط.');
+    } finally {
+      setReassigning(false);
+    }
+  };
+  const summaryCards = [
+    { label: 'إجمالي أولياء الأمور', value: state.summary.total || 0, tone: 'sky' },
+    { label: 'نشطون مؤخرًا', value: state.summary.active || 0, tone: 'green' },
+    { label: 'طلبات معلقة', value: state.summary.pending || 0, tone: 'amber' },
+    { label: 'أرقام إضافية', value: state.summary.extraContacts || 0, tone: 'violet' },
+  ];
+  const exportPrefix = `parents-${selectedSchool?.code || selectedSchool?.id || 'school'}`;
+  const parentExportColumns = [
+    { key: 'guardianName', label: 'اسم ولي الأمر' },
+    { key: 'mobileMasked', label: 'رقم الجوال' },
+    { key: 'studentsCount', label: 'عدد الأبناء' },
+    { key: 'schoolNames', label: 'المدارس', render: (row) => (row.schoolNames || []).join('، ') },
+    { key: 'studentNames', label: 'الأبناء', render: (row) => (row.studentNames || []).join('، ') },
+    { key: 'statusLabel', label: 'الحالة', render: (row) => row.accountControl?.suspended ? 'معلق' : row.primaryChangeRequest?.status === 'pending' ? 'طلب معلق' : row.status === 'active' ? 'نشط' : 'جاهز' },
+    { key: 'preferredChannel', label: 'القناة المفضلة', render: (row) => row.notificationSettings?.preferredChannel === 'sms' ? 'SMS' : row.notificationSettings?.preferredChannel === 'both' ? 'واتساب + SMS' : 'واتساب' },
+    { key: 'latestLogin', label: 'آخر دخول', render: (row) => row.latestSession?.lastLoginAt ? formatDateTime(row.latestSession.lastLoginAt) : 'لا يوجد' },
+    { key: 'extraContactsCount', label: 'الأرقام الإضافية' },
+  ];
+  const exportParentList = (format = 'xlsx') => {
+    const rows = filteredParents || [];
+    if (!rows.length) {
+      window.alert('لا توجد بيانات قابلة للتصدير حاليًا.');
+      return;
+    }
+    if (format === 'csv') {
+      downloadFile(`${exportPrefix}-list.csv`, buildCsv(rows, parentExportColumns), 'text/csv;charset=utf-8;');
+      return;
+    }
+    exportRowsToWorkbook(`${exportPrefix}-list.xlsx`, 'Parents', rows, parentExportColumns);
+  };
+  const printParentList = () => {
+    const rows = filteredParents || [];
+    if (!rows.length) {
+      window.alert('لا توجد بيانات قابلة للطباعة حاليًا.');
+      return;
+    }
+    const statsHtml = summaryCards.map((card) => `<div class="stat"><div class="k">${card.label}</div><div class="v">${card.value}</div></div>`).join('');
+    const tableRows = rows.map((row, index) => `<tr><td>${index + 1}</td><td>${row.guardianName || '—'}</td><td>${row.mobileMasked || '—'}</td><td>${row.studentsCount || 0}</td><td>${(row.schoolNames || []).join('، ') || '—'}</td><td>${(row.studentNames || []).join('، ') || '—'}</td><td>${row.accountControl?.suspended ? 'معلق' : row.primaryChangeRequest?.status === 'pending' ? 'طلب معلق' : row.status === 'active' ? 'نشط' : 'جاهز'}</td><td>${row.latestSession?.lastLoginAt ? formatDateTime(row.latestSession.lastLoginAt) : 'لا يوجد'}</td></tr>`).join('');
+    printHtmlContent('تقرير أولياء الأمور', `<h1>تقرير أولياء الأمور</h1><div class="meta">${selectedSchool?.name || 'المدرسة'} • ${formatDateTime(new Date().toISOString())}</div><div class="stats">${statsHtml}</div><table><thead><tr><th>#</th><th>ولي الأمر</th><th>الجوال</th><th>الأبناء</th><th>المدارس</th><th>الطلاب</th><th>الحالة</th><th>آخر دخول</th></tr></thead><tbody>${tableRows}</tbody></table>`);
+  };
+  const exportParentDetail = (format = 'xlsx') => {
+    if (!detail) return;
+    const overviewRows = [{
+      guardianName: detail.guardianName || 'ولي الأمر',
+      mobileMasked: detail.mobileMasked || detail.mobile || '—',
+      studentsCount: (detail.students || []).length,
+      totalPoints: detail.totalPoints || 0,
+      averageAttendance: `${detail.averageAttendance || 0}%`,
+      accountStatus: detail.accountControl?.suspended ? 'معلق' : 'مفعل',
+      preferredChannel: detail.notificationSettings?.preferredChannel === 'sms' ? 'SMS' : detail.notificationSettings?.preferredChannel === 'both' ? 'واتساب + SMS' : 'واتساب',
+      latestLogin: detail.latestSession?.lastLoginAt ? formatDateTime(detail.latestSession.lastLoginAt) : 'لا يوجد',
+    }];
+    const overviewColumns = [
+      { key: 'guardianName', label: 'اسم ولي الأمر' },
+      { key: 'mobileMasked', label: 'الرقم الأساسي' },
+      { key: 'studentsCount', label: 'عدد الأبناء' },
+      { key: 'totalPoints', label: 'مجموع النقاط' },
+      { key: 'averageAttendance', label: 'متوسط الحضور' },
+      { key: 'accountStatus', label: 'حالة الحساب' },
+      { key: 'preferredChannel', label: 'القناة المفضلة' },
+      { key: 'latestLogin', label: 'آخر دخول' },
+    ];
+    const auditRows = (detail.auditHistory || []).map((entry) => ({
+      title: entry.title || 'إجراء',
+      note: entry.note || '—',
+      actorName: entry.actorName || '—',
+      actorRole: entry.actorRole || '—',
+      studentName: entry.studentName || '—',
+      schoolName: entry.schoolName || '—',
+      createdAt: entry.createdAt ? formatDateTime(entry.createdAt) : '—',
+    }));
+    const auditColumns = [
+      { key: 'title', label: 'الإجراء' },
+      { key: 'note', label: 'التفاصيل' },
+      { key: 'actorName', label: 'المنفذ' },
+      { key: 'actorRole', label: 'الدور' },
+      { key: 'studentName', label: 'الطالب' },
+      { key: 'schoolName', label: 'المدرسة' },
+      { key: 'createdAt', label: 'الوقت' },
+    ];
+    if (format === 'csv') {
+      const content = `${buildCsv(overviewRows, overviewColumns)}
+
+${buildCsv(auditRows, auditColumns)}`;
+      downloadFile(`${exportPrefix}-${detail.mobile || 'parent'}-detail.csv`, content, 'text/csv;charset=utf-8;');
+      return;
+    }
+    const workbook = XLSX.utils.book_new();
+    const overviewSheet = XLSX.utils.aoa_to_sheet([overviewColumns.map((col) => col.label), ...overviewRows.map((row) => overviewColumns.map((col) => row[col.key]))]);
+    XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Overview');
+    const auditSheet = XLSX.utils.aoa_to_sheet([auditColumns.map((col) => col.label), ...auditRows.map((row) => auditColumns.map((col) => row[col.key]))]);
+    XLSX.utils.book_append_sheet(workbook, auditSheet, 'Audit');
+    XLSX.writeFile(workbook, `${exportPrefix}-${detail.mobile || 'parent'}-detail.xlsx`);
+  };
+  const printParentDetail = () => {
+    if (!detail) return;
+    const studentRows = (detail.students || []).map((student) => `<tr><td>${student.name || '—'}</td><td>${student.schoolName || '—'}</td><td>${student.className || '—'}</td><td>${student.points || 0}</td><td>${student.attendanceRate || 0}%</td><td>${student.status || '—'}</td></tr>`).join('');
+    const auditRows = (detail.auditHistory || []).slice(0, 20).map((entry) => `<tr><td>${entry.title || 'إجراء'}</td><td>${entry.note || '—'}</td><td>${entry.actorName || '—'}</td><td>${entry.createdAt ? formatDateTime(entry.createdAt) : '—'}</td></tr>`).join('');
+    printHtmlContent(`ملف ولي الأمر ${detail.guardianName || ''}`, `<h1>ملف ولي الأمر</h1><div class="meta">${detail.guardianName || 'ولي الأمر'} • ${detail.mobileMasked || detail.mobile || '—'} • ${selectedSchool?.name || 'المدرسة'}</div><div class="stats"><div class="stat"><div class="k">عدد الأبناء</div><div class="v">${(detail.students || []).length}</div></div><div class="stat"><div class="k">مجموع النقاط</div><div class="v">${detail.totalPoints || 0}</div></div><div class="stat"><div class="k">متوسط الحضور</div><div class="v">${detail.averageAttendance || 0}%</div></div><div class="stat"><div class="k">حالة الحساب</div><div class="v">${detail.accountControl?.suspended ? 'معلق' : 'مفعل'}</div></div></div><h1 style="font-size:20px;margin-top:24px">الأبناء المرتبطون</h1><table><thead><tr><th>الطالب</th><th>المدرسة</th><th>الفصل</th><th>النقاط</th><th>الحضور</th><th>الحالة</th></tr></thead><tbody>${studentRows || '<tr><td colspan="6">لا يوجد أبناء مرتبطون.</td></tr>'}</tbody></table><h1 style="font-size:20px;margin-top:24px">آخر السجل الرقابي</h1><table><thead><tr><th>الإجراء</th><th>التفاصيل</th><th>المنفذ</th><th>الوقت</th></tr></thead><tbody>${auditRows || '<tr><td colspan="4">لا يوجد سجل تغييرات.</td></tr>'}</tbody></table>`);
+  };
+  const detail = state.detail;
+  return (
+    <div className="space-y-6">
+      <SectionCard title="أولياء الأمور" icon={Users} action={<div className="flex flex-wrap items-center gap-2"><button onClick={load} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">تحديث</button><button onClick={() => exportParentList('xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel</button><button onClick={() => exportParentList('csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV</button><button onClick={printParentList} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button><button onClick={() => window.open('/parent', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white">فتح البوابة</button></div>}>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">{summaryCards.map((item) => <StatCard key={item.label} label={item.label} value={item.value} tone={item.tone} />)}</div>
+        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[1.5fr,220px,auto]">
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث باسم ولي الأمر أو الطالب أو الرقم" className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none" />
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none">
+            <option value="all">كل الحالات</option>
+            <option value="active">نشطون</option>
+            <option value="pending">لديهم طلبات معلقة</option>
+            <option value="idle">بدون نشاط حديث</option>
+            <option value="suspended">حسابات معلقة</option>
+          </select>
+          <a href="/admin/parent-primary-requests" target="_blank" rel="noreferrer" className="inline-flex items-center justify-center rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50">شاشة الطلبات</a>
+        </div>
+        {state.error ? <div className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-100">{state.error}</div> : null}
+        {state.loading ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-10 text-center text-sm font-bold text-slate-500">جاري تحميل بيانات أولياء الأمور...</div> : null}
+        {!state.loading && !filteredParents.length ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-10 text-center text-sm font-bold text-slate-500">لا توجد حسابات مطابقة.</div> : null}
+        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">{filteredParents.map((item) => {
+          const tone = item.accountControl?.suspended ? 'rose' : item.primaryChangeRequest?.status === 'pending' ? 'amber' : item.status === 'active' ? 'green' : 'slate';
+          return <div key={item.mobile} className="rounded-[1.75rem] bg-white p-5 ring-1 ring-slate-200 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-black text-slate-900">{item.guardianName || 'ولي الأمر'}</div>
+                <div className="mt-1 text-sm font-bold text-slate-500">{item.mobileMasked} • {item.studentsCount || 0} طالب/ـة</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge tone={tone}>{item.accountControl?.suspended ? 'معلق' : item.primaryChangeRequest?.status === 'pending' ? 'طلب معلق' : item.status === 'active' ? 'نشط' : 'جاهز'}</Badge>
+                  <Badge tone="blue">{(item.schoolNames || []).join('، ') || (selectedSchool?.name || 'المدرسة')}</Badge>
+                  {item.extraContactsCount ? <Badge tone="violet">{item.extraContactsCount} أرقام إضافية</Badge> : null}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button disabled={state.sending === item.mobile || String(currentUser?.role || '') === 'supervisor' || item.accountControl?.suspended} onClick={() => sendAccessCode(item.mobile, item.notificationSettings?.preferredChannel === 'sms' ? 'sms' : 'whatsapp')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{state.sending === item.mobile ? 'جارِ الإرسال...' : 'إرسال رمز دخول'}</button>
+                <button onClick={() => openDetail(item.mobile)} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">{state.detailLoading === item.mobile ? 'جارِ التحميل...' : 'التفاصيل'}</button>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                <div className="text-xs font-black text-slate-500">آخر دخول</div>
+                <div className="mt-2 text-sm font-bold text-slate-800">{item.latestSession?.lastLoginAt ? formatDateTime(item.latestSession.lastLoginAt) : 'لا يوجد دخول مسجل'}</div>
+                <div className="mt-1 text-xs text-slate-500">القناة المفضلة: {item.notificationSettings?.preferredChannel === 'sms' ? 'SMS' : item.notificationSettings?.preferredChannel === 'both' ? 'واتساب + SMS' : 'واتساب'}</div>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                <div className="text-xs font-black text-slate-500">طلب تغيير الرقم الأساسي</div>
+                <div className="mt-2 text-sm font-bold text-slate-800">{item.primaryChangeRequest?.status === 'pending' ? `بانتظار الاعتماد إلى ${item.primaryChangeRequest.requestedMobileMasked || '—'}` : item.primaryChangeRequest?.status === 'approved' ? 'معتمد سابقًا' : 'لا يوجد طلب حالي'}</div>
+                <div className="mt-1 text-xs text-slate-500">{item.primaryChangeRequest?.requestedAt ? formatDateTime(item.primaryChangeRequest.requestedAt) : '—'}</div>
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-slate-200 p-4">
+              <div className="text-sm font-black text-slate-800">الطلاب المرتبطون</div>
+              <div className="mt-3 flex flex-wrap gap-2">{(item.students || []).slice(0, 8).map((student) => <span key={`${item.mobile}-${student.studentId}`} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700">{student.name} • {student.className || '—'}</span>)}</div>
+            </div>
+          </div>;
+        })}</div>
+      </SectionCard>
+
+      {detail ? <div className="fixed inset-0 z-[100] bg-slate-950/40 p-4 backdrop-blur-sm" onClick={closeDetail}>
+        <div className="mx-auto mt-6 max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] bg-white p-6 shadow-2xl ring-1 ring-slate-200" onClick={(e) => e.stopPropagation()}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-2xl font-black text-slate-900">تفاصيل ولي الأمر</div>
+              <div className="mt-1 text-sm font-bold text-slate-500">{detail.guardianName || 'ولي الأمر'} • {detail.mobileMasked}</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Badge tone={detail.accountControl?.suspended ? 'rose' : 'green'}>{detail.accountControl?.suspended ? 'الحساب معلق' : 'الحساب مفعل'}</Badge>
+                <Badge tone="blue">{detail.studentsCount || 0} طالب/ـة</Badge>
+                <Badge tone="violet">{detail.extraContacts?.length || 0} أرقام إضافية</Badge>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => exportParentDetail('xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel</button>
+              <button onClick={() => exportParentDetail('csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV</button>
+              <button onClick={printParentDetail} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button>
+              {canManage ? <>
+                <button disabled={state.toggling || detail.accountControl?.suspended} onClick={() => toggleSuspension(true)} className="rounded-2xl bg-rose-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">تعليق الحساب</button>
+                <button disabled={state.toggling || !detail.accountControl?.suspended} onClick={() => toggleSuspension(false)} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">إعادة التفعيل</button>
+              </> : null}
+              <button onClick={closeDetail} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">إغلاق</button>
+            </div>
+          </div>
+          {state.detailError ? <div className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-100">{state.detailError}</div> : null}
+          <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <StatCard label="إجمالي الطلاب" value={detail.studentsCount || 0} tone="sky" />
+            <StatCard label="مجموع النقاط" value={detail.totalPoints || 0} tone="green" />
+            <StatCard label="متوسط الحضور" value={`${detail.avgAttendance || 0}%`} tone="amber" />
+            <StatCard label="سجل التنبيهات" value={(detail.notificationHistory || []).length} tone="violet" />
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[1.25fr_1fr]">
+            <div className="space-y-5">
+              <div className="rounded-[1.75rem] border border-slate-200 p-5">
+                <div className="text-lg font-black text-slate-900">الأبناء المرتبطون</div>
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">{(detail.students || []).map((student) => <div key={`${detail.mobile}-${student.id || student.studentId}`} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-sm font-black text-slate-900">{student.name}</div><div className="mt-1 text-xs font-bold text-slate-500">{student.schoolName || 'المدرسة'} • {student.className || '—'}</div></div>{canManage ? <button onClick={() => openReassign(student)} className="rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100">فك / نقل الارتباط</button> : null}</div><div className="mt-3 grid grid-cols-3 gap-2 text-center"><div className="rounded-2xl bg-white px-2 py-3 ring-1 ring-slate-200"><div className="text-lg font-black text-slate-900">{student.points || 0}</div><div className="text-[11px] font-bold text-slate-500">نقاط</div></div><div className="rounded-2xl bg-white px-2 py-3 ring-1 ring-slate-200"><div className="text-lg font-black text-slate-900">{student.attendanceRate || 0}%</div><div className="text-[11px] font-bold text-slate-500">حضور</div></div><div className="rounded-2xl bg-white px-2 py-3 ring-1 ring-slate-200"><div className="text-sm font-black text-slate-900">{student.status || '—'}</div><div className="text-[11px] font-bold text-slate-500">الحالة</div></div></div></div>)}</div>
+              </div>
+              <div className="rounded-[1.75rem] border border-slate-200 p-5">
+                <div className="flex items-center justify-between gap-3"><div className="text-lg font-black text-slate-900">سجل التنبيهات والرسائل</div><Badge tone="blue">{(detail.notificationHistory || []).length} سجل</Badge></div>
+                <div className="mt-4 space-y-3">{(detail.notificationHistory || []).length ? (detail.notificationHistory || []).slice(0, 12).map((entry) => <div key={entry.id} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-black text-slate-900">{entry.title || 'تنبيه'}</div><div className="flex flex-wrap gap-2"><Badge tone={entry.channel === 'sms' ? 'amber' : entry.channel === 'internal' ? 'slate' : 'green'}>{entry.channel === 'sms' ? 'SMS' : entry.channel === 'internal' ? 'داخلي' : 'واتساب'}</Badge><Badge tone={/نجاح/.test(String(entry.status || '')) ? 'green' : 'rose'}>{entry.status || '—'}</Badge></div></div><div className="mt-2 text-sm leading-7 text-slate-600">{entry.body || '—'}</div><div className="mt-2 text-xs font-bold text-slate-500">{entry.studentName ? `${entry.studentName} • ` : ''}{entry.recipientMasked || entry.recipient || '—'} • {entry.createdAt ? formatDateTime(entry.createdAt) : '—'}</div>{entry.reason ? <div className="mt-2 rounded-2xl bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 ring-1 ring-rose-100">سبب التعثر: {entry.reason}</div> : null}</div>) : <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">لا يوجد سجل تنبيهات حتى الآن.</div>}</div>
+              </div>
+              <div className="rounded-[1.75rem] border border-slate-200 p-5">
+                <div className="flex items-center justify-between gap-3"><div className="text-lg font-black text-slate-900">سجل التغييرات الرقابي</div><Badge tone="violet">{(detail.auditHistory || []).length} إجراء</Badge></div>
+                <div className="mt-2 text-sm font-bold text-slate-500">يعرض آخر الإجراءات الإدارية المهمة على ملف ولي الأمر لضمان سهولة المراجعة والتتبع.</div>
+                <div className="mt-4 space-y-3">{(detail.auditHistory || []).length ? (detail.auditHistory || []).slice(0, 14).map((entry) => <div key={entry.id} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-black text-slate-900">{entry.title || 'إجراء إداري'}</div><Badge tone={/suspend|reject|rollback|disabled/i.test(String(entry.action || '')) ? 'rose' : /approve|reactivate|enabled/i.test(String(entry.action || '')) ? 'green' : /policy|send_access_code/i.test(String(entry.action || '')) ? 'amber' : 'blue'}>{entry.actorRole === 'superadmin' ? 'أدمن عام' : entry.actorRole === 'principal' ? 'مدير مدرسة' : entry.actorRole === 'supervisor' ? 'مشرف' : entry.actorRole || 'إجراء'}</Badge></div><div className="mt-2 text-sm leading-7 text-slate-600">{entry.note || '—'}</div><div className="mt-2 flex flex-wrap gap-2 text-xs font-bold text-slate-500"><span>{entry.createdAt ? formatDateTime(entry.createdAt) : '—'}</span>{entry.actorName ? <span>• {entry.actorName}</span> : null}{entry.studentName ? <span>• {entry.studentName}</span> : null}{entry.schoolName ? <span>• {entry.schoolName}</span> : null}</div></div>) : <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">لا يوجد سجل تغييرات محفوظ حتى الآن.</div>}</div>
+              </div>
+            </div>
+            <div className="space-y-5">
+              <div className="rounded-[1.75rem] border border-slate-200 p-5">
+                <div className="text-lg font-black text-slate-900">الضبط والتحكم</div>
+                <div className="mt-4 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">ملاحظة إدارية</div><textarea value={detailNote} onChange={(e) => setDetailNote(e.target.value)} placeholder="مثال: تعليق مؤقت حتى تحديث البيانات" className="mt-2 min-h-[90px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none" /></div>
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2"><div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">آخر حالة</div><div className="mt-2 text-sm font-bold text-slate-900">{detail.accountControl?.suspended ? 'معلق من الإدارة' : 'مفعل'}</div><div className="mt-1 text-xs text-slate-500">{detail.accountControl?.updatedAt ? formatDateTime(detail.accountControl.updatedAt) : 'لم يتم تعديل الحالة من قبل'}</div></div><div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">طلب تغيير الرقم</div><div className="mt-2 text-sm font-bold text-slate-900">{detail.primaryChangeRequest?.status === 'pending' ? `معلّق إلى ${detail.primaryChangeRequest.requestedMobileMasked || '—'}` : detail.primaryChangeRequest?.status === 'approved' ? 'تم اعتماده' : detail.primaryChangeRequest?.status === 'rejected' ? 'مرفوض' : 'لا يوجد طلب'}</div><div className="mt-1 text-xs text-slate-500">{detail.primaryChangeRequest?.requestedAt ? formatDateTime(detail.primaryChangeRequest.requestedAt) : '—'}</div></div></div>
+              </div>
+              <div className="rounded-[1.75rem] border border-slate-200 p-5">
+                <div className="text-lg font-black text-slate-900">سجل الدخول</div>
+                <div className="mt-4 space-y-3">{(detail.sessions || []).length ? (detail.sessions || []).map((session) => <div key={session.id} className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="flex flex-wrap items-center justify-between gap-2"><div className="text-sm font-black text-slate-900">{session.createdAt ? formatDateTime(session.createdAt) : '—'}</div><Badge tone={session.active ? 'green' : 'slate'}>{session.active ? 'نشطة' : 'منتهية'}</Badge></div><div className="mt-1 text-xs font-bold text-slate-500">تنتهي الجلسة: {session.expiresAt ? formatDateTime(session.expiresAt) : '—'}</div></div>) : <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">لا يوجد سجل دخول محفوظ.</div>}</div>
+              </div>
+              <div className="rounded-[1.75rem] border border-slate-200 p-5">
+                <div className="text-lg font-black text-slate-900">أرقام التنبيه الإضافية</div>
+                <div className="mt-4 flex flex-wrap gap-2">{(detail.extraContacts || []).length ? (detail.extraContacts || []).map((contact) => <span key={`${detail.mobile}-${contact.mobile}`} className="rounded-full bg-violet-50 px-3 py-2 text-xs font-bold text-violet-700 ring-1 ring-violet-100">{contact.mobileMasked} • {contact.channel === 'sms' ? 'SMS' : 'واتساب'} • {contact.label || 'رقم إضافي'}</span>) : <span className="text-sm font-bold text-slate-500">لا توجد أرقام إضافية مرتبطة.</span>}</div>
+              </div>
+            </div>
+          {reassignTarget ? <div className="fixed inset-0 z-[110] bg-slate-950/40 p-4 backdrop-blur-sm" onClick={closeReassign}>
+            <div className="mx-auto mt-20 w-full max-w-2xl rounded-[2rem] bg-white p-6 shadow-2xl ring-1 ring-slate-200" onClick={(e) => e.stopPropagation()}>
+              <div className="text-2xl font-black text-slate-900">فك / نقل ارتباط الطالب</div>
+              <div className="mt-2 text-sm font-bold text-slate-500">سيتم نقل {reassignTarget.name || 'الطالب'} إلى رقم ولي أمر أساسي بديل حفاظًا على التنبيهات وعدم ترك الطالب بلا ارتباط.</div>
+              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="text-xs font-black text-slate-500">الرقم الحالي</label>
+                  <div className="mt-2 rounded-2xl bg-slate-50 px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200">{detail.mobileMasked}</div>
+                </div>
+                <div>
+                  <label className="text-xs font-black text-slate-500">الرقم البديل الجديد</label>
+                  <input value={reassignMobile} onChange={(e) => setReassignMobile(e.target.value)} placeholder="05xxxxxxxx" className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none" />
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="text-xs font-black text-slate-500">اسم ولي الأمر الجديد (اختياري)</label>
+                <input value={reassignGuardianName} onChange={(e) => setReassignGuardianName(e.target.value)} placeholder="يُترك فارغًا للاحتفاظ بالاسم الحالي" className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none" />
+              </div>
+              <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold leading-7 text-amber-800 ring-1 ring-amber-100">هذا الإجراء لا يحذف الطالب، بل ينقل ارتباطه إلى الرقم الجديد. ويمكن استخدامه عند تغيير رقم ولي الأمر أو رغبة الإدارة في فصل الأبناء بين أرقام مختلفة.</div>
+              <div className="mt-6 flex flex-wrap justify-end gap-2">
+                <button onClick={closeReassign} disabled={reassigning} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">إلغاء</button>
+                <button onClick={submitReassign} disabled={reassigning} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{reassigning ? 'جاري التنفيذ...' : 'تنفيذ النقل الآمن'}</button>
+              </div>
+            </div>
+          </div> : null}
+          </div>
+        </div>
+      </div> : null}
+    </div>
+  );
+}
+
+
+function ParentAuditFeedPage({ currentUser, selectedSchool, onSendMessage, onNavigate }) {
+  const [state, setState] = useState({ loading: true, entries: [], summary: { total: 0, byAction: {}, schools: 0, parents: 0 }, error: '' });
+  const [query, setQuery] = useState('');
+  const [actionFilter, setActionFilter] = useState('all');
+  const [scopeFilter, setScopeFilter] = useState('all');
+  const [actionNotice, setActionNotice] = useState({ tone: '', text: '' });
+  const [sendingEntryId, setSendingEntryId] = useState('');
+
+  const load = useCallback(async () => {
+    setState((current) => ({ ...current, loading: true, error: '' }));
+    try {
+      const response = await apiRequest('/api/admin/parents/audit-feed', { token: getSessionToken() });
+      setState({ loading: false, entries: Array.isArray(response.entries) ? response.entries : [], summary: response.summary || { total: 0, byAction: {}, schools: 0, parents: 0 }, error: '' });
+    } catch (error) {
+      setState((current) => ({ ...current, loading: false, error: error.message || 'تعذر تحميل السجل الرقابي.' }));
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const actionOptions = useMemo(() => {
+    const set = new Set();
+    (state.entries || []).forEach((entry) => set.add(String(entry.action || '').trim()));
+    return [...set].filter(Boolean);
+  }, [state.entries]);
+
+  const filteredEntries = useMemo(() => {
+    const q = String(query || '').trim().toLowerCase();
+    return (state.entries || []).filter((entry) => {
+      if (actionFilter !== 'all' && String(entry.action || '') !== actionFilter) return false;
+      if (scopeFilter === 'school' && String(entry.scope || '') !== 'school') return false;
+      if (scopeFilter === 'parent' && String(entry.scope || '') !== 'parent') return false;
+      if (!q) return true;
+      const haystack = [entry.title, entry.note, entry.actorName, entry.actorRole, entry.guardianName, entry.mobileMasked, entry.studentName, entry.schoolName].join(' ').toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [state.entries, query, actionFilter, scopeFilter]);
+
+  const exportPrefix = `parent-audit-${selectedSchool?.code || selectedSchool?.id || 'school'}`;
+  const exportColumns = [
+    { key: 'createdAt', label: 'وقت الإجراء' },
+    { key: 'title', label: 'الإجراء' },
+    { key: 'note', label: 'الوصف' },
+    { key: 'guardianName', label: 'ولي الأمر' },
+    { key: 'mobileMasked', label: 'رقم ولي الأمر' },
+    { key: 'studentName', label: 'الطالب' },
+    { key: 'schoolName', label: 'المدرسة' },
+    { key: 'actorName', label: 'المنفذ' },
+    { key: 'actorRoleLabel', label: 'الدور' },
+    { key: 'scopeLabel', label: 'النطاق' },
+    { key: 'action', label: 'رمز الإجراء' },
+  ];
+
+  const exportRows = (filteredEntries || []).map((entry) => ({
+    ...entry,
+    createdAt: entry.createdAt ? formatDateTime(entry.createdAt) : '—',
+    actorRoleLabel: entry.actorRole === 'superadmin' ? 'أدمن عام' : entry.actorRole === 'principal' ? 'مدير مدرسة' : entry.actorRole === 'supervisor' ? 'مشرف' : entry.actorRole || 'إجراء',
+    scopeLabel: entry.scope === 'school' ? 'عام على مستوى المدرسة' : 'خاص بولي أمر',
+  }));
+
+  const exportAudit = (mode = 'xlsx') => {
+    if (mode === 'csv') {
+      downloadFile(`${exportPrefix}.csv`, buildCsv(exportRows, exportColumns), 'text/csv;charset=utf-8;');
+      return;
+    }
+    exportRowsToWorkbook(`${exportPrefix}.xlsx`, 'ParentAudit', exportRows, exportColumns);
+  };
+
+  const printAudit = () => {
+    const rowsHtml = exportRows.map((row) => `<tr>${exportColumns.map((column) => `<td style="border:1px solid #dbe3ef;padding:8px;text-align:right;font-size:12px">${String(row[column.key] ?? '').replace(/</g, '&lt;')}</td>`).join('')}</tr>`).join('');
+    const popup = window.open('', '_blank', 'width=1200,height=900');
+    if (!popup) return;
+    popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" /><title>سجل أولياء الأمور</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#0f172a}h1{margin:0 0 8px;font-size:22px}p{margin:0 0 18px;color:#475569}table{width:100%;border-collapse:collapse}th{background:#f8fafc;border:1px solid #dbe3ef;padding:10px;text-align:right;font-size:12px}</style></head><body><h1>سجل أولياء الأمور الرقابي</h1><p>إجمالي السجلات: ${exportRows.length}</p><table><thead><tr>${exportColumns.map((column) => `<th>${column.label}</th>`).join('')}</tr></thead><tbody>${rowsHtml || '<tr><td colspan="11" style="padding:16px;text-align:center">لا توجد بيانات</td></tr>'}</tbody></table></body></html>`);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+  };
+
+
+  const canSendFollowupForEntry = useCallback((entry) => {
+    if (!selectedSchool || !entry || !onSendMessage) return false;
+    if (!entry.studentId || !entry.mobile) return false;
+    return Number(entry.schoolId || 0) === Number(selectedSchool.id || 0);
+  }, [selectedSchool, onSendMessage]);
+
+  const openEntryContext = useCallback((entry) => {
+    if (!entry) return;
+    const actionKey = String(entry.action || '').toLowerCase();
+    if (/primary|portal|policy|request|approve|reject|rollback/.test(actionKey)) {
+      window.open('/admin/parent-primary-requests', '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (onNavigate) onNavigate('parentsAdmin');
+  }, [onNavigate]);
+
+  const sendFollowupForEntry = useCallback(async (entry) => {
+    if (!canSendFollowupForEntry(entry)) {
+      setActionNotice({ tone: 'rose', text: 'لا يمكن إرسال متابعة لهذا السجل من المدرسة الحالية. اختر المدرسة المرتبطة بالسجل أولًا.' });
+      return;
+    }
+    const extraNote = window.prompt('اكتب نص متابعة مختصرًا سيُرسل لولي الأمر، أو اتركه فارغًا لاستخدام النص الافتراضي.', String(entry.note || '').trim()) || '';
+    const subject = `متابعة إدارية: ${entry.title || 'سجل ولي أمر'}`;
+    const message = extraNote.trim() || `نحيطكم علمًا بأنه تمت مراجعة السجل المرتبط بالطالب {اسم_الطالب} في ${selectedSchool?.name || 'المدرسة'}، ويمكنكم التواصل مع إدارة المدرسة عند الحاجة.`;
+    try {
+      setSendingEntryId(String(entry.id || 'sending'));
+      const result = await onSendMessage({
+        audience: `students:${entry.studentId}`,
+        audienceLabel: `متابعة ولي أمر: ${entry.studentName || entry.guardianName || 'طالب'}`,
+        channel: 'whatsapp',
+        subject,
+        message,
+        sendMode: 'now',
+      });
+      if (!result?.ok) throw new Error(result?.message || 'تعذر إرسال المتابعة.');
+      setActionNotice({ tone: 'green', text: result.message || `تم إرسال متابعة إلى ولي أمر ${entry.studentName || entry.guardianName || 'الطالب'}.` });
+    } catch (error) {
+      setActionNotice({ tone: 'rose', text: error?.message || 'تعذر إرسال المتابعة من السجل.' });
+    } finally {
+      setSendingEntryId('');
+    }
+  }, [canSendFollowupForEntry, onSendMessage, selectedSchool]);
+
+  const actionCards = [
+    { label: 'إجمالي السجلات', value: state.summary.total || 0, tone: 'blue' },
+    { label: 'السجلات العامة', value: (state.entries || []).filter((entry) => entry.scope === 'school').length, tone: 'amber' },
+    { label: 'السجلات الفردية', value: (state.entries || []).filter((entry) => entry.scope !== 'school').length, tone: 'green' },
+    { label: 'أولياء الأمور المشمولون', value: state.summary.parents || 0, tone: 'violet' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <SectionCard title="سجل أولياء الأمور" icon={ClipboardList} action={<div className="flex flex-wrap items-center gap-2"><button onClick={load} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">تحديث</button><button onClick={() => exportAudit('xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel</button><button onClick={() => exportAudit('csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV</button><button onClick={printAudit} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button></div>}>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {actionCards.map((card) => <div key={card.label} className="rounded-[1.5rem] border border-slate-200 bg-white p-5"><Badge tone={card.tone}>{card.label}</Badge><div className="mt-4 text-3xl font-black text-slate-900">{card.value}</div></div>)}
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-[1.2fr_.7fr_.7fr_auto]">
+          <label className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">بحث</div><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ولي الأمر أو الطالب أو الوصف" className="mt-2 w-full bg-transparent text-sm font-bold outline-none" /></label>
+          <label className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">نوع الإجراء</div><select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="mt-2 w-full bg-transparent text-sm font-bold outline-none"><option value="all">الكل</option>{actionOptions.map((action) => <option key={action} value={action}>{action}</option>)}</select></label>
+          <label className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">النطاق</div><select value={scopeFilter} onChange={(e) => setScopeFilter(e.target.value)} className="mt-2 w-full bg-transparent text-sm font-bold outline-none"><option value="all">الكل</option><option value="school">عام على مستوى المدرسة</option><option value="parent">خاص بولي أمر</option></select></label>
+          <div className="flex items-end"><div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700">{filteredEntries.length} سجل</div></div>
+        </div>
+        {state.error ? <div className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200">{state.error}</div> : null}
+        {actionNotice.text ? <div className={`mt-4 rounded-2xl px-4 py-3 text-sm font-bold ring-1 ${actionNotice.tone === 'green' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : actionNotice.tone === 'rose' ? 'bg-rose-50 text-rose-700 ring-rose-200' : 'bg-sky-50 text-sky-700 ring-sky-200'}`}>{actionNotice.text}</div> : null}
+        {state.loading ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-500">جاري تحميل السجل الرقابي...</div> : null}
+        {!state.loading && !filteredEntries.length ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-500">لا توجد سجلات مطابقة للفلاتر الحالية.</div> : null}
+        <div className="mt-4 space-y-3">
+          {filteredEntries.map((entry) => (
+            <div key={entry.id} className="rounded-[1.5rem] border border-slate-200 bg-white p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-lg font-black text-slate-900">{entry.title || 'إجراء إداري'}</div>
+                  <div className="mt-2 text-sm leading-7 text-slate-600">{entry.note || '—'}</div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge tone={/suspend|reject|rollback|disabled/i.test(String(entry.action || '')) ? 'rose' : /approve|reactivate|enabled/i.test(String(entry.action || '')) ? 'green' : /policy|send_access_code/i.test(String(entry.action || '')) ? 'amber' : 'blue'}>{entry.scope === 'school' ? 'عام' : 'ولي أمر'}</Badge>
+                  <Badge tone="slate">{entry.actorRole === 'superadmin' ? 'أدمن عام' : entry.actorRole === 'principal' ? 'مدير مدرسة' : entry.actorRole === 'supervisor' ? 'مشرف' : entry.actorRole || 'إجراء'}</Badge>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">ولي الأمر</div><div className="mt-1 text-sm font-black text-slate-900">{entry.guardianName || '—'}</div><div className="mt-1 text-xs text-slate-500">{entry.mobileMasked || '—'}</div></div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">الطالب / المدرسة</div><div className="mt-1 text-sm font-black text-slate-900">{entry.studentName || '—'}</div><div className="mt-1 text-xs text-slate-500">{entry.schoolName || '—'}</div></div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">المنفذ</div><div className="mt-1 text-sm font-black text-slate-900">{entry.actorName || '—'}</div><div className="mt-1 text-xs text-slate-500">{entry.createdAt ? formatDateTime(entry.createdAt) : '—'}</div></div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">رمز الإجراء</div><div className="mt-1 text-sm font-black text-slate-900">{entry.action || '—'}</div><div className="mt-1 text-xs text-slate-500">{entry.scope === 'school' ? 'عام على المدرسة' : 'ملف ولي الأمر'}</div></div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" onClick={() => openEntryContext(entry)} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">فتح الجهة المرتبطة</button>
+                <button type="button" onClick={() => onNavigate?.('messages')} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100 hover:bg-sky-50">فتح الرسائل والتنبيهات</button>
+                {canSendFollowupForEntry(entry) ? <button type="button" onClick={() => sendFollowupForEntry(entry)} disabled={sendingEntryId === String(entry.id || '')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{sendingEntryId === String(entry.id || '') ? 'جاري الإرسال...' : 'إرسال متابعة لولي الأمر'}</button> : null}
+                {!canSendFollowupForEntry(entry) && entry.studentId ? <div className="rounded-2xl bg-amber-50 px-4 py-2 text-xs font-bold text-amber-700 ring-1 ring-amber-200">لإرسال متابعة مباشرة اختر المدرسة المرتبطة بهذا السجل أولًا.</div> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
     </div>
   );
 }
@@ -10826,6 +15977,7 @@ function StudentRolePage({ selectedSchool, currentUser }) {
 export default function App() {
   const initial = useMemo(() => loadPersistedState(), []);
   const publicMode = useMemo(() => getPublicModeFromLocation(), []);
+  const lessonSessionIdFromUrl = useMemo(() => getLessonSessionIdFromLocation(), []);
   const [schools, setSchools] = useState(initial.schools);
   const [users, setUsers] = useState(initial.users);
   const [currentUserId, setCurrentUserId] = useState(initial.currentUserId);
@@ -10846,6 +15998,17 @@ export default function App() {
   const [resetUserPasswordOpen, setResetUserPasswordOpen] = useState(false);
   const [resetUserPasswordLoading, setResetUserPasswordLoading] = useState(false);
   const [resetPasswordTargetUserId, setResetPasswordTargetUserId] = useState(null);
+  const [headerAlertsOpen, setHeaderAlertsOpen] = useState(false);
+  const [headerAlertsState, setHeaderAlertsState] = useState({
+    loading: false,
+    loaded: false,
+    error: '',
+    count: 0,
+    pending: 0,
+    autoApproved: 0,
+    failed: 0,
+    items: [],
+  });
   const bootstrappedRef = useRef(false);
   const saveTimerRef = useRef(null);
 
@@ -10855,9 +16018,10 @@ export default function App() {
     users,
     scanLog,
     actionLog,
+    gateSyncEvents,
     settings,
     notifications,
-  }), [schools, users, scanLog, actionLog, settings, notifications]);
+  }), [schools, users, scanLog, actionLog, gateSyncEvents, settings, notifications]);
 
   const applyServerStatePayload = useCallback((serverState, uiState = loadUiState()) => {
     const next = buildHydratedClientState(serverState || {}, uiState);
@@ -10865,6 +16029,7 @@ export default function App() {
     setUsers(next.users);
     setScanLog(next.scanLog);
     setActionLog(next.actionLog || []);
+    setGateSyncEvents(hydrateGateSyncCenterEvents(next.gateSyncEvents || []));
     setSettings(next.settings);
     setNotifications(next.notifications);
     saveServerCache(serverState || {});
@@ -10874,6 +16039,7 @@ export default function App() {
   const currentUser = useMemo(() => applySchoolAccessToUser(users.find((user) => user.id === currentUserId) || null, schools), [users, currentUserId, schools]);
   const currentRoleObject = roles.find((role) => role.key === currentUser?.role) || roles[0];
   const RoleIcon = currentRoleObject.icon;
+  const canUseHeaderAlerts = ['superadmin', 'principal', 'supervisor'].includes(String(currentUser?.role || ''));
 
   const selectedSchool = useMemo(() => {
     if (currentUser?.role && currentUser.role !== "superadmin") {
@@ -10909,6 +16075,24 @@ export default function App() {
       setSelectedSchoolId(schools[0].id);
     }
   }, [selectedSchool, schools]);
+
+  useEffect(() => {
+    if (!currentUser || !lessonSessionIdFromUrl) return;
+    if (!["teacher", "principal", "supervisor", "superadmin"].includes(String(currentUser.role || ""))) return;
+    if (activePage !== "lessonAttendanceSessions") {
+      setActivePage("lessonAttendanceSessions");
+    }
+  }, [currentUser, lessonSessionIdFromUrl, activePage]);
+
+  useEffect(() => {
+    if (!currentUser || !leavePassIdFromUrl) return;
+    const role = String(currentUser.role || "");
+    if (!["teacher", "principal", "supervisor", "superadmin", "agent", "counselor"].includes(role)) return;
+    const targetPage = role === "agent" ? "leavePassAgentDesk" : role === "counselor" ? "leavePassCounselorDesk" : "leavePasses";
+    if (activePage !== targetPage) {
+      setActivePage(targetPage);
+    }
+  }, [currentUser, leavePassIdFromUrl, activePage]);
 
   useEffect(() => {
     saveUiState({
@@ -10966,6 +16150,63 @@ export default function App() {
       cancelled = true;
     };
   }, [publicMode]);
+
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentUser || !['superadmin', 'principal', 'supervisor'].includes(String(currentUser.role || '')) || !selectedSchool?.id) {
+      setHeaderAlertsState({ loading: false, loaded: false, error: '', count: 0, pending: 0, autoApproved: 0, failed: 0, items: [] });
+      return () => { cancelled = true; };
+    }
+    const loadHeaderAlerts = async () => {
+      setHeaderAlertsState((current) => ({ ...current, loading: true, error: '' }));
+      try {
+        const query = currentUser?.role === 'superadmin' ? `?schoolId=${selectedSchool.id}` : '';
+        const response = await apiRequest(`/api/admin/parent-primary-requests${query}`, { token: getSessionToken() });
+        if (cancelled) return;
+        const requests = Array.isArray(response?.requests) ? response.requests : [];
+        const apiAlerts = Array.isArray(response?.alerts) ? response.alerts : [];
+        const pending = requests.filter((request) => String(request?.status || '') === 'pending').length;
+        const autoApproved = apiAlerts.filter((alert) => /اعتماد تلقائي|تلقائيًا|تلقائي/.test(String(alert?.title || '') + ' ' + String(alert?.body || ''))).length;
+        const localItems = (notifications || []).filter((note) => /فشل|تعذر|ولي الأمر|أولياء الأمور|الرقم الأساسي|بوابة ولي الأمر/.test(String(note?.title || '') + ' ' + String(note?.body || ''))).slice(0, 4).map((note, index) => ({
+          id: `local-${note?.id || index}`,
+          title: note?.title || 'تنبيه',
+          body: note?.body || '',
+          time: note?.time || '—',
+          tone: /فشل|تعذر/.test(String(note?.title || '') + ' ' + String(note?.body || '')) ? 'rose' : 'blue',
+        }));
+        const normalizedAlerts = apiAlerts.slice(0, 6).map((alert, index) => ({
+          id: `api-${alert?.id || index}`,
+          title: alert?.title || 'إشعار إداري',
+          body: alert?.body || '',
+          time: alert?.time || alert?.createdAt || '—',
+          tone: /رفض|فشل|تعذر/.test(String(alert?.title || '') + ' ' + String(alert?.body || '')) ? 'rose' : /تلقائي/.test(String(alert?.title || '') + ' ' + String(alert?.body || '')) ? 'amber' : 'blue',
+        }));
+        const failed = [...normalizedAlerts, ...localItems].filter((item) => item.tone === 'rose').length;
+        const items = [];
+        if (pending > 0) {
+          items.push({ id: 'pending-summary', title: 'طلبات أولياء الأمور', body: `يوجد ${pending} طلب بانتظار المتابعة أو الاعتماد.`, time: 'الآن', tone: 'blue' });
+        }
+        items.push(...normalizedAlerts, ...localItems);
+        setHeaderAlertsState({
+          loading: false,
+          loaded: true,
+          error: '',
+          count: Math.min(items.length, 99),
+          pending,
+          autoApproved,
+          failed,
+          items: items.slice(0, 8),
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setHeaderAlertsState((current) => ({ ...current, loading: false, loaded: true, error: error?.message || 'تعذر تحميل التنبيهات.' }));
+        }
+      }
+    };
+    loadHeaderAlerts();
+    return () => { cancelled = true; };
+  }, [currentUser, selectedSchool?.id, notifications]);
 
   useEffect(() => {
     if (!bootstrappedRef.current || !currentUser) return;
@@ -11044,6 +16285,25 @@ export default function App() {
       return { ok: false, message: error?.message || 'تعذر التحقق من الرمز.' };
     }
   };
+
+  const sidebarCounters = useMemo(() => {
+    const hasParentSignal = ['superadmin', 'principal', 'supervisor'].includes(String(currentUser?.role || ''));
+    const parentPending = Number(parentPortalDashboard?.pending || parentPortalConfig?.pendingRequests || headerAlertsState?.pending || 0);
+    const parentAttention = Number(headerAlertsState?.failed || 0);
+    const headerCount = Number(headerAlertsState?.count || 0);
+    return {
+      messages: hasParentSignal ? {
+        value: headerCount > 99 ? '99+' : String(headerCount || 0),
+        tone: parentAttention > 0 ? 'rose' : parentPending > 0 ? 'amber' : headerCount > 0 ? 'sky' : 'slate',
+        hidden: headerCount <= 0,
+      } : null,
+      settings: canViewParentPortal ? {
+        value: parentPending > 99 ? '99+' : String(parentPending || 0),
+        tone: parentPending > 0 ? 'amber' : (parentPortalConfig?.enabled === false ? 'slate' : 'green'),
+        hidden: parentPending <= 0 && parentPortalConfig?.enabled !== false,
+      } : null,
+    };
+  }, [currentUser?.role, canViewParentPortal, parentPortalDashboard?.pending, parentPortalConfig?.pendingRequests, parentPortalConfig?.enabled, headerAlertsState?.pending, headerAlertsState?.failed, headerAlertsState?.count]);
 
   const handleLogout = async () => {
     if (!currentUser) return;
@@ -11780,13 +17040,13 @@ export default function App() {
     return match?.student || null;
   };
 
-  const handleApplyStudentAction = async ({ studentId, actionType, definitionId, note, method }) => {
+  const handleApplyStudentAction = async ({ studentId, actionType, definitionId, specialDefinition, note, method }) => {
     const unifiedStudent = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).find((item) => String(item.id) === String(studentId));
     if (!unifiedStudent) return { ok: false, message: "الطالب غير موجود." };
 
     if (unifiedStudent.source === 'structure') {
       const definitionPool = actionType === 'violation' ? (settings.actions?.violations || []) : (actionType === 'program' ? (settings.actions?.programs || []) : (settings.actions?.rewards || []));
-      const definition = definitionPool.find((item) => String(item.id) === String(definitionId)) || definitionPool[0] || { title: 'إجراء', points: 0, description: '' };
+      const definition = specialDefinition?.scope === 'special' ? specialDefinition : (definitionPool.find((item) => String(item.id) === String(definitionId)) || definitionPool[0] || { title: 'إجراء', points: 0, description: '' });
       const deltaPoints = Number(definition.points || 0);
       const now = new Date();
       const entry = {
@@ -11800,6 +17060,9 @@ export default function App() {
         actionTitle: definition.title || 'إجراء',
         definitionId: definition.id || definitionId,
         deltaPoints,
+        specialDefinitionId: specialDefinition?.scope === 'special' ? specialDefinition.id : null,
+        specialSubject: specialDefinition?.scope === 'special' ? specialDefinition.subject : '',
+        specialTermId: specialDefinition?.scope === 'special' ? getCurrentAcademicTermId(settings) : '',
         note: String(note || '').trim(),
         actorName: currentUser?.name || currentUser?.username || 'مستخدم',
         actorRole: currentUser?.role || 'user',
@@ -11838,7 +17101,7 @@ export default function App() {
       const response = await apiRequest(`/api/schools/${selectedSchool.id}/actions/apply`, {
         method: 'POST',
         token: getSessionToken(),
-        body: { studentId: student.id, actionType, definitionId, note, method },
+        body: { studentId: student.id, actionType, definitionId, specialDefinition, note, method },
       });
       applyServerStatePayload(response.state || {}, loadUiState());
       const message = response?.message || `تم تنفيذ الإجراء على ${student.name}.`;
@@ -12089,6 +17352,7 @@ export default function App() {
     setAttendanceMethod(payload.attendanceMethod || "barcode");
     setScanLog(hydrateScanLog(payload.scanLog || []));
     setActionLog(hydrateActionLog(payload.actionLog || []));
+    setGateSyncEvents(hydrateGateSyncCenterEvents(payload.gateSyncEvents || []));
     setSettings({
       ...defaultSettings,
       ...(payload.settings || {}),
@@ -12119,6 +17383,7 @@ export default function App() {
       setActivePage(response.sessionUser ? getDefaultLandingPage(response.sessionUser) : "dashboard");
       setAttendanceMethod(fresh.attendanceMethod);
       setScanLog(fresh.scanLog);
+      setGateSyncEvents(hydrateGateSyncCenterEvents(fresh.gateSyncEvents || []));
       setActionLog(fresh.actionLog || []);
       setSettings(fresh.settings);
       setNotifications(fresh.notifications);
@@ -12172,6 +17437,8 @@ export default function App() {
       studentId: form.studentId || null,
       status: "نشط",
       permissions: clampDelegatedPermissions(currentUser, form.role, form.permissions),
+      subjects: form.role === 'teacher' ? parseTeacherSubjects(form.subjects || []) : [],
+      specialItems: form.role === 'teacher' ? hydrateTeacherSpecialItems(form.specialItems || []) : [],
     };
     setUsers((prev) => [...prev, user]);
     pushNotification("إضافة مستخدم", `تم إنشاء حساب ${user.name} بصلاحية ${getRoleLabel(user.role)}.`);
@@ -12208,6 +17475,8 @@ export default function App() {
       schoolId: form.role === "superadmin" ? null : Number(form.schoolId),
       status: form.status === "موقوف" ? "موقوف" : "نشط",
       permissions: clampDelegatedPermissions(currentUser, form.role, form.permissions),
+      subjects: form.role === 'teacher' ? parseTeacherSubjects(form.subjects || []) : [],
+      specialItems: form.role === 'teacher' ? hydrateTeacherSpecialItems(form.specialItems || []) : [],
     }));
     pushNotification("تحديث مستخدم", `تم تحديث حساب ${form.name}.`);
   };
@@ -12493,6 +17762,140 @@ export default function App() {
     }
   };
 
+  const handleCreateLeavePass = async (payload = {}) => {
+    if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لا توجد مدرسة محددة.' };
+    const students = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true });
+    const student = students.find((item) => String(item.id) === String(payload.studentId || ''));
+    if (!student) return { ok: false, message: 'حدد الطالب أولاً.' };
+    const teacher = (users || []).find((user) => Number(user.schoolId) === Number(selectedSchool.id) && String(user.role || '') === 'teacher' && String(user.id) === String(payload.teacherUserId || ''));
+    if (!teacher) return { ok: false, message: 'حدد المعلم المستهدف.' };
+    const leavePassId = `leave-${Date.now()}`;
+    const leavePass = {
+      id: leavePassId,
+      schoolId: selectedSchool.id,
+      studentId: student.id,
+      studentName: student.name,
+      studentNumber: student.studentNumber || '',
+      className: student.classroomName || student.className || '',
+      companyName: getStudentGroupingLabel(student, selectedSchool),
+      teacherUserId: teacher.id,
+      teacherName: teacher.name || teacher.username || 'معلم',
+      teacherMobile: String(teacher.mobile || '').trim(),
+      destination: String(payload.destination || 'agent'),
+      guardianName: String(payload.guardianName || '').trim(),
+      guardianMobile: String(payload.guardianMobile || '').trim(),
+      reason: String(payload.reason || '').trim(),
+      note: String(payload.note || '').trim(),
+      status: 'created',
+      createdAt: new Date().toISOString(),
+      createdById: currentUser.id || null,
+      createdByName: currentUser.name || currentUser.username || 'الإدارة',
+      createdByRole: currentUser.role || 'principal',
+      sendPreference: payload.sendChannel === 'manual' ? 'manual' : 'system',
+      passLink: buildLeavePassLink(leavePassId),
+      timeline: [createLeavePassEvent('created', currentUser.name || currentUser.username || 'الإدارة', 'تم إنشاء طلب الاستئذان')],
+    };
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : { ...school, leavePasses: [leavePass, ...getLeavePasses(school)] }));
+    pushNotification('الاستئذان', `تم إنشاء طلب استئذان للطالب ${leavePass.studentName}.`);
+    return { ok: true, leavePass, message: 'تم إنشاء الاستئذان ويمكن الآن إرسال الرابط للمعلم.' };
+  };
+
+  const handleMarkLeavePassViewed = (leavePassId) => {
+    if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لا توجد مدرسة محددة.' };
+    let changed = false;
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : ({
+      ...school,
+      leavePasses: getLeavePasses(school).map((item) => {
+        if (String(item.id) !== String(leavePassId)) return item;
+        if (String(item.teacherUserId || '') !== String(currentUser.id || item.teacherUserId || '')) return item;
+        changed = true;
+        const nextStatus = ['created', 'sent-system', 'sent-manual'].includes(String(item.status || '')) ? 'viewed' : item.status;
+        return { ...item, status: nextStatus, viewedAt: new Date().toISOString(), viewedByName: currentUser.name || currentUser.username || 'المعلم', timeline: [createLeavePassEvent('viewed', currentUser.name || currentUser.username || 'المعلم', 'تم تسجيل اطلاع المعلم'), ...getLeavePassTimeline(item)] };
+      }),
+    })));
+    if (changed) pushNotification('الاستئذان', 'اطلع المعلم على طلب الاستئذان.');
+    return { ok: changed, message: changed ? 'تم تسجيل اطلاع المعلم.' : 'لم يتم العثور على الطلب.' };
+  };
+
+  const handleUpdateLeavePassStatus = (leavePassId, status = 'completed') => {
+    if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لا توجد مدرسة محددة.' };
+    let changed = false;
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : ({
+      ...school,
+      leavePasses: getLeavePasses(school).map((item) => {
+        if (String(item.id) !== String(leavePassId)) return item;
+        changed = true;
+        const now = new Date().toISOString();
+        const patch = { ...item, status, updatedAt: now, updatedByName: currentUser.name || currentUser.username || 'مستخدم النظام', timeline: [createLeavePassEvent(status, currentUser.name || currentUser.username || 'مستخدم النظام'), ...getLeavePassTimeline(item)] };
+        if (['approved-agent', 'approved-counselor', 'released-guardian'].includes(String(status || ''))) {
+          patch.approvedAt = now;
+          patch.approvedByName = currentUser.name || currentUser.username || 'مستخدم النظام';
+        }
+        if (String(status || '') === 'completed') {
+          patch.completedAt = now;
+          patch.completedByName = currentUser.name || currentUser.username || 'مستخدم النظام';
+        }
+        return patch;
+      }),
+    })));
+    if (changed) pushNotification('الاستئذان', status === 'completed' ? 'تم اعتماد تنفيذ الاستئذان.' : 'تم تحديث حالة الاستئذان.');
+    return { ok: changed, message: changed ? 'تم تحديث حالة الاستئذان.' : 'لم يتم العثور على الطلب.' };
+  };
+
+  const handleSendLeavePass = async (leavePassId, mode = 'system', target = 'teacher') => {
+    if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لا توجد مدرسة محددة.' };
+    const leavePass = getLeavePasses(selectedSchool).find((item) => String(item.id) === String(leavePassId));
+    if (!leavePass) return { ok: false, message: 'تعذر العثور على طلب الاستئذان.' };
+    const actorName = currentUser.name || currentUser.username || 'الإدارة';
+    const targetLabel = target === 'guardian' ? 'ولي الأمر' : target === 'agent' ? 'الوكيل' : target === 'counselor' ? 'المرشد' : 'المعلم';
+    const message = `استئذان طالب من الحصة
+الطالب: ${leavePass.studentName}
+الفصل: ${leavePass.className || leavePass.companyName || '—'}
+الوجهة: ${getLeavePassDestinationLabel(leavePass.destination)}
+السبب: ${leavePass.reason || '—'}
+${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName || '—'}
+` : ''}الرابط: ${leavePass.passLink}`;
+    if (mode === 'manual') {
+      const phoneSource = target === 'guardian' ? leavePass.guardianMobile : leavePass.teacherMobile;
+      if (!phoneSource && target !== 'agent' && target !== 'counselor') return { ok: false, message: `لا يوجد رقم جوال صالح لـ${targetLabel}.` };
+      setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : ({
+        ...school,
+        leavePasses: getLeavePasses(school).map((item) => String(item.id) !== String(leavePassId) ? item : { ...item,
+          status: target === 'teacher' ? 'sent-manual' : item.status,
+          sentAt: new Date().toISOString(),
+          sentByName: actorName,
+          sendMode: mode,
+          lastNotifiedTarget: target,
+          timeline: [createLeavePassEvent(`sent-manual-${target}`, actorName, `تم تجهيز إرسال يدوي إلى ${targetLabel}`), ...getLeavePassTimeline(item)],
+        }),
+      })));
+      if (target === 'agent' || target === 'counselor') {
+        pushNotification('الاستئذان', `تم تسجيل إشعار ${targetLabel} لطلب ${leavePass.studentName}.`);
+        return { ok: true, message: `تم تسجيل إشعار ${targetLabel} داخل النظام.` };
+      }
+      pushNotification('الاستئذان', `تم تجهيز إرسال يدوي لطلب ${leavePass.studentName} إلى ${targetLabel}.`);
+      const phone = String(phoneSource || '').replace(/\D+/g, '');
+      return { ok: true, whatsAppUrl: `https://wa.me/${phone}?text=${encodeURIComponent(message)}`, message: `تم تجهيز واتساب المدير لإرسال الإشعار إلى ${targetLabel}.` };
+    }
+    if (target === 'teacher') {
+      const result = await handleSendSchoolMessage({ audience: 'selectedTeachers', audienceLabel: 'معلم محدد', channel: 'whatsapp', subject: `استئذان الطالب ${leavePass.studentName}`, message, sendMode: 'now' });
+      if (!result?.ok) return result;
+    }
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : ({
+      ...school,
+      leavePasses: getLeavePasses(school).map((item) => String(item.id) !== String(leavePassId) ? item : { ...item,
+        status: target === 'teacher' ? 'sent-system' : item.status,
+        sentAt: new Date().toISOString(),
+        sentByName: actorName,
+        sendMode: mode,
+        lastNotifiedTarget: target,
+        timeline: [createLeavePassEvent(target === 'teacher' ? `sent-system-${target}` : `notified-${target}`, actorName, `تم إشعار ${targetLabel}${target === 'guardian' ? ' عبر النظام' : ''}`), ...getLeavePassTimeline(item)],
+      }),
+    })));
+    pushNotification('الاستئذان', `تم إشعار ${targetLabel} بخصوص الطالب ${leavePass.studentName}.`);
+    return { ok: true, message: target === 'teacher' ? 'تم إرسال رابط الاستئذان إلى المعلم عبر النظام.' : `تم إشعار ${targetLabel} بنجاح.` };
+  };
+
   const quickAction = () => {
     if (canAccessPermission(currentUser, "actions")) return setActivePage("actions");
     if (canAccessPermission(currentUser, "attendance")) return setActivePage("attendance");
@@ -12501,9 +17904,355 @@ export default function App() {
     setActivePage(getDefaultLandingPage(currentUser));
   };
 
+  const handleCreateLessonAttendanceSession = ({ dateIso, slotLabel, startTime, endTime, note }) => {
+    if (!selectedSchool?.id) return { ok: false, message: 'لم يتم تحديد المدرسة.' };
+    const session = {
+      id: `lesson-${Date.now()}`,
+      dateIso: String(dateIso || getTodayIso()),
+      slotLabel: String(slotLabel || 'الحصة').trim() || 'الحصة',
+      startTime: String(startTime || '').trim(),
+      endTime: String(endTime || '').trim(),
+      note: String(note || '').trim(),
+      createdAt: new Date().toISOString(),
+      createdById: currentUser?.id || null,
+      createdByName: currentUser?.name || currentUser?.username || 'الإدارة',
+      status: 'open',
+      submissions: [],
+    };
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
+      ...school,
+      lessonAttendanceSessions: [session, ...getLessonAttendanceSessions(school)],
+    }));
+    pushNotification('جلسة تحضير جديدة', `تم إنشاء ${buildLessonAttendanceSessionLabel(session)} وإتاحة رابطها للمعلمين.`);
+    return { ok: true, session, message: 'تم إنشاء جلسة التحضير.' };
+  };
+
+  const handleUpdateLessonAttendanceSessionStatus = (sessionId, status) => {
+    if (!selectedSchool?.id) return;
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
+      ...school,
+      lessonAttendanceSessions: getLessonAttendanceSessions(school).map((session) => String(session.id) !== String(sessionId) ? session : { ...session, status, closedAt: status === 'closed' ? new Date().toISOString() : session.closedAt }),
+    }));
+    pushNotification(status === 'closed' ? 'إغلاق جلسة التحضير' : 'تحديث جلسة التحضير', `تم ${status === 'closed' ? 'إغلاق' : 'تحديث'} الجلسة بنجاح.`);
+  };
+
+  const handleSubmitLessonAttendanceSession = ({ sessionId, classKey, acknowledgement, absentStudentIds = [] }) => {
+    if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لم يتم العثور على الجلسة أو المستخدم.' };
+    const companyRows = getUnifiedCompanyRows(selectedSchool, { preferStructure: true });
+    const classRow = companyRows.find((row) => getClassroomKeyFromCompanyRow(row) === String(classKey));
+    const students = getStudentsForLessonClassroom(selectedSchool, classKey);
+    if (!classRow || !students.length) return { ok: false, message: 'الفصل المحدد لا يحتوي طلابًا.' };
+    const absentSet = new Set((absentStudentIds || []).map((id) => String(id)));
+    const absentStudents = students.filter((student) => absentSet.has(String(student.id))).map((student) => ({ id: student.id, name: student.name, studentNumber: student.studentNumber || '' }));
+    const submission = {
+      id: `submission-${Date.now()}`,
+      teacherId: currentUser.id,
+      teacherName: currentUser.name || currentUser.username || 'معلم',
+      classKey: String(classKey),
+      className: classRow.name || classRow.className || 'فصل',
+      totalStudents: students.length,
+      absentCount: absentStudents.length,
+      presentCount: Math.max(students.length - absentStudents.length, 0),
+      absentStudentIds: absentStudents.map((student) => student.id),
+      absentStudents,
+      submittedAt: new Date().toISOString(),
+      acknowledged: Boolean(acknowledgement),
+    };
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
+      ...school,
+      lessonAttendanceSessions: getLessonAttendanceSessions(school).map((session) => {
+        if (String(session.id) !== String(sessionId)) return session;
+        const existing = (session.submissions || []).filter((item) => !(String(item.teacherId) === String(currentUser.id) && String(item.classKey) === String(classKey)));
+        return { ...session, submissions: [submission, ...existing] };
+      }),
+    }));
+    pushNotification('تحضير حصة', `أتم ${currentUser.name || currentUser.username} تحضير ${submission.className} في ${selectedSchool.name}.`);
+    return { ok: true, submission, message: `تم اعتماد التحضير لفصل ${submission.className}.` };
+  };
+
+
+  const handleMarkLessonAttendanceSessionOpened = (sessionId, teacherId) => {
+    if (!selectedSchool?.id || !teacherId) return;
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
+      ...school,
+      lessonAttendanceSessions: getLessonAttendanceSessions(school).map((session) => {
+        if (String(session.id) !== String(sessionId)) return session;
+        const invites = Array.isArray(session.teacherInvites) ? session.teacherInvites : [];
+        const existing = invites.find((item) => String(item.teacherId) === String(teacherId));
+        const nextInvite = { ...(existing || {}), teacherId, openedAt: existing?.openedAt || new Date().toISOString() };
+        const rest = invites.filter((item) => String(item.teacherId) !== String(teacherId));
+        return { ...session, teacherInvites: [nextInvite, ...rest] };
+      }),
+    }));
+  };
+
+  const handleSendLessonAttendanceSessionInvites = async (sessionId, teacherIds = []) => {
+    if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لا توجد مدرسة محددة.' };
+    const targets = (users || []).filter((user) => Number(user.schoolId) === Number(selectedSchool.id) && String(user.role) === 'teacher' && teacherIds.map((id) => String(id)).includes(String(user.id)));
+    if (!targets.length) return { ok: false, message: 'حدد معلمًا واحدًا على الأقل.' };
+    const session = getLessonAttendanceSessions(selectedSchool).find((item) => String(item.id) === String(sessionId));
+    const message = `نأمل تنفيذ تحضير ${buildLessonAttendanceSessionLabel(session)} عبر الرابط التالي:
+${buildLessonSessionLink(sessionId)}
+يرجى اختيار الفصل يدويًا ثم اعتماد التحضير.`;
+    const result = await handleSendSchoolMessage({ audience: 'selectedTeachers', audienceLabel: 'معلمون محددون', channel: 'whatsapp', subject: `رابط ${buildLessonAttendanceSessionLabel(session)}`, message, recipientUserIds: targets.map((item) => item.id), sendMode: 'now' });
+    if (!result?.ok) return result;
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
+      ...school,
+      lessonAttendanceSessions: getLessonAttendanceSessions(school).map((item) => {
+        if (String(item.id) !== String(sessionId)) return item;
+        const now = new Date().toISOString();
+        const invites = Array.isArray(item.teacherInvites) ? item.teacherInvites : [];
+        const mapped = targets.map((teacher) => {
+          const existing = invites.find((entry) => String(entry.teacherId) === String(teacher.id)) || {};
+          return { ...existing, teacherId: teacher.id, teacherName: teacher.name || teacher.username || 'معلم', mobile: teacher.mobile || '', sentAt: now, channel: 'whatsapp' };
+        });
+        const others = invites.filter((entry) => !targets.some((teacher) => String(teacher.id) === String(entry.teacherId)));
+        return { ...item, targetTeacherIds: targets.map((teacher) => teacher.id), teacherInvites: [...mapped, ...others] };
+      }),
+    }));
+    return { ok: true, message: `تم إرسال الجلسة إلى ${targets.length} معلم/ـة عبر واتساب.` };
+  };
+
+  const handleSaveRewardStoreItem = (payload = {}) => {
+    if (!selectedSchool?.id) return { ok: false, message: 'لم يتم تحديد المدرسة.' };
+    const item = {
+      id: `reward-${Date.now()}`,
+      title: String(payload.title || '').trim(),
+      pointsCost: 0,
+      image: String(payload.image || '').trim(),
+      note: String(payload.note || '').trim(),
+      quantity: Math.max(1, Number(payload.quantity || 1)),
+      remainingQuantity: Math.max(1, Number(payload.quantity || 1)),
+      sourceType: String(payload.sourceType || 'school'),
+      donorName: String(payload.donorName || '').trim(),
+      showDonorName: payload.showDonorName !== false,
+      showOnScreens: payload.showOnScreens !== false,
+      featured: payload.featured === true,
+      displayPriority: safeNumber(payload.displayPriority || 0, 0),
+      isActive: true,
+      approvalStatus: 'awaiting_receipt',
+      createdAt: new Date().toISOString(),
+      createdById: currentUser?.id || null,
+      createdByName: currentUser?.name || currentUser?.username || 'الإدارة',
+    };
+    if (!item.title || !item.quantity) return { ok: false, message: 'أدخل اسم الجائزة والكمية.' };
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
+      ...school,
+      rewardStore: prependRewardStoreNotification({ ...getRewardStore(school), items: [item, ...getRewardStore(school).items] }, { type: 'stock', title: 'جائزة جديدة في المخزون', body: `تم تسجيل الجائزة ${item.title} بكمية ${item.quantity} في مخزون المدرسة.`, schoolId: school.id, itemId: item.id, itemTitle: item.title, createdByName: currentUser?.name || currentUser?.username || 'الإدارة', audience: 'admin' }),
+    }));
+    pushNotification('متجر النقاط', `تم تسجيل الجائزة ${item.title} في المخزون بانتظار الاستلام والاعتماد في ${selectedSchool.name}.`);
+    return { ok: true, item, message: 'تم حفظ الجائزة في المخزون بانتظار الاستلام والاعتماد.' };
+  };
+
+  const handleDeleteRewardStoreItem = (itemId) => {
+    if (!selectedSchool?.id) return;
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
+      ...school,
+      rewardStore: {
+        ...getRewardStore(school),
+        items: getRewardStore(school).items.filter((item) => String(item.id) !== String(itemId)),
+      },
+    }));
+  };
+
+  const handleDecideRewardStoreProposal = (proposalId, decision = 'approved', decisionNote = '') => {
+    if (!selectedSchool?.id) return { ok: false, message: 'لم يتم تحديد المدرسة.' };
+    let changed = false;
+    setSchools((prev) => prev.map((school) => {
+      if (school.id !== selectedSchool.id) return school;
+      const store = getRewardStore(school);
+      const proposals = store.parentProposals.map((proposal) => {
+        if (String(proposal.id) !== String(proposalId)) return proposal;
+        changed = true;
+        return { ...proposal, status: decision, decisionAt: new Date().toISOString(), decisionByName: currentUser?.name || currentUser?.username || 'المدير', decisionNote: String(decisionNote || '').trim() };
+      });
+      let items = store.items;
+      const approvedProposal = proposals.find((item) => String(item.id) === String(proposalId) && item.status === 'approved');
+      if (approvedProposal && !items.some((item) => String(item.linkedProposalId || '') === String(proposalId))) {
+        items = [{
+          id: `reward-${Date.now()}`,
+          title: approvedProposal.title,
+          pointsCost: 0,
+          image: approvedProposal.image || '',
+          note: approvedProposal.note || '',
+          quantity: Math.max(1, Number(approvedProposal.quantity || 1)),
+          remainingQuantity: Math.max(1, Number(approvedProposal.quantity || 1)),
+          sourceType: 'parent',
+          donorName: String(approvedProposal.donorName || approvedProposal.guardianName || 'ولي الأمر').trim(),
+          showDonorName: approvedProposal.showDonorName !== false,
+          showOnScreens: approvedProposal.showOnScreens !== false,
+          featured: approvedProposal.featured === true,
+          displayPriority: safeNumber(approvedProposal.displayPriority || 0, 0),
+          isActive: true,
+          approvalStatus: 'awaiting_receipt',
+          linkedProposalId: approvedProposal.id,
+          createdAt: new Date().toISOString(),
+          createdByName: approvedProposal.guardianName || 'ولي الأمر',
+        }, ...items];
+      }
+      const nextStore = prependRewardStoreNotification({ ...store, parentProposals: proposals, items }, { type: decision === 'approved' ? 'proposal-approved' : 'proposal-rejected', title: decision === 'approved' ? 'اعتماد مقترح ولي الأمر' : 'رفض مقترح ولي الأمر', body: decision === 'approved' ? `تم تحويل مقترح الجائزة إلى المخزون بانتظار الاستلام والاعتماد.` : `تم رفض مقترح جائزة مقدم من ولي الأمر.`, schoolId: school.id, createdByName: currentUser?.name || currentUser?.username || 'المدير', audience: 'admin' });
+      return { ...school, rewardStore: nextStore };
+    }));
+    if (!changed) return { ok: false, message: 'تعذر العثور على المقترح.' };
+    pushNotification('متجر النقاط', decision === 'approved' ? 'تم قبول المقترح وتحويله إلى المخزون بانتظار الاستلام والاعتماد.' : 'تم رفض مقترح ولي الأمر.');
+    return { ok: true, message: decision === 'approved' ? 'تم قبول المقترح وتحويله إلى المخزون بانتظار الاستلام والاعتماد.' : 'تم رفض المقترح.' };
+  };
+  const handleActivateRewardStoreItem = (itemId, payload = {}) => {
+    if (!selectedSchool?.id) return { ok: false, message: 'لم يتم تحديد المدرسة.' };
+    const pointsCost = Math.max(1, Number(payload.pointsCost || 0));
+    if (!pointsCost) return { ok: false, message: 'حدد النقاط المعتمدة للجائزة أولًا.' };
+    let changed = false;
+    setSchools((prev) => prev.map((school) => {
+      if (school.id !== selectedSchool.id) return school;
+      const store = getRewardStore(school);
+      const items = store.items.map((entry) => {
+        if (String(entry.id) !== String(itemId)) return entry;
+        changed = true;
+        return {
+          ...normalizeRewardStoreItem(entry),
+          pointsCost,
+          approvalStatus: Number(entry.remainingQuantity ?? entry.quantity ?? 0) > 0 ? 'active' : 'depleted',
+          receivedAt: new Date().toISOString(),
+          activatedAt: new Date().toISOString(),
+          activatedByName: currentUser?.name || currentUser?.username || 'المدير',
+          activationNote: String(payload.note || '').trim(),
+          showOnScreens: payload.showOnScreens !== undefined ? payload.showOnScreens : (entry.showOnScreens !== false),
+          featured: payload.featured !== undefined ? payload.featured : (entry.featured === true),
+          displayPriority: payload.displayPriority !== undefined ? safeNumber(payload.displayPriority || 0, 0) : safeNumber(entry.displayPriority || 0, 0),
+        };
+      });
+      return { ...school, rewardStore: prependRewardStoreNotification({ ...store, items }, { type: 'item-activated', title: 'اعتماد جائزة في المتجر', body: `تم اعتماد الجائزة بالنقاط المحددة وإظهارها في المتجر.`, schoolId: school.id, itemId: itemId, createdByName: currentUser?.name || currentUser?.username || 'المدير', audience: 'admin' }) };
+    }));
+    if (!changed) return { ok: false, message: 'تعذر العثور على الجائزة.' };
+    pushNotification('متجر النقاط', 'تم اعتماد الجائزة وإظهارها في المتجر بالنقاط المحددة من المدير.');
+    return { ok: true, message: 'تم اعتماد الجائزة وإظهارها في المتجر.' };
+  };
+
+  const handleUpdateRewardStoreItemMeta = (itemId, payload = {}) => {
+    if (!selectedSchool?.id) return { ok: false, message: 'لم يتم تحديد المدرسة.' };
+    let changed = false;
+    setSchools((prev) => prev.map((school) => {
+      if (school.id !== selectedSchool.id) return school;
+      const store = getRewardStore(school);
+      const items = store.items.map((entry) => {
+        if (String(entry.id) !== String(itemId)) return entry;
+        changed = true;
+        return {
+          ...normalizeRewardStoreItem(entry),
+          showOnScreens: payload.showOnScreens !== undefined ? payload.showOnScreens : (entry.showOnScreens !== false),
+          featured: payload.featured !== undefined ? payload.featured : (entry.featured === true),
+          displayPriority: payload.displayPriority !== undefined ? safeNumber(payload.displayPriority || 0, 0) : safeNumber(entry.displayPriority || 0, 0),
+        };
+      });
+      return { ...school, rewardStore: prependRewardStoreNotification({ ...store, items }, { type: 'item-screen-settings', title: 'تحديث عرض الجائزة في الشاشات', body: 'تم تحديث إعدادات ظهور الجائزة في الشاشات.', schoolId: school.id, itemId, createdByName: currentUser?.name || currentUser?.username || 'المدير', audience: 'admin' }) };
+    }));
+    if (!changed) return { ok: false, message: 'تعذر العثور على الجائزة.' };
+    return { ok: true, message: 'تم تحديث إعدادات العرض في الشاشات.' };
+  };
+
+  const handleCreateRewardRedemptionRequest = (payload = {}) => {
+    if (!selectedSchool?.id) return { ok: false, message: 'لم يتم تحديد المدرسة.' };
+    const student = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).find((item) => String(item.id) === String(payload.studentId || ''));
+    const item = getApprovedRewardStoreItems(selectedSchool).find((entry) => String(entry.id) === String(payload.itemId || ''));
+    if (item && Number(item.remainingQuantity || 0) <= 0) return { ok: false, message: 'نفدت كمية هذه الجائزة حاليًا.' };
+    if (!student || !item) return { ok: false, message: 'اختر الطالب والجائزة أولًا.' };
+    if (Number(student.points || 0) < Number(item.pointsCost || 0)) return { ok: false, message: 'رصيد الطالب لا يكفي لهذه الجائزة.' };
+    const isStudentRequest = currentUser?.role === 'student';
+    const isPrincipalRequest = currentUser?.role === 'principal';
+    const createdByLabel = isStudentRequest
+      ? 'الطالب'
+      : isPrincipalRequest
+        ? 'مدير المدرسة'
+        : ['supervisor', 'teacher'].includes(String(currentUser?.role || ''))
+          ? 'موظف مفوض'
+          : 'إدارة المدرسة';
+    const request = {
+      id: `redeem-${Date.now()}`,
+      itemId: item.id,
+      itemTitle: item.title,
+      pointsCost: Number(item.pointsCost || 0),
+      studentId: student.id,
+      studentName: student.name || 'طالب',
+      className: student.className || student.companyName || '',
+      status: 'pending',
+      note: String(payload.note || '').trim(),
+      createdAt: new Date().toISOString(),
+      createdByLabel,
+      createdByName: currentUser?.name || currentUser?.username || createdByLabel,
+      createdById: currentUser?.id || null,
+      requestChannel: isStudentRequest ? 'student' : isPrincipalRequest ? 'principal' : ['supervisor', 'teacher'].includes(String(currentUser?.role || '')) ? 'delegate' : 'admin',
+    };
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : ({
+      ...school,
+      rewardStore: prependRewardStoreNotification({ ...getRewardStore(school), redemptionRequests: [request, ...getRewardStore(school).redemptionRequests] }, { type: 'redemption-request', title: 'طلب استبدال جديد', body: `تم إنشاء طلب استبدال للطالب ${request.studentName} على الجائزة ${request.itemTitle}.`, schoolId: school.id, studentId: request.studentId, itemId: request.itemId, itemTitle: request.itemTitle, requestId: request.id, createdByName: currentUser?.name || currentUser?.username || request.createdByLabel, audience: 'admin' }),
+    })));
+    pushNotification('متجر النقاط', `تم إنشاء طلب استبدال جديد للطالب ${request.studentName}.`);
+    return { ok: true, request, message: 'تم إرسال طلب الاستبدال بانتظار اعتماد الإدارة.' };
+  };
+
+  const handleDecideRewardRedemption = (requestId, decision = 'approved', decisionNote = '') => {
+    if (!selectedSchool?.id) return { ok: false, message: 'لم يتم تحديد المدرسة.' };
+    let changed = false;
+    let insufficient = false;
+    let invalidDelivery = false;
+    setSchools((prev) => prev.map((school) => {
+      if (school.id !== selectedSchool.id) return school;
+      const store = getRewardStore(school);
+      const targetBefore = (store.redemptionRequests || []).find((request) => String(request.id) === String(requestId));
+      if (decision === 'delivered' && String(targetBefore?.status || '') !== 'approved') {
+        invalidDelivery = true;
+        return school;
+      }
+      const requests = (store.redemptionRequests || []).map((request) => {
+        if (String(request.id) !== String(requestId)) return request;
+        changed = true;
+        if (decision === 'delivered') {
+          return {
+            ...request,
+            status: 'delivered',
+            deliveredAt: new Date().toISOString(),
+            deliveredByName: currentUser?.name || currentUser?.username || 'الإدارة',
+            deliveryNote: String(decisionNote || '').trim() || request.deliveryNote || '',
+          };
+        }
+        return { ...request, status: decision, decisionAt: new Date().toISOString(), decisionByName: currentUser?.name || currentUser?.username || 'الإدارة', decisionNote: String(decisionNote || '').trim() };
+      });
+      if (decision === 'approved') {
+        const target = requests.find((request) => String(request.id) === String(requestId));
+        const students = getUnifiedSchoolStudents(school, { includeArchived: false, preferStructure: true });
+        const student = students.find((item) => String(item.id) === String(target?.studentId || ''));
+        const targetItem = (store.items || []).map((entry) => normalizeRewardStoreItem(entry)).find((entry) => String(entry.id) === String(target?.itemId || ''));
+        if (!student || Number(student.points || 0) < Number(target?.pointsCost || 0) || !targetItem || Number(targetItem.remainingQuantity || 0) <= 0) {
+          insufficient = true;
+          return school;
+        }
+        const nextSchool = applyPointsToUnifiedStudent(school, target.studentId, -Math.abs(Number(target.pointsCost || 0)), `استبدال جائزة: ${target.itemTitle}`, { actorName: currentUser?.name || currentUser?.username || 'الإدارة', actorRole: currentUser?.role || 'principal', actionType: 'program', note: 'استبدال من متجر النقاط' });
+        return { ...nextSchool, rewardStore: prependRewardStoreNotification({ ...getRewardStore(nextSchool), redemptionRequests: requests }, { type: 'redemption-approved', title: 'اعتماد طلب الاستبدال', body: `تم اعتماد طلب استبدال الجائزة ${target?.itemTitle || ''} للطالب ${target?.studentName || ''}.`, schoolId: nextSchool.id, studentId: target?.studentId || null, itemId: target?.itemId || null, itemTitle: target?.itemTitle || '', requestId: target?.id || null, createdByName: currentUser?.name || currentUser?.username || 'الإدارة', audience: 'admin' }) };
+      }
+      if (decision === 'delivered') {
+        const target = requests.find((request) => String(request.id) === String(requestId));
+        const items = (store.items || []).map((entry) => {
+          if (String(entry.id) !== String(target?.itemId || '')) return entry;
+          const normalized = normalizeRewardStoreItem(entry);
+          const remainingQuantity = Math.max(0, Number(normalized.remainingQuantity || normalized.quantity || 0) - 1);
+          return { ...normalized, remainingQuantity, approvalStatus: remainingQuantity > 0 ? 'active' : 'depleted' };
+        });
+        return { ...school, rewardStore: prependRewardStoreNotification({ ...store, redemptionRequests: requests, items }, { type: 'redemption-delivered', title: 'تأكيد تسليم الجائزة', body: `تم تسليم الجائزة ${target?.itemTitle || ''} للطالب ${target?.studentName || ''}.`, schoolId: school.id, studentId: target?.studentId || null, itemId: target?.itemId || null, itemTitle: target?.itemTitle || '', requestId: target?.id || null, createdByName: currentUser?.name || currentUser?.username || 'الإدارة', audience: 'admin' }) };
+      }
+      return { ...school, rewardStore: prependRewardStoreNotification({ ...store, redemptionRequests: requests }, { type: 'redemption-rejected', title: 'رفض طلب الاستبدال', body: `تم رفض طلب الاستبدال مع حفظ الملاحظة الإدارية.`, schoolId: school.id, requestId: requestId, createdByName: currentUser?.name || currentUser?.username || 'الإدارة', audience: 'admin' }) };
+    }));
+    if (invalidDelivery) return { ok: false, message: 'لا يمكن تأكيد التسليم إلا بعد اعتماد الطلب.' };
+    if (insufficient) return { ok: false, message: 'رصيد الطالب لم يعد كافيًا عند الاعتماد.' };
+    if (!changed) return { ok: false, message: 'تعذر العثور على طلب الاستبدال.' };
+    pushNotification('متجر النقاط', decision === 'approved' ? 'تم اعتماد طلب الاستبدال وخصم النقاط.' : decision === 'delivered' ? 'تم تأكيد تسليم الجائزة.' : 'تم رفض طلب الاستبدال.');
+    return { ok: true, message: decision === 'approved' ? 'تم اعتماد الطلب وخصم النقاط.' : decision === 'delivered' ? 'تم تأكيد تسليم الجائزة.' : 'تم رفض طلب الاستبدال.' };
+  };
+
+
+
   const renderPage = () => {
     if (!currentUser) return null;
-    if (currentUser.role === "student") return <StudentRolePage selectedSchool={selectedSchool} currentUser={currentUser} />;
+    if (currentUser.role === "student") return <StudentRolePage selectedSchool={selectedSchool} currentUser={currentUser} onCreateRewardRedemptionRequest={handleCreateRewardRedemptionRequest} />;
     switch (activePage) {
       case "schools":
         return <SchoolsPage schools={schools} selectedSchoolId={selectedSchoolId} setSelectedSchoolId={setSelectedSchoolId} onAddSchool={handleAddSchool} onDeleteSchool={handleDeleteSchool} onExportSchool={exportSchoolSnapshot} />;
@@ -12517,25 +18266,41 @@ export default function App() {
         return <StudentActionsPage selectedSchool={selectedSchool} currentUser={currentUser} settings={settings} actionLog={actionLog} onResolveStudentByBarcode={resolveStudentByBarcode} onResolveStudentByManual={resolveStudentByManual} onResolveStudentByFaceFile={resolveStudentByFaceFile} onResolveStudentByFaceDataUrl={resolveStudentByFaceDataUrl} onApplyStudentAction={handleApplyStudentAction} onRecordProgramAction={handleRecordProgramExecution} />;
       case "points":
         return <PointsPage selectedSchool={selectedSchool} settings={settings} />;
+      case "lessonAttendanceSessions":
+        return <LessonAttendanceSessionsPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialSessionId={lessonSessionIdFromUrl} onCreateSession={handleCreateLessonAttendanceSession} onCloseSession={handleUpdateLessonAttendanceSessionStatus} onSubmitSession={handleSubmitLessonAttendanceSession} onSendSessionInvites={handleSendLessonAttendanceSessionInvites} onMarkSessionOpened={handleMarkLessonAttendanceSessionOpened} />;
       case "reports":
-        return <ReportsPage schools={schools} scanLog={scanLog} actionLog={actionLog} selectedSchool={selectedSchool} settings={settings} executiveReport={executiveReport} onExportAttendance={exportAttendance} onExportStudents={exportStudents} onExportSchools={exportSchools} onExportBackup={exportBackup} />;
+        return <ReportsPage schools={schools} scanLog={scanLog} actionLog={actionLog} gateSyncEvents={gateSyncEvents} selectedSchool={selectedSchool} settings={settings} executiveReport={executiveReport} onExportAttendance={exportAttendance} onExportStudents={exportStudents} onExportSchools={exportSchools} onExportBackup={exportBackup} />;
       case "deviceDisplays":
         return <DeviceDisplaysPage selectedSchool={selectedSchool} currentUser={currentUser} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onUpdateGateLink={handleUpdateGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} />;
       case "messages":
         return <MessagingCenterPage selectedSchool={selectedSchool} currentUser={currentUser} onSendMessage={handleSendSchoolMessage} onTestIntegration={handleTestMessagingIntegration} onSaveMessagingSettings={handleSaveMessagingSettings} onSaveMessageTemplate={handleSaveMessageTemplate} onDeleteMessageTemplate={handleDeleteMessageTemplate} onSaveMessageRule={handleSaveMessageRule} onToggleMessageRule={handleToggleMessageRule} />;
+      case "leavePasses":
+        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="main" />;
+      case "leavePassAgentDesk":
+        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="agent" />;
+      case "leavePassCounselorDesk":
+        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="counselor" />;
+      case "rewardStore":
+        return <RewardStorePage selectedSchool={selectedSchool} currentUser={currentUser} onSaveItem={handleSaveRewardStoreItem} onDeleteItem={handleDeleteRewardStoreItem} onDecideProposal={handleDecideRewardStoreProposal} onCreateRedemptionRequest={handleCreateRewardRedemptionRequest} onDecideRedemption={handleDecideRewardRedemption} onActivateRewardItem={handleActivateRewardStoreItem} onUpdateRewardItemMeta={handleUpdateRewardStoreItemMeta} />;
       case "schoolStructure":
         return <PageErrorBoundary resetKey={`${selectedSchool?.id || 'none'}-${activePage}`}><SchoolStructurePage selectedSchool={selectedSchool} schoolUsers={users.filter((user) => user.schoolId === selectedSchool?.id)} currentUser={currentUser} onSaveSchoolStructureProfile={handleSaveSchoolStructureProfile} onSaveSchoolStructureStageConfigs={handleSaveSchoolStructureStageConfigs} onGenerateSchoolStructureClassrooms={handleGenerateSchoolStructureClassrooms} onUpdateSchoolStructureClassroom={handleUpdateSchoolStructureClassroom} onDeleteSchoolStructureClassroom={handleDeleteSchoolStructureClassroom} onClearSchoolStructureClassroomStudents={handleClearSchoolStructureClassroomStudents} onAddStudentToSchoolStructureClassroom={handleAddStudentToSchoolStructureClassroom} onUpdateStudentInSchoolStructureClassroom={handleUpdateStudentInSchoolStructureClassroom} onArchiveStudentInSchoolStructureClassroom={handleArchiveStudentInSchoolStructureClassroom} onTransferStudentInSchoolStructureClassroom={handleTransferStudentInSchoolStructureClassroom} onImportStudentsToSchoolStructureClassroom={handleImportStudentsToSchoolStructureClassroom} onUpdateScreenLink={handleUpdateScreenLink} /></PageErrorBoundary>;
       case "users":
         return (
           <div className="space-y-6">
-            <UsersPage users={users} schools={schools} currentUser={currentUser} selectedSchoolId={selectedSchool?.id} onAddUser={handleAddUser} onSelectForEdit={handleSelectUserForEdit} editingUserId={editingUserId} onToggleUserStatus={handleToggleUserStatus} onDeleteUser={handleDeleteUser} onUpdateSchoolAccess={handleUpdateSchoolAccess} onOpenAccountSecurity={() => setAccountSecurityOpen(true)} onOpenResetUserPassword={(user) => { setResetPasswordTargetUserId(user?.id || null); setResetUserPasswordOpen(true); }} />
+            <UsersPage users={users} schools={schools} currentUser={currentUser} selectedSchoolId={selectedSchool?.id} actionLog={actionLog} settings={settings} onAddUser={handleAddUser} onSelectForEdit={handleSelectUserForEdit} editingUserId={editingUserId} onToggleUserStatus={handleToggleUserStatus} onDeleteUser={handleDeleteUser} onUpdateSchoolAccess={handleUpdateSchoolAccess} onOpenAccountSecurity={() => setAccountSecurityOpen(true)} onOpenResetUserPassword={(user) => { setResetPasswordTargetUserId(user?.id || null); setResetUserPasswordOpen(true); }} />
             {editingUser && (
               <SectionCard title={`تحرير الحساب: ${editingUser.name}`} icon={Settings}>
-                <UserEditor editingUser={editingUser} schools={schools} currentUser={currentUser} onSave={handleUpdateUser} onCancel={() => setEditingUserId(null)} />
+                <UserEditor editingUser={editingUser} schools={schools} currentUser={currentUser} actionLog={actionLog} settings={settings} onSave={handleUpdateUser} onCancel={() => setEditingUserId(null)} />
               </SectionCard>
             )}
           </div>
         );
+      case "parentsExecutive":
+        return <ParentExecutiveSummaryPage currentUser={currentUser} selectedSchool={selectedSchool} onNavigate={setActivePage} />;
+      case "parentsAdmin":
+        return <ParentAccountsPage currentUser={currentUser} selectedSchool={selectedSchool} />;
+      case "parentsAudit":
+        return <ParentAuditFeedPage currentUser={currentUser} selectedSchool={selectedSchool} onSendMessage={handleSendSchoolMessage} onNavigate={setActivePage} />;
       case "settings":
         return <SettingsPage selectedSchool={selectedSchool} settings={settings} attendanceMethod={attendanceMethod} users={users} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onRestoreBackup={restoreBackup} onResetData={resetData} onExportBackup={exportBackup} onImportStudents={handleImportStudentsFromExcel} onDownloadTemplate={downloadStudentImportTemplate} setAttendanceMethod={setAttendanceMethod} />;
       case "platformAuth":
@@ -12543,7 +18308,7 @@ export default function App() {
     case "classes":
       return <ClassesPage selectedSchool={selectedSchool} />;
       default:
-        return <SchoolDashboard schools={schools} selectedSchool={selectedSchool} setSelectedSchoolId={setSelectedSchoolId} scanLog={scanLog} actionLog={actionLog} settings={settings} notifications={notifications} canSelectSchool={currentUser.role === "superadmin"} executiveReport={executiveReport} currentUser={currentUser} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} onNavigate={setActivePage} />;
+        return <SchoolDashboard schools={schools} selectedSchool={selectedSchool} setSelectedSchoolId={setSelectedSchoolId} scanLog={scanLog} actionLog={actionLog} gateSyncEvents={gateSyncEvents} settings={settings} notifications={notifications} canSelectSchool={currentUser.role === "superadmin"} executiveReport={executiveReport} currentUser={currentUser} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} onNavigate={setActivePage} />;
     }
   };
 
@@ -12616,15 +18381,36 @@ export default function App() {
             {allowedNav.map((item) => {
               const Icon = item.icon;
               const active = activePage === item.key;
+              const badge = sidebarCounters?.[item.key];
               return (
                 <button key={item.key} onClick={() => setActivePage(item.key)} className={cx("flex w-full items-center justify-between rounded-2xl px-4 py-3 text-right transition", active ? "bg-sky-700 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50")}>
-                  <span className="font-bold">{item.label}</span>
-                  <Icon className="h-5 w-5" />
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="font-bold">{item.label}</span>
+                    {badge && !badge.hidden ? (
+                      <span className={cx("inline-flex min-w-[1.75rem] items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-black", badge.tone === 'rose' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-rose-100 text-rose-700 ring-1 ring-rose-200') : badge.tone === 'amber' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-amber-100 text-amber-700 ring-1 ring-amber-200') : badge.tone === 'green' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200') : badge.tone === 'sky' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-sky-100 text-sky-700 ring-1 ring-sky-200') : (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'))}>{badge.value}</span>
+                    ) : null}
+                  </div>
+                  <Icon className="h-5 w-5 shrink-0" />
                 </button>
               );
             })}
           </nav>
 
+          {currentUser && ["superadmin", "principal", "supervisor"].includes(currentUser.role) && (
+            <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-3">
+              <div className="px-2 text-xs font-black text-slate-500">روابط تشغيل إضافية</div>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                <a href="/admin/parent-primary-requests" target="_blank" rel="noreferrer" className="inline-flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-100">
+                  <span className="inline-flex items-center gap-2"><span>طلبات أولياء الأمور</span>{(headerAlertsState?.pending || 0) > 0 ? <span className="inline-flex min-w-[1.75rem] items-center justify-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-black text-amber-700 ring-1 ring-amber-200">{headerAlertsState.pending > 99 ? '99+' : headerAlertsState.pending}</span> : null}</span>
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+                <a href="/parent" target="_blank" rel="noreferrer" className="inline-flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-100">
+                  <span>فتح بوابة ولي الأمر</span>
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </div>
+            </div>
+          )}
 
         </aside>
 
@@ -12674,6 +18460,59 @@ export default function App() {
                   </select>
                 )}
                 <button onClick={() => setActivePage("dashboard")} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><Bell className="h-4 w-4" /> التنبيهات</button>
+                {canUseHeaderAlerts ? (
+                  <div className="relative">
+                    <button onClick={() => setHeaderAlertsOpen((value) => !value)} className="relative inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200">
+                      <Bell className="h-4 w-4" />
+                      <span>الجرس</span>
+                      {headerAlertsState.count > 0 ? <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-black text-white">{headerAlertsState.count > 99 ? '99+' : headerAlertsState.count}</span> : null}
+                    </button>
+                    {headerAlertsOpen ? (
+                      <div className="absolute left-0 z-50 mt-3 w-[24rem] max-w-[88vw] overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-2xl">
+                        <div className="border-b border-slate-100 bg-slate-50 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm text-slate-500">تنبيهات الإدارة</div>
+                              <div className="text-lg font-black text-slate-900">المتابعة السريعة</div>
+                            </div>
+                            <button onClick={() => setHeaderAlertsOpen(false)} className="rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-600 ring-1 ring-slate-200">إغلاق</button>
+                          </div>
+                          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-bold">
+                            <div className="rounded-2xl bg-white px-3 py-2 ring-1 ring-slate-200"><div className="text-slate-400">معلقة</div><div className="mt-1 text-slate-900">{headerAlertsState.pending}</div></div>
+                            <div className="rounded-2xl bg-white px-3 py-2 ring-1 ring-slate-200"><div className="text-slate-400">تلقائي</div><div className="mt-1 text-slate-900">{headerAlertsState.autoApproved}</div></div>
+                            <div className="rounded-2xl bg-white px-3 py-2 ring-1 ring-slate-200"><div className="text-slate-400">متعثر</div><div className="mt-1 text-slate-900">{headerAlertsState.failed}</div></div>
+                          </div>
+                        </div>
+                        <div className="max-h-[26rem] overflow-y-auto p-4">
+                          {headerAlertsState.loading ? <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">جارِ تحميل التنبيهات...</div> : null}
+                          {!headerAlertsState.loading && headerAlertsState.error ? <div className="rounded-2xl bg-rose-50 px-4 py-4 text-sm font-bold text-rose-700 ring-1 ring-rose-100">{headerAlertsState.error}</div> : null}
+                          {!headerAlertsState.loading && !headerAlertsState.error && !headerAlertsState.items.length ? <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">لا توجد تنبيهات جديدة الآن.</div> : null}
+                          {!headerAlertsState.loading && !headerAlertsState.error ? (
+                            <div className="space-y-3">
+                              {headerAlertsState.items.map((item) => (
+                                <div key={item.id} className={cx('rounded-2xl p-4 ring-1', item.tone === 'rose' ? 'bg-rose-50 text-rose-900 ring-rose-100' : item.tone === 'amber' ? 'bg-amber-50 text-amber-900 ring-amber-100' : 'bg-sky-50 text-sky-900 ring-sky-100')}>
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <div className="font-black">{item.title}</div>
+                                      <div className="mt-1 text-sm leading-7 opacity-90">{item.body}</div>
+                                    </div>
+                                    <Badge tone={item.tone === 'rose' ? 'rose' : item.tone === 'amber' ? 'amber' : 'blue'}>{item.time || 'الآن'}</Badge>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="border-t border-slate-100 bg-slate-50 p-3">
+                          <div className="flex flex-wrap gap-2">
+                            <button onClick={() => { setHeaderAlertsOpen(false); setActivePage('dashboard'); }} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">فتح الرئيسية</button>
+                            <button onClick={() => window.open('/admin/parent-primary-requests', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white">طلبات أولياء الأمور</button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 {canAccessPermission(currentUser, "settings") && <button onClick={() => setActivePage(currentUser.role === "superadmin" ? "platformAuth" : "settings")} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><BookOpen className="h-4 w-4" /> {currentUser.role === "superadmin" ? "الدخول والمصادقة" : "الإعدادات"}</button>}
                 <button onClick={() => setHelpGuideOpen(true)} className="inline-flex items-center gap-2 rounded-2xl bg-amber-50 px-4 py-3 font-bold text-amber-800 ring-1 ring-amber-200 hover:bg-amber-100 transition" title="دليل الاستخدام">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
@@ -12713,18 +18552,22 @@ function PlatformAuthSettingsPage(props) {
 }
 
 
-function UserEditor({ editingUser, schools, currentUser, onSave, onCancel }) {
+function UserEditor({ editingUser, schools, currentUser, actionLog, settings, onSave, onCancel }) {
   const canManageAll = currentUser?.role === "superadmin";
   const roleOptions = canManageAll ? roles : roles.filter((role) => principalDelegableRoles.includes(role.key));
   const [form, setForm] = useState({
     ...editingUser,
     permissions: clampDelegatedPermissions(currentUser, editingUser.role, buildRolePermissions(editingUser.role, editingUser.permissions)),
+    subjects: parseTeacherSubjects(editingUser.subjects || []),
+    specialItems: hydrateTeacherSpecialItems(editingUser.specialItems || []),
   });
 
   useEffect(() => {
     setForm({
       ...editingUser,
       permissions: clampDelegatedPermissions(currentUser, editingUser.role, buildRolePermissions(editingUser.role, editingUser.permissions)),
+      subjects: parseTeacherSubjects(editingUser.subjects || []),
+      specialItems: hydrateTeacherSpecialItems(editingUser.specialItems || []),
     });
   }, [editingUser]);
 
@@ -12734,8 +18577,15 @@ function UserEditor({ editingUser, schools, currentUser, onSave, onCancel }) {
       role,
       schoolId: role === "superadmin" ? null : (canManageAll ? (prev.schoolId || schools[0]?.id || 1) : (currentUser.schoolId || schools[0]?.id || 1)),
       permissions: clampDelegatedPermissions(currentUser, role, buildRolePermissions(role, prev.permissions)),
+      subjects: role === 'teacher' ? parseTeacherSubjects(prev.subjects || []) : [],
+      specialItems: role === 'teacher' ? hydrateTeacherSpecialItems(prev.specialItems || []) : [],
     }));
   };
+
+  const teacherSpecialStats = useMemo(() => computeTeacherSpecialStats(actionLog, editingUser, settings), [actionLog, editingUser, settings]);
+  const teacherSpecialItems = useMemo(() => hydrateTeacherSpecialItems(form.specialItems || []), [form.specialItems]);
+  const teacherSpecialActiveItems = teacherSpecialItems.filter((item) => item.isActive !== false).length;
+  const teacherSpecialSubjectsCount = new Set(teacherSpecialItems.map((item) => item.subject).filter(Boolean)).size;
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -12748,7 +18598,8 @@ function UserEditor({ editingUser, schools, currentUser, onSave, onCancel }) {
         {roleOptions.map((role) => <option key={role.key} value={role.key}>{role.label}</option>)}
       </Select>
       {form.role !== "superadmin" && <Select label="المدرسة" value={form.schoolId || ""} onChange={(e) => setForm((prev) => ({ ...prev, schoolId: Number(e.target.value) }))} disabled={!canManageAll}>{schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</Select>}
-      {!canManageAll ? <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 ring-1 ring-amber-200 md:col-span-2">مدير المدرسة يحرر فقط حسابات مدرسته التشغيلية، ولا يستطيع تحويل أي مستخدم إلى مدير مدرسة أو أدمن عام أو منحه صلاحيات مركزية.</div> : null}
+      {form.role === "teacher" ? <div className="md:col-span-2"><Input label="المواد التي يدرسها" value={(form.subjects || []).join("، ")} onChange={(e) => setForm((prev) => ({ ...prev, subjects: parseTeacherSubjects(e.target.value), specialItems: hydrateTeacherSpecialItems(prev.specialItems || []).filter((item) => parseTeacherSubjects(e.target.value).includes(item.subject)) }))} placeholder="مثال: رياضيات، علوم" /></div> : null}
+      {!canManageAll ? <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 ring-1 ring-amber-200 md:col-span-2">مدير المدرسة يحرر فقط حسابات مدرسته التشغيلية مثل الوكيل والمرشد والبوابة والمشرف والمعلم والطالب، ولا يستطيع تحويل أي مستخدم إلى مدير مدرسة أو أدمن عام أو منحه صلاحيات مركزية.</div> : null}
       <Select label="حالة الحساب" value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))}>
         <option value="نشط">نشط</option>
         <option value="موقوف">موقوف</option>
@@ -12761,6 +18612,17 @@ function UserEditor({ editingUser, schools, currentUser, onSave, onCancel }) {
           </label>
         ))}
       </div>
+      {form.role === "teacher" ? (
+        <div className="space-y-4 md:col-span-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <div className="rounded-3xl bg-violet-50 p-4 ring-1 ring-violet-100"><div className="text-xs font-bold text-violet-800">الرصيد التخصصي الحالي</div><div className="mt-2 text-3xl font-black text-slate-900">{teacherSpecialStats.score}</div><div className="mt-1 text-xs text-slate-500">يحتسب مرة واحدة لكل طالب على نفس البند خلال الفصل الحالي</div></div>
+            <div className="rounded-3xl bg-sky-50 p-4 ring-1 ring-sky-100"><div className="text-xs font-bold text-sky-800">الإنجازات التخصصية</div><div className="mt-2 text-3xl font-black text-slate-900">{teacherSpecialStats.achievements}</div><div className="mt-1 text-xs text-slate-500">إجمالي مرات التفعيل في الفصل الحالي</div></div>
+            <div className="rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-100"><div className="text-xs font-bold text-emerald-800">البنود المفعلة</div><div className="mt-2 text-3xl font-black text-slate-900">{teacherSpecialActiveItems}</div><div className="mt-1 text-xs text-slate-500">من أصل {teacherSpecialItems.length} بند تخصصي</div></div>
+            <div className="rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-100"><div className="text-xs font-bold text-amber-800">المواد المفعلة</div><div className="mt-2 text-3xl font-black text-slate-900">{teacherSpecialSubjectsCount}</div><div className="mt-1 text-xs text-slate-500">عدد المواد التي تحتوي بنودًا تخصصية</div></div>
+          </div>
+          <TeacherSpecialItemsEditor subjects={form.subjects || []} items={form.specialItems || []} onChange={(items) => setForm((prev) => ({ ...prev, specialItems: items }))} />
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-3 md:col-span-2">
         <button type="submit" className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white"><Save className="h-4 w-4" /> حفظ التعديلات</button>
         <button type="button" onClick={onCancel} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-5 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> إلغاء</button>
@@ -12768,3 +18630,101 @@ function UserEditor({ editingUser, schools, currentUser, onSave, onCancel }) {
     </form>
   );
 }
+
+        {tab === "parentPortal" && canViewParentPortal && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <div className="rounded-3xl bg-emerald-50 p-5 ring-1 ring-emerald-100">
+                <div className="text-sm font-bold text-emerald-800">حالة البوابة</div>
+                <div className="mt-3 text-2xl font-black text-slate-900">{parentPortalConfig.enabled ? 'مفعلة' : 'مقفلة'}</div>
+                <div className="mt-2 text-sm leading-7 text-slate-600">عند الإقفال تتوقف طلبات الدخول الجديدة من /parent، وتبقى الإعدادات والبيانات محفوظة.</div>
+              </div>
+              <div className="rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-100">
+                <div className="text-sm font-bold text-sky-800">سياسة تحديث الرقم</div>
+                <div className="mt-3 text-2xl font-black text-slate-900">{parentPortalConfig.mode === 'auto' ? 'تلقائي' : 'يدوي'}</div>
+                <div className="mt-2 text-sm leading-7 text-slate-600">الاعتماد التلقائي هو الوضع الافتراضي حتى لا تتكدس الطلبات على المدير، مع بقاء الإشعار وسجل المراجعة.</div>
+              </div>
+              <div className="rounded-3xl bg-violet-50 p-5 ring-1 ring-violet-100">
+                <div className="text-sm font-bold text-violet-800">الطلبات الحالية</div>
+                <div className="mt-3 text-2xl font-black text-slate-900">{parentPortalConfig.pendingRequests} / {parentPortalConfig.totalRequests}</div>
+                <div className="mt-2 text-sm leading-7 text-slate-600">الأول رقم الطلبات المعلقة، والثاني جميع الطلبات المسجلة في المدرسة.</div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-3xl">
+                  <div className="text-lg font-black text-slate-900">إدارة بوابة ولي الأمر</div>
+                  <div className="mt-2 text-sm leading-8 text-slate-600">
+                    من هنا تفعّل أو تقفل البوابة، وتحدد هل تحديث الرقم الأساسي يتم تلقائيًا أو يدويًا، ثم تفتح صفحة الطلبات التفصيلية عند الحاجة.
+                  </div>
+                  {!canManageParentPortal ? <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800 ring-1 ring-amber-200">هذه الصفحة متاحة لك للمتابعة فقط، أما تغيير السياسة والتفعيل فهو من صلاحية الأدمن العام أو مدير المدرسة.</div> : null}
+                  {parentPortalConfig.error ? <div className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200">{parentPortalConfig.error}</div> : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => window.open('/parent', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100">فتح بوابة ولي الأمر</button>
+                  <button type="button" onClick={() => window.open('/admin/parent-primary-requests', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800">فتح شاشة الطلبات الكاملة</button>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-black text-slate-900">حالة البوابة</div>
+                      <div className="mt-1 text-sm text-slate-500">التحكم في إتاحة دخول أولياء الأمور إلى /parent</div>
+                    </div>
+                    <Badge tone={parentPortalConfig.enabled ? 'green' : 'slate'}>{parentPortalConfig.enabled ? 'مفعلة' : 'مقفلة'}</Badge>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.enabled} onClick={() => saveParentPortalEnabled(true)} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.enabled) ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-emerald-700 text-white hover:bg-emerald-800'}`}>تفعيل البوابة</button>
+                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || !parentPortalConfig.enabled} onClick={() => saveParentPortalEnabled(false)} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || !parentPortalConfig.enabled) ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-rose-700 text-white hover:bg-rose-800'}`}>إقفال البوابة</button>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-black text-slate-900">سياسة تحديث الرقم الأساسي</div>
+                      <div className="mt-1 text-sm text-slate-500">اختر الوضع الافتراضي المناسب لطريقة عمل المدرسة</div>
+                    </div>
+                    <Badge tone={parentPortalConfig.mode === 'auto' ? 'green' : 'amber'}>{parentPortalConfig.mode === 'auto' ? 'اعتماد تلقائي' : 'اعتماد يدوي'}</Badge>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'auto'} onClick={() => saveParentPortalMode('auto')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'auto') ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-sky-700 text-white hover:bg-sky-800'}`}>تلقائي (افتراضي)</button>
+                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'manual'} onClick={() => saveParentPortalMode('manual')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'manual') ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-amber-500 text-white hover:bg-amber-600'}`}>يدوي</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-lg font-black text-slate-900">آخر إشعارات طلبات الأرقام</div>
+                  <div className="mt-1 text-sm leading-7 text-slate-500">تنبيه سريع يساعد المدير على معرفة الطلبات المعتمدة تلقائيًا أو ما يحتاج متابعة لاحقة.</div>
+                </div>
+                <button type="button" onClick={() => setTab('parentPortal')} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200">تحديث البيانات</button>
+              </div>
+              {parentPortalConfig.loading ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">جاري تحميل إعدادات وإشعارات بوابة ولي الأمر...</div> : null}
+              {!parentPortalConfig.loading && !(parentPortalConfig.alerts || []).length ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">لا توجد إشعارات حديثة حتى الآن.</div> : null}
+              {!parentPortalConfig.loading && (parentPortalConfig.alerts || []).length ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                  {(parentPortalConfig.alerts || []).slice(0, 6).map((item, index) => (
+                    <div key={`${item.createdAt || index}-${index}`} className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-black text-slate-900">{item.guardianName || 'ولي الأمر'}</div>
+                          <div className="mt-1 text-sm leading-7 text-slate-600">{item.message || 'تم تسجيل تنبيه جديد.'}</div>
+                        </div>
+                        <Badge tone="blue">{item.status || 'معلومة'}</Badge>
+                      </div>
+                      <div className="mt-3 text-xs font-bold text-slate-400">{item.createdAt ? formatDateTime(item.createdAt) : '—'}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+
