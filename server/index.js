@@ -3557,6 +3557,10 @@ function mimeTypeFor(filePath) {
     '.gif': 'image/gif',
     '.woff': 'font/woff',
     '.woff2': 'font/woff2',
+    '.ico': 'image/x-icon',
+    '.webmanifest': 'application/manifest+json; charset=utf-8',
+    '.wav': 'audio/wav',
+    '.mp4': 'video/mp4',
   }[ext] || 'application/octet-stream';
 }
 
@@ -3585,12 +3589,22 @@ function renderParentPortalHtml() {
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
+  <!-- PWA Meta Tags -->
+  <link rel="manifest" href="/public/parent-manifest.json" />
+  <meta name="theme-color" content="#0f766e" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="ولي الأمر" />
+  <link rel="apple-touch-icon" href="/public/pwa-icon-192.png" />
+  <link rel="apple-touch-startup-image" href="/public/pwa-splash.png" />
+  <link rel="icon" type="image/png" href="/public/pwa-icon-192.png" />
   <style>
     /* ===== RESET & BASE ===== */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --font: 'Tajawal', system-ui, sans-serif;
-      --bg: #f1f5f9;
+      --bg: #f0f4f8;
       --card: #ffffff;
       --border: #e2e8f0;
       --text: #0f172a;
@@ -3613,7 +3627,7 @@ function renderParentPortalHtml() {
     html, body {
       height: 100%;
       font-family: var(--font);
-      background: var(--bg);
+      background: linear-gradient(135deg, #f0f9ff 0%, #f0fdf4 40%, #faf5ff 100%);
       color: var(--text);
       -webkit-font-smoothing: antialiased;
     }
@@ -3658,8 +3672,10 @@ function renderParentPortalHtml() {
     /* ===== HEADER ===== */
     #mainHeader {
       height: var(--header-h);
-      background: var(--card);
-      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(226,232,240,0.7);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -3668,22 +3684,24 @@ function renderParentPortalHtml() {
       position: sticky;
       top: 0;
       z-index: 50;
+      box-shadow: 0 2px 20px rgba(15,23,42,.06);
     }
     .header-user { display: flex; flex-direction: column; }
-    .header-user .greeting { font-size: 12px; color: var(--muted); font-weight: 500; }
-    .header-user .name { font-size: 17px; font-weight: 800; color: var(--text); line-height: 1.2; }
+    .header-user .greeting { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .3px; }
+    .header-user .name { font-size: 17px; font-weight: 900; color: var(--text); line-height: 1.2; }
     .header-actions { display: flex; gap: 8px; }
     .icon-btn {
       width: 40px; height: 40px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: var(--bg);
+      border: 1px solid rgba(226,232,240,0.8);
+      border-radius: 14px;
+      background: rgba(241,245,249,0.8);
       cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       font-size: 18px;
-      transition: background .15s;
+      transition: all .2s;
+      backdrop-filter: blur(8px);
     }
-    .icon-btn:hover { background: #e2e8f0; }
+    .icon-btn:hover { background: rgba(226,232,240,0.9); transform: scale(1.05); }
 
     /* ===== PAGE CONTENT ===== */
     #pageContent {
@@ -3696,15 +3714,19 @@ function renderParentPortalHtml() {
     /* ===== BOTTOM NAV ===== */
     #bottomNav {
       height: var(--nav-h);
-      background: var(--card);
-      border-top: 1px solid var(--border);
+      background: rgba(255,255,255,0.9);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border-top: 1px solid rgba(226,232,240,0.6);
       display: flex;
-      align-items: stretch;
+      align-items: center;
       flex-shrink: 0;
       position: sticky;
       bottom: 0;
       z-index: 50;
-      box-shadow: 0 -4px 20px rgba(15,23,42,.06);
+      box-shadow: 0 -8px 32px rgba(15,23,42,.08);
+      padding: 0 8px;
+      gap: 4px;
     }
     .nav-item {
       flex: 1;
@@ -3712,7 +3734,7 @@ function renderParentPortalHtml() {
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 4px;
+      gap: 3px;
       cursor: pointer;
       border: none;
       background: transparent;
@@ -3720,24 +3742,27 @@ function renderParentPortalHtml() {
       color: var(--muted);
       font-size: 11px;
       font-weight: 700;
-      transition: color .15s;
+      transition: all .2s cubic-bezier(.34,1.56,.64,1);
       position: relative;
       padding: 8px 4px;
+      border-radius: 16px;
     }
-    .nav-item .nav-icon { font-size: 22px; transition: transform .15s; }
+    .nav-item .nav-icon {
+      font-size: 22px;
+      transition: transform .2s cubic-bezier(.34,1.56,.64,1);
+      display: flex; align-items: center; justify-content: center;
+      width: 40px; height: 32px;
+      border-radius: 12px;
+      transition: all .2s cubic-bezier(.34,1.56,.64,1);
+    }
     .nav-item.active { color: var(--primary); }
-    .nav-item.active .nav-icon { transform: scale(1.15); }
-    .nav-item.active::after {
-      content: '';
-      position: absolute;
-      top: 0; left: 20%; right: 20%;
-      height: 3px;
-      background: var(--primary);
-      border-radius: 0 0 4px 4px;
+    .nav-item.active .nav-icon {
+      background: var(--primary-light);
+      transform: scale(1.1);
     }
     .nav-badge {
       position: absolute;
-      top: 6px; left: calc(50% + 6px);
+      top: 4px; left: calc(50% + 8px);
       background: #ef4444;
       color: #fff;
       font-size: 10px;
@@ -3746,16 +3771,22 @@ function renderParentPortalHtml() {
       border-radius: 999px;
       display: flex; align-items: center; justify-content: center;
       padding: 0 4px;
+      box-shadow: 0 2px 8px rgba(239,68,68,.4);
     }
 
     /* ===== CARDS ===== */
     .card {
-      background: var(--card);
-      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.9);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(226,232,240,0.8);
       border-radius: var(--radius);
       padding: 18px;
       margin-bottom: 14px;
+      box-shadow: 0 4px 24px rgba(15,23,42,.05);
+      transition: box-shadow .2s;
     }
+    .card:hover { box-shadow: 0 8px 32px rgba(15,23,42,.08); }
     .card-title {
       font-size: 15px;
       font-weight: 800;
@@ -3775,23 +3806,32 @@ function renderParentPortalHtml() {
       margin-bottom: 14px;
     }
     .stat-box {
-      background: var(--bg);
-      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.7);
+      border: 1px solid rgba(226,232,240,0.6);
       border-radius: var(--radius-sm);
       padding: 14px 12px;
       text-align: center;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: transform .2s, box-shadow .2s;
     }
+    .stat-box:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(15,23,42,.08); }
     .stat-box .stat-val { font-size: 26px; font-weight: 900; color: var(--text); line-height: 1; }
     .stat-box .stat-lbl { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 4px; }
 
     /* ===== STUDENT CARD ===== */
     .student-card {
-      background: var(--card);
-      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.92);
+      border: 1px solid rgba(226,232,240,0.7);
       border-radius: var(--radius);
       padding: 16px;
       margin-bottom: 12px;
+      box-shadow: 0 4px 20px rgba(15,23,42,.05);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      transition: transform .2s, box-shadow .2s;
     }
+    .student-card:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(15,23,42,.1); }
     .student-header {
       display: flex;
       align-items: flex-start;
@@ -4144,13 +4184,23 @@ function renderParentPortalHtml() {
   </style>
 </head>
 <body>
-<div id="app">
+<!-- ===== PWA INSTALL BANNER ===== -->
+<div id="installBanner" style="display:none;position:fixed;bottom:80px;left:12px;right:12px;z-index:200;background:linear-gradient(135deg,#0f766e,#1d4ed8);color:#fff;border-radius:20px;padding:14px 16px;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(15,23,42,.25);">
+  <img src="/public/pwa-icon-72.png" style="width:44px;height:44px;border-radius:12px;flex-shrink:0;" alt="" />
+  <div style="flex:1;">
+    <div style="font-weight:800;font-size:14px;">ثبّت التطبيق</div>
+    <div style="font-size:12px;opacity:.85;margin-top:2px;">أضف بوابة ولي الأمر لشاشتك الرئيسية</div>
+  </div>
+  <button id="installBtn" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:12px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;">تثبيت</button>
+  <button id="dismissInstallBtn" style="background:none;border:none;color:rgba(255,255,255,.7);font-size:20px;cursor:pointer;padding:4px;line-height:1;">×</button>
+</div>
 
+<div id="app">
   <!-- ===== LOGIN SCREEN ===== -->
   <div id="loginScreen">
     <div class="login-box">
       <div class="login-logo">
-        <div class="logo-icon">🏫</div>
+        <img src="/public/pwa-icon-128.png" alt="بوابة ولي الأمر" style="width:72px;height:72px;border-radius:22px;margin-bottom:14px;box-shadow:0 8px 24px rgba(15,118,110,.3);" />
         <h1>بوابة ولي الأمر</h1>
         <p>دخول آمن برقم الجوال المسجل</p>
       </div>
@@ -5068,6 +5118,44 @@ $('submitRewardRedeemBtn').onclick = async function() {
 
 /* ===== INIT ===== */
 bootstrapParent();
+
+/* ===== PWA: Service Worker Registration ===== */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/public/parent-sw.js', { scope: '/parent' })
+      .then(reg => console.log('[PWA] Service Worker registered:', reg.scope))
+      .catch(err => console.warn('[PWA] SW registration failed:', err));
+  });
+}
+
+/* ===== PWA: Install Banner ===== */
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  // Show install banner
+  const banner = document.getElementById('installBanner');
+  if (banner) banner.style.display = 'flex';
+});
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'installBtn') {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(() => { deferredPrompt = null; });
+      const banner = document.getElementById('installBanner');
+      if (banner) banner.style.display = 'none';
+    }
+  }
+  if (e.target && e.target.id === 'dismissInstallBtn') {
+    const banner = document.getElementById('installBanner');
+    if (banner) banner.style.display = 'none';
+  }
+});
+window.addEventListener('appinstalled', () => {
+  const banner = document.getElementById('installBanner');
+  if (banner) banner.style.display = 'none';
+  deferredPrompt = null;
+});
 </script>
 </body>
 </html>
@@ -5181,9 +5269,29 @@ bootstrap();
 </html>`;
 }
 
+const SERVER_PUBLIC_DIR = path.join(__dirname, 'public');
+
 function serveStatic(req, res) {
   const reqUrl = new URL(req.url, `http://${req.headers.host}`);
   let pathname = decodeURIComponent(reqUrl.pathname);
+  // خدمة ملفات /public/ من server/public/
+  if (pathname.startsWith('/public/')) {
+    const filePath = path.join(SERVER_PUBLIC_DIR, pathname.replace(/^\/public\//, ''));
+    if (!filePath.startsWith(SERVER_PUBLIC_DIR) || !existsSync(filePath)) {
+      sendText(res, 404, 'File not found');
+      return;
+    }
+    const ct = mimeTypeFor(filePath);
+    const headers = { 'Content-Type': ct, 'Cache-Control': 'public, max-age=86400' };
+    // Service Worker يجب أن يُقدَّم بدون cache طويل
+    if (filePath.endsWith('-sw.js')) {
+      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+      headers['Service-Worker-Allowed'] = '/';
+    }
+    res.writeHead(200, headers);
+    createReadStream(filePath).pipe(res);
+    return;
+  }
   if (pathname.startsWith('/uploads/')) {
     const uploadPath = path.join(UPLOADS_DIR, pathname.replace(/^\/uploads\//, ''));
     if (!uploadPath.startsWith(UPLOADS_DIR) || !existsSync(uploadPath)) {
