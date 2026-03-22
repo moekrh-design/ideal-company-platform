@@ -2074,6 +2074,20 @@ function mergeStateByRole(currentState, incomingState, actor) {
     ];
   }
 
+  // السماح للمعلم والمشرف بتحديث lessonAttendanceSessions في مدرستهم
+  if (['supervisor', 'teacher'].includes(actor.role)) {
+    const incomingSchool = incoming.schools.find((item) => item.id === schoolId);
+    if (incomingSchool) {
+      next.schools = next.schools.map((school) => {
+        if (school.id !== schoolId) return school;
+        return {
+          ...school,
+          lessonAttendanceSessions: incomingSchool.lessonAttendanceSessions || school.lessonAttendanceSessions || [],
+        };
+      });
+    }
+  }
+
   if (actor.role === 'principal') {
     const incomingSchoolUsers = incoming.users.filter((item) => item.role !== 'superadmin' && item.schoolId === schoolId);
     next.users = [

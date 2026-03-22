@@ -11947,7 +11947,7 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
   );
 }
 
-function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, initialSessionId, onCreateSession, onCloseSession, onSubmitSession, onSendSessionInvites, onMarkSessionOpened }) {
+function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, initialSessionId, onCreateSession, onCloseSession, onDeleteSession, onSubmitSession, onSendSessionInvites, onMarkSessionOpened }) {
   const isManager = ['superadmin', 'principal', 'supervisor'].includes(String(currentUser?.role || ''));
   const schoolUsers = useMemo(() => (users || []).filter((user) => Number(user.schoolId) === Number(selectedSchool?.id)), [users, selectedSchool?.id]);
   const sessions = useMemo(() => [...getLessonAttendanceSessions(selectedSchool)].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))), [selectedSchool]);
@@ -12173,8 +12173,9 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
                       <button onClick={() => navigator.clipboard?.writeText(`نأمل تنفيذ تحضير ${buildLessonAttendanceSessionLabel(selectedSession)} عبر الرابط التالي:
 ${buildLessonSessionLink(selectedSession.id)}`)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200">نسخ الرسالة</button>
                       {isManager ? <button onClick={() => onCloseSession?.(selectedSession.id, selectedSession.status === 'closed' ? 'open' : 'closed')} className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white">{selectedSession.status === 'closed' ? 'إعادة فتح' : 'إغلاق الجلسة'}</button> : null}
+                      {isManager ? <button onClick={() => { if (window.confirm('هل أنت متأكد من حذف هذه الجلسة؟ لا يمكن التراجع عن هذا الإجراء.')) { onDeleteSession?.(selectedSession.id); setSelectedSessionId(''); } }} className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-black text-white">حذف الجلسة</button> : null}
                       <button onClick={exportSessionSummary} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">CSV الملخص</button>
-                      <button onClick={exportSessionAbsences} className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-black text-white">CSV الغياب</button>
+                      <button onClick={exportSessionAbsences} className="rounded-2xl bg-orange-600 px-4 py-3 text-sm font-black text-white">CSV الغياب</button>
                     </div>
                   </div>
 
@@ -18195,6 +18196,15 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
     pushNotification(status === 'closed' ? 'إغلاق جلسة التحضير' : 'تحديث جلسة التحضير', `تم ${status === 'closed' ? 'إغلاق' : 'تحديث'} الجلسة بنجاح.`);
   };
 
+  const handleDeleteLessonAttendanceSession = (sessionId) => {
+    if (!selectedSchool?.id) return;
+    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
+      ...school,
+      lessonAttendanceSessions: getLessonAttendanceSessions(school).filter((session) => String(session.id) !== String(sessionId)),
+    }));
+    pushNotification('حذف جلسة التحضير', 'تم حذف الجلسة بنجاح.');
+  };
+
   const handleSubmitLessonAttendanceSession = ({ sessionId, classKey, acknowledgement, absentStudentIds = [] }) => {
     if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لم يتم العثور على الجلسة أو المستخدم.' };
     const companyRows = getUnifiedCompanyRows(selectedSchool, { preferStructure: true });
@@ -18526,7 +18536,7 @@ ${buildLessonSessionLink(sessionId)}
       case "points":
         return <PointsPage selectedSchool={selectedSchool} settings={settings} />;
       case "lessonAttendanceSessions":
-        return <LessonAttendanceSessionsPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialSessionId={lessonSessionIdFromUrl} onCreateSession={handleCreateLessonAttendanceSession} onCloseSession={handleUpdateLessonAttendanceSessionStatus} onSubmitSession={handleSubmitLessonAttendanceSession} onSendSessionInvites={handleSendLessonAttendanceSessionInvites} onMarkSessionOpened={handleMarkLessonAttendanceSessionOpened} />;
+        return <LessonAttendanceSessionsPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialSessionId={lessonSessionIdFromUrl} onCreateSession={handleCreateLessonAttendanceSession} onCloseSession={handleUpdateLessonAttendanceSessionStatus} onDeleteSession={handleDeleteLessonAttendanceSession} onSubmitSession={handleSubmitLessonAttendanceSession} onSendSessionInvites={handleSendLessonAttendanceSessionInvites} onMarkSessionOpened={handleMarkLessonAttendanceSessionOpened} />;
       case "reports":
         return <ReportsPage schools={schools} scanLog={scanLog} actionLog={actionLog} gateSyncEvents={gateSyncEvents} selectedSchool={selectedSchool} settings={settings} executiveReport={executiveReport} onExportAttendance={exportAttendance} onExportStudents={exportStudents} onExportSchools={exportSchools} onExportBackup={exportBackup} />;
       case "deviceDisplays":
