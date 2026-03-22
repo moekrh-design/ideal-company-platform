@@ -827,7 +827,6 @@ const navItems = [
   { key: "pointsRewards", label: "النقاط والمكافآت", icon: Trophy, permission: "points", roles: ["superadmin", "principal", "supervisor"] },
   { key: "parentsExecutive", label: "المتابعة التنفيذية", icon: BarChart3, permission: "settings", roles: ["superadmin", "principal", "supervisor"] },
   { key: "parentsAdmin", label: "أولياء الأمور", icon: Users, permission: "settings", roles: ["superadmin", "principal", "supervisor"] },
-  { key: "parentsAudit", label: "سجل أولياء الأمور", icon: ClipboardList, permission: "settings", roles: ["superadmin", "principal", "supervisor"] },
   { key: "schoolStructure", label: "الهيكل المدرسي", icon: School, permission: "settings" },
   { key: "users", label: "المستخدمون", icon: ShieldCheck, permission: "users" },
   { key: "platformAuth", label: "الدخول والمصادقة", icon: ShieldCheck, permission: "settings", roles: ["superadmin"] },
@@ -16123,7 +16122,7 @@ function ParentExecutiveSummaryPage({ currentUser, selectedSchool, onNavigate })
     if (state.portalMode === 'manual' && summary.pending > 0) items.push({ title: 'طلبات بانتظار الاعتماد', body: `يوجد ${summary.pending} طلب يحتاج معالجة من الإدارة.`, tone: 'blue', target: 'parentPortal' });
     if (summary.suspended > 0) items.push({ title: 'حسابات معلقة', body: `تم تعليق ${summary.suspended} حساب${summary.suspended > 1 ? 'ات' : ''} ولي أمر، راجع الأسباب والتأثير على التواصل.`, tone: 'rose', target: 'parentsAdmin' });
     const lastAlert = (state.alerts || [])[0];
-    if (lastAlert?.message) items.push({ title: 'آخر إشعار إداري', body: lastAlert.message, tone: 'slate', target: 'parentsAudit' });
+    if (lastAlert?.message) items.push({ title: 'آخر إشعار إداري', body: lastAlert.message, tone: 'slate', target: 'parentsAdmin' });
     return items.slice(0, 4);
   }, [state.portalEnabled, state.portalMode, state.alerts, summary.pending, summary.suspended]);
 
@@ -16167,7 +16166,7 @@ function ParentExecutiveSummaryPage({ currentUser, selectedSchool, onNavigate })
             </div>
             <div className="mt-4 grid grid-cols-1 gap-2">
               <button type="button" onClick={() => onNavigate?.('parentsAdmin')} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-200">فتح ملف أولياء الأمور</button>
-              <button type="button" onClick={() => onNavigate?.('parentsAudit')} className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-sky-700 ring-1 ring-sky-100 hover:bg-sky-50">فتح السجل الرقابي</button>
+              <button type="button" onClick={() => onNavigate?.('parentsAdmin')} className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-sky-700 ring-1 ring-sky-100 hover:bg-sky-50">فتح السجل الرقابي</button>
             </div>
           </div>
         </div>
@@ -16212,10 +16211,18 @@ function ParentExecutiveSummaryPage({ currentUser, selectedSchool, onNavigate })
   );
 }
 
-function ParentAccountsPage({ currentUser, selectedSchool }) {
+function ParentAccountsPage({ currentUser, selectedSchool, onSendMessage, onNavigate }) {
+  const [parentsTab, setParentsTab] = useState('accounts');
   const [state, setState] = useState({ loading: true, parents: [], summary: { total: 0, active: 0, pending: 0, extraContacts: 0 }, error: '', sending: '', detailLoading: '', detailError: '', detail: null, toggling: false });
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  // --- Audit Feed State ---
+  const [auditState, setAuditState] = useState({ loading: true, entries: [], summary: { total: 0, byAction: {}, schools: 0, parents: 0 }, error: '' });
+  const [auditQuery, setAuditQuery] = useState('');
+  const [auditActionFilter, setAuditActionFilter] = useState('all');
+  const [auditScopeFilter, setAuditScopeFilter] = useState('all');
+  const [auditActionNotice, setAuditActionNotice] = useState({ tone: '', text: '' });
+  const [sendingEntryId, setSendingEntryId] = useState('');
   const [detailNote, setDetailNote] = useState('');
   const [reassigning, setReassigning] = useState(false);
   const [reassignTarget, setReassignTarget] = useState(null);
@@ -16232,6 +16239,94 @@ function ParentAccountsPage({ currentUser, selectedSchool }) {
     }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // --- Audit Feed Logic ---
+  const loadAudit = useCallback(async () => {
+    setAuditState((current) => ({ ...current, loading: true, error: '' }));
+    try {
+      const response = await apiRequest('/api/admin/parents/audit-feed', { token: getSessionToken() });
+      setAuditState({ loading: false, entries: Array.isArray(response.entries) ? response.entries : [], summary: response.summary || { total: 0, byAction: {}, schools: 0, parents: 0 }, error: '' });
+    } catch (error) {
+      setAuditState((current) => ({ ...current, loading: false, error: error.message || 'تعذر تحميل السجل الرقابي.' }));
+    }
+  }, []);
+  useEffect(() => { if (parentsTab === 'audit') loadAudit(); }, [parentsTab, loadAudit]);
+
+  const auditActionOptions = useMemo(() => {
+    const set = new Set();
+    (auditState.entries || []).forEach((entry) => set.add(String(entry.action || '').trim()));
+    return [...set].filter(Boolean);
+  }, [auditState.entries]);
+
+  const filteredAuditEntries = useMemo(() => {
+    const q = String(auditQuery || '').trim().toLowerCase();
+    return (auditState.entries || []).filter((entry) => {
+      if (auditActionFilter !== 'all' && String(entry.action || '') !== auditActionFilter) return false;
+      if (auditScopeFilter === 'school' && String(entry.scope || '') !== 'school') return false;
+      if (auditScopeFilter === 'parent' && String(entry.scope || '') !== 'parent') return false;
+      if (!q) return true;
+      const haystack = [entry.title, entry.note, entry.actorName, entry.actorRole, entry.guardianName, entry.mobileMasked, entry.studentName, entry.schoolName].join(' ').toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [auditState.entries, auditQuery, auditActionFilter, auditScopeFilter]);
+
+  const auditExportPrefix = `parent-audit-${selectedSchool?.code || selectedSchool?.id || 'school'}`;
+  const auditExportColumns = [
+    { key: 'createdAt', label: 'وقت الإجراء' },
+    { key: 'title', label: 'الإجراء' },
+    { key: 'note', label: 'الوصف' },
+    { key: 'guardianName', label: 'ولي الأمر' },
+    { key: 'mobileMasked', label: 'رقم ولي الأمر' },
+    { key: 'studentName', label: 'الطالب' },
+    { key: 'schoolName', label: 'المدرسة' },
+    { key: 'actorName', label: 'المنفذ' },
+    { key: 'actorRoleLabel', label: 'الدور' },
+    { key: 'scopeLabel', label: 'النطاق' },
+    { key: 'action', label: 'رمز الإجراء' },
+  ];
+  const auditExportRows = (filteredAuditEntries || []).map((entry) => ({
+    ...entry,
+    createdAt: entry.createdAt ? formatDateTime(entry.createdAt) : '—',
+    actorRoleLabel: entry.actorRole === 'superadmin' ? 'أدمن عام' : entry.actorRole === 'principal' ? 'مدير مدرسة' : entry.actorRole === 'supervisor' ? 'مشرف' : entry.actorRole || 'إجراء',
+    scopeLabel: entry.scope === 'school' ? 'عام على مستوى المدرسة' : 'خاص بولي أمر',
+  }));
+  const exportAudit = (mode = 'xlsx') => {
+    if (mode === 'csv') { downloadFile(`${auditExportPrefix}.csv`, buildCsv(auditExportRows, auditExportColumns), 'text/csv;charset=utf-8;'); return; }
+    exportRowsToWorkbook(`${auditExportPrefix}.xlsx`, 'ParentAudit', auditExportRows, auditExportColumns);
+  };
+  const printAudit = () => {
+    const rowsHtml = auditExportRows.map((row) => `<tr>${auditExportColumns.map((column) => `<td style="border:1px solid #dbe3ef;padding:8px;text-align:right;font-size:12px">${String(row[column.key] ?? '').replace(/</g, '&lt;')}</td>`).join('')}</tr>`).join('');
+    const popup = window.open('', '_blank', 'width=1200,height=900');
+    if (!popup) return;
+    popup.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" /><title>سجل أولياء الأمور</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#0f172a}h1{margin:0 0 8px;font-size:22px}p{margin:0 0 18px;color:#475569}table{width:100%;border-collapse:collapse}th{background:#f8fafc;border:1px solid #dbe3ef;padding:10px;text-align:right;font-size:12px}</style></head><body><h1>سجل أولياء الأمور الرقابي</h1><p>إجمالي السجلات: ${auditExportRows.length}</p><table><thead><tr>${auditExportColumns.map((column) => `<th>${column.label}</th>`).join('')}</tr></thead><tbody>${rowsHtml || '<tr><td colspan="11" style="padding:16px;text-align:center">لا توجد بيانات</td></tr>'}</tbody></table></body></html>`);
+    popup.document.close(); popup.focus(); popup.print();
+  };
+  const canSendFollowupForEntry = useCallback((entry) => {
+    if (!selectedSchool || !entry || !onSendMessage) return false;
+    if (!entry.studentId || !entry.mobile) return false;
+    return Number(entry.schoolId || 0) === Number(selectedSchool.id || 0);
+  }, [selectedSchool, onSendMessage]);
+  const openEntryContext = useCallback((entry) => {
+    if (!entry) return;
+    const actionKey = String(entry.action || '').toLowerCase();
+    if (/primary|portal|policy|request|approve|reject|rollback/.test(actionKey)) { window.open('/admin/parent-primary-requests', '_blank', 'noopener,noreferrer'); return; }
+    if (onNavigate) onNavigate('parentsAdmin');
+  }, [onNavigate]);
+  const sendFollowupForEntry = useCallback(async (entry) => {
+    if (!canSendFollowupForEntry(entry)) { setAuditActionNotice({ tone: 'rose', text: 'لا يمكن إرسال متابعة لهذا السجل من المدرسة الحالية. اختر المدرسة المرتبطة بالسجل أولًا.' }); return; }
+    const extraNote = window.prompt('اكتب نص متابعة مختصرًا سيُرسل لولي الأمر، أو اتركه فارغًا لاستخدام النص الافتراضي.', String(entry.note || '').trim()) || '';
+    const subject = `متابعة إدارية: ${entry.title || 'سجل ولي أمر'}`;
+    const message = extraNote.trim() || `نحيطكم علمًا بأنه تمت مراجعة السجل المرتبط بالطالب {اسم_الطالب} في ${selectedSchool?.name || 'المدرسة'}، ويمكنكم التواصل مع إدارة المدرسة عند الحاجة.`;
+    try {
+      setSendingEntryId(String(entry.id || 'sending'));
+      const result = await onSendMessage({ audience: `students:${entry.studentId}`, audienceLabel: `متابعة ولي أمر: ${entry.studentName || entry.guardianName || 'طالب'}`, channel: 'whatsapp', subject, message, sendMode: 'now' });
+      if (!result?.ok) throw new Error(result?.message || 'تعذر إرسال المتابعة.');
+      setAuditActionNotice({ tone: 'green', text: result.message || `تم إرسال متابعة إلى ولي أمر ${entry.studentName || entry.guardianName || 'الطالب'}.` });
+    } catch (error) {
+      setAuditActionNotice({ tone: 'rose', text: error?.message || 'تعذر إرسال المتابعة من السجل.' });
+    } finally { setSendingEntryId(''); }
+  }, [canSendFollowupForEntry, onSendMessage, selectedSchool]);
+
   const filteredParents = useMemo(() => {
     const q = String(query || '').trim().toLowerCase();
     return (state.parents || []).filter((item) => {
@@ -16422,9 +16517,22 @@ ${buildCsv(auditRows, auditColumns)}`;
     printHtmlContent(`ملف ولي الأمر ${detail.guardianName || ''}`, `<h1>ملف ولي الأمر</h1><div class="meta">${detail.guardianName || 'ولي الأمر'} • ${detail.mobileMasked || detail.mobile || '—'} • ${selectedSchool?.name || 'المدرسة'}</div><div class="stats"><div class="stat"><div class="k">عدد الأبناء</div><div class="v">${(detail.students || []).length}</div></div><div class="stat"><div class="k">مجموع النقاط</div><div class="v">${detail.totalPoints || 0}</div></div><div class="stat"><div class="k">متوسط الحضور</div><div class="v">${detail.averageAttendance || 0}%</div></div><div class="stat"><div class="k">حالة الحساب</div><div class="v">${detail.accountControl?.suspended ? 'معلق' : 'مفعل'}</div></div></div><h1 style="font-size:20px;margin-top:24px">الأبناء المرتبطون</h1><table><thead><tr><th>الطالب</th><th>المدرسة</th><th>الفصل</th><th>النقاط</th><th>الحضور</th><th>الحالة</th></tr></thead><tbody>${studentRows || '<tr><td colspan="6">لا يوجد أبناء مرتبطون.</td></tr>'}</tbody></table><h1 style="font-size:20px;margin-top:24px">آخر السجل الرقابي</h1><table><thead><tr><th>الإجراء</th><th>التفاصيل</th><th>المنفذ</th><th>الوقت</th></tr></thead><tbody>${auditRows || '<tr><td colspan="4">لا يوجد سجل تغييرات.</td></tr>'}</tbody></table>`);
   };
   const detail = state.detail;
+  const auditActionCards = [
+    { label: 'إجمالي السجلات', value: auditState.summary.total || 0, tone: 'blue' },
+    { label: 'السجلات العامة', value: (auditState.entries || []).filter((entry) => entry.scope === 'school').length, tone: 'amber' },
+    { label: 'السجلات الفردية', value: (auditState.entries || []).filter((entry) => entry.scope !== 'school').length, tone: 'green' },
+    { label: 'أولياء الأمور المشمولون', value: auditState.summary.parents || 0, tone: 'violet' },
+  ];
+
   return (
     <div className="space-y-6">
-      <SectionCard title="أولياء الأمور" icon={Users} action={<div className="flex flex-wrap items-center gap-2"><button onClick={load} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">تحديث</button><button onClick={() => exportParentList('xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel</button><button onClick={() => exportParentList('csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV</button><button onClick={printParentList} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button><button onClick={() => window.open('/parent', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white">فتح البوابة</button></div>}>
+      {/* تبويبات داخلية */}
+      <div className="flex gap-2 rounded-2xl bg-slate-100 p-1.5 w-fit">
+        <button onClick={() => setParentsTab('accounts')} className={`rounded-xl px-5 py-2 text-sm font-bold transition-all ${parentsTab === 'accounts' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>الأولياء المرتبطون</button>
+        <button onClick={() => setParentsTab('audit')} className={`rounded-xl px-5 py-2 text-sm font-bold transition-all ${parentsTab === 'audit' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>السجل الرقابي</button>
+      </div>
+
+      {parentsTab === 'accounts' && <SectionCard title="أولياء الأمور" icon={Users} action={<div className="flex flex-wrap items-center gap-2"><button onClick={load} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">تحديث</button><button onClick={() => exportParentList('xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel</button><button onClick={() => exportParentList('csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV</button><button onClick={printParentList} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button><button onClick={() => window.open('/parent', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white">فتح البوابة</button></div>}>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">{summaryCards.map((item) => <StatCard key={item.label} label={item.label} value={item.value} tone={item.tone} />)}</div>
         <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-[1.5fr,220px,auto]">
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث باسم ولي الأمر أو الطالب أو الرقم" className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none" />
@@ -16476,9 +16584,9 @@ ${buildCsv(auditRows, auditColumns)}`;
             </div>
           </div>;
         })}</div>
-      </SectionCard>
+      </SectionCard>}
 
-      {detail ? <div className="fixed inset-0 z-[100] bg-slate-950/40 p-4 backdrop-blur-sm" onClick={closeDetail}>
+      {parentsTab === 'accounts' && detail ? <div className="fixed inset-0 z-[100] bg-slate-950/40 p-4 backdrop-blur-sm" onClick={closeDetail}>
         <div className="mx-auto mt-6 max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-[2rem] bg-white p-6 shadow-2xl ring-1 ring-slate-200" onClick={(e) => e.stopPropagation()}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -16567,6 +16675,50 @@ ${buildCsv(auditRows, auditColumns)}`;
           </div>
         </div>
       </div> : null}
+
+      {parentsTab === 'audit' && <SectionCard title="السجل الرقابي لأولياء الأمور" icon={ClipboardList} action={<div className="flex flex-wrap items-center gap-2"><button onClick={loadAudit} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">تحديث</button><button onClick={() => exportAudit('xlsx')} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">Excel</button><button onClick={() => exportAudit('csv')} className="rounded-2xl bg-sky-50 px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100">CSV</button><button onClick={printAudit} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">طباعة / PDF</button></div>}>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {auditActionCards.map((card) => <div key={card.label} className="rounded-[1.5rem] border border-slate-200 bg-white p-5"><Badge tone={card.tone}>{card.label}</Badge><div className="mt-4 text-3xl font-black text-slate-900">{card.value}</div></div>)}
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-[1.2fr_.7fr_.7fr_auto]">
+          <label className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">بحث</div><input value={auditQuery} onChange={(e) => setAuditQuery(e.target.value)} placeholder="ولي الأمر أو الطالب أو الوصف" className="mt-2 w-full bg-transparent text-sm font-bold outline-none" /></label>
+          <label className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">نوع الإجراء</div><select value={auditActionFilter} onChange={(e) => setAuditActionFilter(e.target.value)} className="mt-2 w-full bg-transparent text-sm font-bold outline-none"><option value="all">الكل</option>{auditActionOptions.map((action) => <option key={action} value={action}>{action}</option>)}</select></label>
+          <label className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">النطاق</div><select value={auditScopeFilter} onChange={(e) => setAuditScopeFilter(e.target.value)} className="mt-2 w-full bg-transparent text-sm font-bold outline-none"><option value="all">الكل</option><option value="school">عام على مستوى المدرسة</option><option value="parent">خاص بولي أمر</option></select></label>
+          <div className="flex items-end"><div className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700">{filteredAuditEntries.length} سجل</div></div>
+        </div>
+        {auditState.error ? <div className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200">{auditState.error}</div> : null}
+        {auditActionNotice.text ? <div className={`mt-4 rounded-2xl px-4 py-3 text-sm font-bold ring-1 ${auditActionNotice.tone === 'green' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : auditActionNotice.tone === 'rose' ? 'bg-rose-50 text-rose-700 ring-rose-200' : 'bg-sky-50 text-sky-700 ring-sky-200'}`}>{auditActionNotice.text}</div> : null}
+        {auditState.loading ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-500">جاري تحميل السجل الرقابي...</div> : null}
+        {!auditState.loading && !filteredAuditEntries.length ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm font-bold text-slate-500">لا توجد سجلات مطابقة للفلاتر الحالية.</div> : null}
+        <div className="mt-4 space-y-3">
+          {filteredAuditEntries.map((entry) => (
+            <div key={entry.id} className="rounded-[1.5rem] border border-slate-200 bg-white p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-lg font-black text-slate-900">{entry.title || 'إجراء إداري'}</div>
+                  <div className="mt-2 text-sm leading-7 text-slate-600">{entry.note || '—'}</div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge tone={/suspend|reject|rollback|disabled/i.test(String(entry.action || '')) ? 'rose' : /approve|reactivate|enabled/i.test(String(entry.action || '')) ? 'green' : /policy|send_access_code/i.test(String(entry.action || '')) ? 'amber' : 'blue'}>{entry.scope === 'school' ? 'عام' : 'ولي أمر'}</Badge>
+                  <Badge tone="slate">{entry.actorRole === 'superadmin' ? 'أدمن عام' : entry.actorRole === 'principal' ? 'مدير مدرسة' : entry.actorRole === 'supervisor' ? 'مشرف' : entry.actorRole || 'إجراء'}</Badge>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">ولي الأمر</div><div className="mt-1 text-sm font-black text-slate-900">{entry.guardianName || '—'}</div><div className="mt-1 text-xs text-slate-500">{entry.mobileMasked || '—'}</div></div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">الطالب / المدرسة</div><div className="mt-1 text-sm font-black text-slate-900">{entry.studentName || '—'}</div><div className="mt-1 text-xs text-slate-500">{entry.schoolName || '—'}</div></div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">المنفذ</div><div className="mt-1 text-sm font-black text-slate-900">{entry.actorName || '—'}</div><div className="mt-1 text-xs text-slate-500">{entry.createdAt ? formatDateTime(entry.createdAt) : '—'}</div></div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200"><div className="text-xs font-black text-slate-500">رمز الإجراء</div><div className="mt-1 text-sm font-black text-slate-900">{entry.action || '—'}</div><div className="mt-1 text-xs text-slate-500">{entry.scope === 'school' ? 'عام على المدرسة' : 'ملف ولي الأمر'}</div></div>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" onClick={() => openEntryContext(entry)} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">فتح الجهة المرتبطة</button>
+                <button type="button" onClick={() => onNavigate?.('messages')} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-sky-700 ring-1 ring-sky-100 hover:bg-sky-50">فتح الرسائل والتنبيهات</button>
+                {canSendFollowupForEntry(entry) ? <button type="button" onClick={() => sendFollowupForEntry(entry)} disabled={sendingEntryId === String(entry.id || '')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">{sendingEntryId === String(entry.id || '') ? 'جاري الإرسال...' : 'إرسال متابعة لولي الأمر'}</button> : null}
+                {!canSendFollowupForEntry(entry) && entry.studentId ? <div className="rounded-2xl bg-amber-50 px-4 py-2 text-xs font-bold text-amber-700 ring-1 ring-amber-200">لإرسال متابعة مباشرة اختر المدرسة المرتبطة بهذا السجل أولًا.</div> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>}
     </div>
   );
 }
@@ -19275,9 +19427,7 @@ ${buildLessonSessionLink(sessionId)}
       case "parentsExecutive":
         return <ParentExecutiveSummaryPage currentUser={currentUser} selectedSchool={selectedSchool} onNavigate={setActivePage} />;
       case "parentsAdmin":
-        return <ParentAccountsPage currentUser={currentUser} selectedSchool={selectedSchool} />;
-      case "parentsAudit":
-        return <ParentAuditFeedPage currentUser={currentUser} selectedSchool={selectedSchool} onSendMessage={handleSendSchoolMessage} onNavigate={setActivePage} />;
+        return <ParentAccountsPage currentUser={currentUser} selectedSchool={selectedSchool} onSendMessage={handleSendSchoolMessage} onNavigate={setActivePage} />;
       case "settings":
         return <SettingsPage selectedSchool={selectedSchool} settings={settings} attendanceMethod={attendanceMethod} users={users} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onRestoreBackup={restoreBackup} onResetData={resetData} onExportBackup={exportBackup} onImportStudents={handleImportStudentsFromExcel} onDownloadTemplate={downloadStudentImportTemplate} setAttendanceMethod={setAttendanceMethod} onUpdateSchoolBranding={handleUpdateSchoolBranding} />;
       case "platformAuth":
