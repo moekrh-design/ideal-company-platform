@@ -1464,6 +1464,28 @@ function hydrateActionLog(logs) {
   }));
 }
 
+function hydrateGateSyncCenterEvents(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .map((item, index) => ({
+      id: item?.id || `gate-sync-${Date.now()}-${index}`,
+      schoolId: item?.schoolId ?? null,
+      gateId: item?.gateId ?? null,
+      gateName: item?.gateName || item?.gate || "بوابة المدرسة",
+      status: String(item?.status || "pending").trim().toLowerCase(),
+      studentName: item?.studentName || item?.student || "",
+      barcode: item?.barcode || item?.studentBarcode || item?.code || "",
+      method: item?.method || item?.captureMethod || "QR",
+      capturedAt: item?.capturedAt || item?.capturedAtIso || item?.createdAt || "",
+      capturedAtLocal: item?.capturedAtLocal || item?.capturedAt || item?.capturedAtIso || "",
+      syncedAt: item?.syncedAt || item?.processedAt || item?.updatedAt || "",
+      operationId: item?.operationId || item?.clientOperationId || item?.id || "",
+      message: item?.message || item?.result || item?.reason || "",
+      createdAt: item?.createdAt || item?.capturedAt || item?.syncedAt || "",
+      source: item?.source || item?.syncSource || "gate-device",
+    }))
+    .sort((a, b) => String(b.syncedAt || b.createdAt || b.capturedAt || '').localeCompare(String(a.syncedAt || a.createdAt || a.capturedAt || '')));
+}
+
 function createDefaultState() {
   const schools = hydrateSchools(initialSchools);
   return {
@@ -1509,7 +1531,7 @@ function buildHydratedClientState(parsed = {}, uiState = {}) {
     attendanceMethod: uiState.attendanceMethod || "barcode",
     scanLog: hydrateScanLog(parsed.scanLog?.length ? parsed.scanLog : initialScanLog),
     actionLog: hydrateActionLog(parsed.actionLog || []),
-    gateSyncEvents: Array.isArray(parsed.gateSyncEvents) ? parsed.gateSyncEvents : defaults.gateSyncEvents,
+    gateSyncEvents: hydrateGateSyncCenterEvents(Array.isArray(parsed.gateSyncEvents) ? parsed.gateSyncEvents : defaults.gateSyncEvents),
     settings: {
       ...defaultSettings,
       ...(parsed.settings || {}),
@@ -14483,6 +14505,7 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
           </div>
         )}
 
+
         <div className="mt-6 flex flex-wrap gap-3">
           <button onClick={save} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white"><Save className="h-4 w-4" /> حفظ الإعدادات</button>
           <button onClick={() => setLocalSettings(settings)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-5 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> التراجع</button>
@@ -16075,6 +16098,7 @@ export default function App() {
   const initial = useMemo(() => loadPersistedState(), []);
   const publicMode = useMemo(() => getPublicModeFromLocation(), []);
   const lessonSessionIdFromUrl = useMemo(() => getLessonSessionIdFromLocation(), []);
+  const leavePassIdFromUrl = useMemo(() => getLeavePassIdFromLocation(), []);
   const [schools, setSchools] = useState(initial.schools);
   const [users, setUsers] = useState(initial.users);
   const [currentUserId, setCurrentUserId] = useState(initial.currentUserId);
@@ -16083,6 +16107,7 @@ export default function App() {
   const [attendanceMethod, setAttendanceMethod] = useState(initial.attendanceMethod);
   const [scanLog, setScanLog] = useState(initial.scanLog);
   const [actionLog, setActionLog] = useState(initial.actionLog || []);
+  const [gateSyncEvents, setGateSyncEvents] = useState(hydrateGateSyncCenterEvents(initial.gateSyncEvents || []));
   const [settings, setSettings] = useState(initial.settings);
   const [notifications, setNotifications] = useState(initial.notifications);
   const [editingUserId, setEditingUserId] = useState(null);
@@ -16222,6 +16247,7 @@ export default function App() {
         setUsers(next.users);
         setScanLog(next.scanLog);
         setActionLog(next.actionLog || []);
+        setGateSyncEvents(hydrateGateSyncCenterEvents(next.gateSyncEvents || []));
         setSettings(next.settings);
         setNotifications(next.notifications);
         saveServerCache(response.state || {});
@@ -17429,6 +17455,7 @@ export default function App() {
       attendanceMethod,
       scanLog,
       actionLog,
+      gateSyncEvents,
       settings,
       notifications,
     };
@@ -17823,6 +17850,7 @@ export default function App() {
         setUsers(next.users);
         setScanLog(next.scanLog);
         setActionLog(next.actionLog || []);
+        setGateSyncEvents(hydrateGateSyncCenterEvents(next.gateSyncEvents || []));
         setSettings(next.settings);
         setNotifications(next.notifications);
         saveServerCache(response.state || {});
@@ -17848,6 +17876,7 @@ export default function App() {
         setUsers(next.users);
         setScanLog(next.scanLog);
         setActionLog(next.actionLog || []);
+        setGateSyncEvents(hydrateGateSyncCenterEvents(next.gateSyncEvents || []));
         setSettings(next.settings);
         setNotifications(next.notifications);
         saveServerCache(response.state || {});
@@ -18727,4 +18756,3 @@ function UserEditor({ editingUser, schools, currentUser, actionLog, settings, on
     </form>
   );
 }
-
