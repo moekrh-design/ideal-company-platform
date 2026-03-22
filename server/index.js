@@ -5084,9 +5084,10 @@ function renderParentRequestsAdminHtml() {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>اعتماد طلبات أولياء الأمور - منصة الشركة المثالية</title>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
   <style>
     :root{--bg:#f8fafc;--card:#fff;--line:#e2e8f0;--text:#0f172a;--muted:#64748b;--primary:#0f766e;--danger:#be123c;--ok:#166534}
-    *{box-sizing:border-box}body{margin:0;font-family:Tahoma,Arial,sans-serif;background:linear-gradient(180deg,#f8fafc,#eef6ff);color:var(--text)}
+    *{box-sizing:border-box}body{margin:0;font-family:'Tajawal',system-ui,sans-serif;background:linear-gradient(180deg,#f8fafc,#eef6ff);color:var(--text)}
     .wrap{max-width:1180px;margin:0 auto;padding:24px}.hero{background:linear-gradient(135deg,#0f766e,#1d4ed8);color:#fff;border-radius:28px;padding:24px;box-shadow:0 20px 60px rgba(15,23,42,.12)}
     .hero h1{margin:0 0 8px;font-size:30px}.hero p{margin:0;color:#dbeafe;line-height:1.8}.toolbar,.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .card{margin-top:18px;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:18px;box-shadow:0 10px 30px rgba(15,23,42,.05)}
