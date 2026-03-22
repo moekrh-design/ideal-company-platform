@@ -11733,6 +11733,7 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
     window.alert(result?.message || (result?.ok ? 'تم الإرسال عبر النظام.' : 'تعذر الإرسال عبر النظام.'));
   };
 
+  const isTeacher = String(currentUser?.role || '') === 'teacher';
   const principalColumns = [
     { key: 'studentName', label: 'الطالب' },
     { key: 'teacherName', label: 'المعلم' },
@@ -11740,6 +11741,21 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
     { key: 'statusLabel', label: 'الحالة', render: (row) => <Badge tone={getLeavePassStatusTone(row.status)}>{getLeavePassStatusLabel(row.status)}</Badge> },
     { key: 'createdAtLabel', label: 'الوقت' },
     { key: 'queueLabel', label: 'المتابعة', render: (row) => <Badge tone={row.queueTone || 'blue'}>{row.queueLabel || 'جديد'}</Badge> },
+    ...(isTeacher ? [{ key: 'actions', label: 'الإجراء', render: (row) => (
+      <div className="flex flex-wrap gap-1.5">
+        <button onClick={(e) => { e.stopPropagation(); onMarkViewed?.(row.id); }} className="inline-flex items-center gap-1 rounded-xl bg-sky-700 px-3 py-1.5 text-xs font-bold text-white"><BadgeCheck className="h-3 w-3" /> تم الاطلاع</button>
+        <button onClick={(e) => { e.stopPropagation(); onUpdateLeavePassStatus?.(row.id, 'completed'); }} className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"><ClipboardCheck className="h-3 w-3" /> خرج الطالب</button>
+      </div>
+    ) }] : []),
+    ...(!isTeacher && (canCreate || viewMode === 'agent' || viewMode === 'counselor') ? [{ key: 'adminActions', label: 'الإجراء', render: (row) => (
+      <div className="flex flex-wrap gap-1.5">
+        {row.destination === 'agent' ? <button onClick={(e) => { e.stopPropagation(); onUpdateLeavePassStatus?.(row.id, 'approved-agent'); }} className="inline-flex items-center gap-1 rounded-xl bg-indigo-600 px-2 py-1 text-xs font-bold text-white"><ShieldCheck className="h-3 w-3" /> اعتماد</button> : null}
+        {row.destination === 'counselor' ? <button onClick={(e) => { e.stopPropagation(); onUpdateLeavePassStatus?.(row.id, 'approved-counselor'); }} className="inline-flex items-center gap-1 rounded-xl bg-indigo-600 px-2 py-1 text-xs font-bold text-white"><ShieldCheck className="h-3 w-3" /> اعتماد</button> : null}
+        {row.destination === 'guardian' ? <button onClick={(e) => { e.stopPropagation(); onUpdateLeavePassStatus?.(row.id, 'released-guardian'); }} className="inline-flex items-center gap-1 rounded-xl bg-emerald-700 px-2 py-1 text-xs font-bold text-white"><UserCheck className="h-3 w-3" /> تسليم</button> : null}
+        <button onClick={(e) => { e.stopPropagation(); onUpdateLeavePassStatus?.(row.id, 'completed'); }} className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-2 py-1 text-xs font-bold text-white"><ClipboardCheck className="h-3 w-3" /> إقفال</button>
+        <button onClick={(e) => { e.stopPropagation(); onUpdateLeavePassStatus?.(row.id, 'cancelled'); }} className="inline-flex items-center gap-1 rounded-xl bg-rose-600 px-2 py-1 text-xs font-bold text-white"><Trash2 className="h-3 w-3" /> إلغاء</button>
+      </div>
+    ) }] : []),
   ];
 
   const preparedRows = managedRows.map((row) => ({
@@ -11858,8 +11874,7 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
         </SectionCard>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
-        <SectionCard title={viewMode === 'main' ? (canCreate ? 'سجل الاستئذان' : 'طلبات الاستئذان الواردة') : (viewMode === 'agent' ? 'طلبات الوكيل' : 'طلبات المرشد')} icon={ClipboardCheck}>
+      <SectionCard title={viewMode === 'main' ? (canCreate ? 'سجل الاستئذان' : 'طلبات الاستئذان الواردة') : (viewMode === 'agent' ? 'طلبات الوكيل' : 'طلبات المرشد')} icon={ClipboardCheck}>
           {viewMode !== 'main' ? <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">بانتظار الاعتماد</div><div className="mt-1 text-2xl font-black text-slate-900">{formatEnglishDigits(preparedRows.filter((item) => ['viewed','sent-system','sent-manual','created'].includes(String(item.status || ''))).length)}</div></div>
             <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">قيد التنفيذ</div><div className="mt-1 text-2xl font-black text-slate-900">{formatEnglishDigits(preparedRows.filter((item) => ['approved-agent','approved-counselor','released-guardian'].includes(String(item.status || ''))).length)}</div></div>
@@ -11867,77 +11882,6 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
           </div> : null}
           <DataTable columns={principalColumns} rows={preparedRows} onRowClick={(row) => setSelectedId(String(row.id))} emptyMessage={viewMode === 'main' ? (canCreate ? 'لا توجد طلبات استئذان بعد.' : 'لا توجد طلبات موجّهة لهذا المعلم.') : (viewMode === 'agent' ? 'لا توجد طلبات موجّهة إلى الوكيل.' : 'لا توجد طلبات موجّهة إلى المرشد.')} />
         </SectionCard>
-
-        <SectionCard title={selectedPass ? `تفاصيل: ${selectedPass.studentName}` : 'تفاصيل الطلب'} icon={ExternalLink}>
-          {!selectedPass ? (
-            <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">اضغط على أي طلب لعرض تفاصيله.</div>
-          ) : (
-            <div className="space-y-3">
-              <div className="grid gap-2 grid-cols-2">
-                <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الطالب</div><div className="mt-1 text-sm font-black text-slate-900">{selectedPass.studentName}</div><div className="text-xs text-slate-500">{selectedPass.className || selectedPass.companyName || '—'}</div></div>
-                <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs text-slate-500">المعلم</div><div className="mt-1 text-sm font-black text-slate-900">{selectedPass.teacherName}</div><div className="text-xs text-slate-500">{selectedPass.teacherMobile || '—'}</div></div>
-                <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الوجهة</div><div className="mt-1 text-sm font-black text-slate-900">{getLeavePassDestinationLabel(selectedPass.destination)}</div></div>
-                <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الحالة</div><div className="mt-1"><Badge tone={getLeavePassStatusTone(selectedPass.status)}>{getLeavePassStatusLabel(selectedPass.status)}</Badge></div></div>
-              </div>
-              <div className={cx('rounded-2xl p-3 ring-1', getLeavePassQueueMeta(selectedPass).cardClass)}><div className="flex items-center justify-between"><div className="text-xs text-slate-500">المتابعة</div><div className="text-xs font-bold text-slate-600">{getLeavePassElapsedLabel(selectedPass)}</div></div><div className="mt-1"><Badge tone={getLeavePassQueueMeta(selectedPass).tone}>{getLeavePassQueueMeta(selectedPass).label}</Badge></div></div>
-              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-                <div className="text-sm text-slate-500">سبب الاستئذان</div>
-                <div className="mt-1 font-bold text-slate-900">{selectedPass.reason || '—'}</div>
-                <div className="mt-3 text-sm text-slate-500">ملاحظات</div>
-                <div className="mt-1 text-sm leading-7 text-slate-700">{selectedPass.note || 'لا توجد ملاحظات إضافية.'}</div>
-                {(selectedPass.guardianName || selectedPass.guardianMobile) ? (
-                  <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">ولي الأمر</div><div className="mt-1 font-bold text-slate-900">{selectedPass.guardianName || '—'}</div></div>
-                    <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">جوال ولي الأمر</div><div className="mt-1 font-bold text-slate-900">{selectedPass.guardianMobile || '—'}</div></div>
-                  </div>
-                ) : null}
-              </div>
-              <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="text-xs font-bold text-slate-700">السجل الزمني</div>
-                  <button onClick={() => printLeavePass(selectedPass)} className="inline-flex items-center gap-1 rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white"><Printer className="h-3 w-3" /> طباعة</button>
-                </div>
-                <div className="space-y-1.5 max-h-[16rem] overflow-auto">
-                  {getLeavePassTimeline(selectedPass).length ? getLeavePassTimeline(selectedPass).map((event) => (
-                    <div key={event.id} className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
-                      <div className="flex flex-wrap items-center justify-between gap-1"><div className="text-xs font-bold text-slate-900">{getLeavePassEventLabel(event.type)}</div><div className="text-[10px] text-slate-500">{event.at ? formatDateTime(event.at) : '—'}</div></div>
-                      <div className="text-[11px] text-slate-600">{event.actorName || 'مستخدم النظام'}{event.note ? ` — ${event.note}` : ''}</div>
-                    </div>
-                  )) : <div className="text-xs text-slate-500">لا توجد حركات مسجلة بعد.</div>}
-                </div>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
-                <div className="text-xs font-bold text-slate-700 mb-1">رابط المعلم</div>
-                <div className="break-all text-xs text-slate-600 bg-white rounded-xl px-3 py-2 ring-1 ring-slate-200 mb-2">{selectedPass.passLink}</div>
-                <div className="flex flex-wrap gap-1.5">
-                  <button onClick={() => navigator.clipboard?.writeText(selectedPass.passLink || '')} className="inline-flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-slate-700 ring-1 ring-slate-200"><Copy className="h-3 w-3" /> نسخ</button>
-                  {canCreate && <button onClick={() => openManualWhatsapp(selectedPass)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"><ExternalLink className="h-3 w-3" /> واتساب يدوي</button>}
-                  {canCreate && <button onClick={() => sendSystem(selectedPass)} className="inline-flex items-center gap-1 rounded-xl bg-sky-700 px-3 py-1.5 text-xs font-bold text-white"><Bell className="h-3 w-3" /> إرسال نظام</button>}
-                  {canCreate && selectedPass.destination === 'guardian' && selectedPass.guardianMobile ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'manual', 'guardian'); if (result?.whatsAppUrl) window.open(result.whatsAppUrl, '_blank'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-1 rounded-xl bg-fuchsia-600 px-3 py-1.5 text-xs font-bold text-white"><ExternalLink className="h-3 w-3" /> ولي الأمر يدوي</button> : null}
-                  {canCreate && selectedPass.destination === 'guardian' && selectedPass.guardianMobile ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'guardian'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-1 rounded-xl bg-violet-700 px-3 py-1.5 text-xs font-bold text-white"><Bell className="h-3 w-3" /> ولي الأمر نظام</button> : null}
-                  {(canCreate || viewMode === 'agent') && selectedPass.destination === 'agent' ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'agent'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-1 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white"><Bell className="h-3 w-3" /> إشعار الوكيل</button> : null}
-                  {(canCreate || viewMode === 'counselor') && selectedPass.destination === 'counselor' ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'counselor'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-1 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white"><Bell className="h-3 w-3" /> إشعار المرشد</button> : null}
-                </div>
-              </div>
-              {String(currentUser?.role || '') === 'teacher' && (
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => onMarkViewed?.(selectedPass.id)} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white"><BadgeCheck className="h-4 w-4" /> تم الاطلاع</button>
-                  <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'completed')} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white"><ClipboardCheck className="h-4 w-4" /> خرج الطالب من الحصة</button>
-                </div>
-              )}
-              {(canCreate || viewMode === 'agent' || viewMode === 'counselor') && (
-                <div className="flex flex-wrap gap-2">
-                  {selectedPass.destination === 'agent' ? <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'approved-agent')} className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white"><ShieldCheck className="h-4 w-4" /> اعتماد الوكيل</button> : null}
-                  {selectedPass.destination === 'counselor' ? <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'approved-counselor')} className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white"><ShieldCheck className="h-4 w-4" /> اعتماد المرشد</button> : null}
-                  {selectedPass.destination === 'guardian' ? <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'released-guardian')} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white"><UserCheck className="h-4 w-4" /> تسليم مع ولي الأمر</button> : null}
-                  <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'completed')} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white"><ClipboardCheck className="h-4 w-4" /> إقفال مكتمل</button>
-                  <button onClick={() => onUpdateLeavePassStatus?.(selectedPass.id, 'cancelled')} className="inline-flex items-center gap-2 rounded-2xl bg-rose-600 px-4 py-2 text-sm font-bold text-white"><Trash2 className="h-4 w-4" /> إلغاء الطلب</button>
-                </div>
-              )}
-            </div>
-          )}
-        </SectionCard>
-      </div>
     </div>
   );
 }
