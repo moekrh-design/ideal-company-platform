@@ -3589,6 +3589,8 @@ function renderParentPortalHtml() {
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- PWA Meta Tags -->
   <link rel="manifest" href="/public/parent-manifest.json" />
   <meta name="theme-color" content="#0f766e" />
@@ -3963,7 +3965,52 @@ function renderParentPortalHtml() {
     .pill-blue { background: #eff6ff; color: #1d4ed8; }
     .pill-teal { background: var(--primary-light); color: var(--primary-dark); }
     .pill-slate { background: #f1f5f9; color: #475569; }
-
+    /* ===== CHART ===== */
+    .chart-section {
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 20px rgba(15,23,42,.06);
+      border: 1px solid rgba(255,255,255,0.7);
+    }
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      gap: 12px;
+    }
+    .chart-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .chart-legend {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .chart-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .chart-legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .chart-container {
+      position: relative;
+      height: 180px;
+    }
     /* ===== FORM ELEMENTS ===== */
     .form-group { margin-bottom: 14px; }
     .form-label {
@@ -4280,7 +4327,19 @@ function renderParentPortalHtml() {
           <div class="stat-box"><div class="stat-val" id="statStudents">0</div><div class="stat-lbl">عدد الأبناء</div></div>
           <div class="stat-box"><div class="stat-val" id="statSchools">0</div><div class="stat-lbl">المدارس</div></div>
         </div>
-
+        <!-- Points Chart -->
+        <div class="chart-section" id="pointsChartSection">
+          <div class="chart-header">
+            <div class="chart-title">تطور النقاط</div>
+            <div class="chart-legend">
+              <div class="chart-legend-item"><div class="chart-legend-dot" style="background:#0f766e"></div>مكافآت</div>
+              <div class="chart-legend-item"><div class="chart-legend-dot" style="background:#ef4444"></div>خصومات</div>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="pointsChart"></canvas>
+          </div>
+        </div>
         <!-- Inner Tabs: Rewards / Deductions -->
         <div class="inner-tabs">
           <button class="inner-tab active" data-ptab="rewards">المكافآت</button>
@@ -4889,6 +4948,91 @@ function renderPrimaryChangeRequest() {
     + (req.note ? '<div style="font-size:12px;margin-top:4px">' + req.note + '</div>' : '');
 }
 
+let _pointsChartInstance = null;
+function renderPointsChart(profile) {
+  const canvas = $('pointsChart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  // جمع كل الإجراءات من جميع الأبناء
+  const allActions = [];
+  (profile.students || []).forEach(s => {
+    (s.recentActions || []).forEach(a => allActions.push(a));
+  });
+  if (!allActions.length) {
+    const section = $('pointsChartSection');
+    if (section) section.style.display = 'none';
+    return;
+  }
+  const section = $('pointsChartSection');
+  if (section) section.style.display = '';
+  // بناء بيانات آخر 7 أيام
+  const days = 7;
+  const labels = [];
+  const rewardsData = [];
+  const deductionsData = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dayStr = d.toISOString().slice(0, 10);
+    const dayLabel = d.toLocaleDateString('ar-SA', { weekday: 'short', month: 'numeric', day: 'numeric' });
+    labels.push(dayLabel);
+    let rewards = 0, deductions = 0;
+    allActions.forEach(a => {
+      if (!a.createdAt) return;
+      if (a.createdAt.slice(0, 10) !== dayStr) return;
+      const pts = Number(a.points || 0);
+      if (pts > 0) rewards += pts;
+      else if (pts < 0) deductions += Math.abs(pts);
+    });
+    rewardsData.push(rewards);
+    deductionsData.push(deductions);
+  }
+  if (_pointsChartInstance) { _pointsChartInstance.destroy(); _pointsChartInstance = null; }
+  _pointsChartInstance = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'مكافآت',
+          data: rewardsData,
+          backgroundColor: 'rgba(15,118,110,0.7)',
+          borderRadius: 6,
+          borderSkipped: false,
+        },
+        {
+          label: 'خصومات',
+          data: deductionsData,
+          backgroundColor: 'rgba(239,68,68,0.65)',
+          borderRadius: 6,
+          borderSkipped: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          rtl: true,
+          titleFont: { family: 'Tajawal', size: 12 },
+          bodyFont: { family: 'Tajawal', size: 12 },
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { font: { family: 'Tajawal', size: 10 }, color: '#94a3b8' }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: 'rgba(148,163,184,0.15)' },
+          ticks: { font: { family: 'Tajawal', size: 10 }, color: '#94a3b8', stepSize: 5 }
+        }
+      }
+    }
+  });
+}
 function renderProfile(profile) {
   profileData = profile;
   // Header
@@ -4906,6 +5050,7 @@ function renderProfile(profile) {
   renderExtraContacts();
   renderNotificationSettings();
   renderPrimaryChangeRequest();
+  renderPointsChart(profile);
   // Show main app
   $('loginScreen').classList.add('hidden');
   $('mainApp').classList.remove('hidden');
@@ -5632,23 +5777,33 @@ const server = http.createServer(async (req, res) => {
       const pointsCost = Number(item.pointsCost || 0);
       const request = { id: `redeem-${Date.now()}`, schoolId, studentId, studentName: student.name || 'طالب', itemId, itemTitle: item.title || 'جائزة', pointsCost, note, mobile: profile.mobile, guardianName: profile.guardianName, status: 'pending', createdAt: nowIso() };
       // خصم النقاط فوراً من الطالب الحقيقي في الـ state
+      // استخراج rawId من studentId المركّب (مثل "structure-CLASSID-RAWID" أو "RAWID" مباشرة)
+      const rawStudentId = String(studentId).startsWith('structure-')
+        ? String(studentId).split('-').slice(2).join('-')
+        : String(studentId);
       const nextState = structuredClone(state);
       const targetSchool = nextState.schools.find((s) => Number(s.id) === schoolId);
       if (targetSchool) {
-        // محاولة خصم من school.students أولاً
-        const directStudent = (targetSchool.students || []).find((s) => String(s.id) === studentId);
-        if (directStudent) {
-          directStudent.points = Math.max(0, Number(directStudent.points || 0) - pointsCost);
-        } else {
-          // محاولة خصم من structure.classrooms
-          let found = false;
-          for (const classroom of (targetSchool.structure?.classrooms || [])) {
-            if (found) break;
-            const classStudent = (classroom.students || []).find((s) => String(s.id) === studentId);
-            if (classStudent) {
-              classStudent.points = Math.max(0, Number(classStudent.points || 0) - pointsCost);
-              found = true;
-            }
+        let deducted = false;
+        // محاولة خصم من structure.classrooms أولاً (الأولوية)
+        for (const classroom of (targetSchool.structure?.classrooms || [])) {
+          if (deducted) break;
+          const classStudent = (classroom.students || []).find(
+            (s) => String(s.id) === rawStudentId || String(s.id) === studentId
+          );
+          if (classStudent) {
+            classStudent.points = Math.max(0, Number(classStudent.points || 0) - pointsCost);
+            deducted = true;
+          }
+        }
+        // إذا لم يُوجد في structure، ابحث في school.students
+        if (!deducted) {
+          const directStudent = (targetSchool.students || []).find(
+            (s) => String(s.id) === rawStudentId || String(s.id) === studentId
+          );
+          if (directStudent) {
+            directStudent.points = Math.max(0, Number(directStudent.points || 0) - pointsCost);
+            deducted = true;
           }
         }
         // تسجيل الطلب في rewardStore
