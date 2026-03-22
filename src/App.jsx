@@ -9905,10 +9905,25 @@ function AttendancePage({ selectedSchool, currentUser, attendanceMethod, setAtte
   const [faceFile, setFaceFile] = useState(null);
   const [facePreview, setFacePreview] = useState("");
   const [faceBusy, setFaceBusy] = useState(false);
+  const [manualClassroomId, setManualClassroomId] = useState("");
+  const [manualStudentId, setManualStudentId] = useState("");
   const hasStructureSource = useMemo(() => schoolHasStructureClassrooms(selectedSchool), [selectedSchool]);
   const attendanceBinding = useMemo(() => getSchoolAttendanceBinding(selectedSchool), [selectedSchool]);
   const attendanceSource = useMemo(() => getAttendanceStudentsSource(selectedSchool), [selectedSchool]);
   const attendanceStudents = attendanceSource.students || [];
+  const manualClassrooms = useMemo(() => {
+    if (hasStructureSource) {
+      const classrooms = Array.isArray(selectedSchool?.structure?.classrooms) ? selectedSchool.structure.classrooms : [];
+      return classrooms.map((c) => ({ id: String(c.id), name: c.name || c.gradeLabel || 'فصل' }));
+    }
+    const map = {};
+    (attendanceStudents).forEach((s) => { if (s.classroomId && !map[s.classroomId]) map[s.classroomId] = s.classroomName || s.className || 'فصل'; });
+    return Object.entries(map).map(([id, name]) => ({ id, name }));
+  }, [hasStructureSource, selectedSchool, attendanceStudents]);
+  const manualStudentsInClass = useMemo(() => {
+    if (!manualClassroomId) return [];
+    return attendanceStudents.filter((s) => String(s.classroomId) === String(manualClassroomId));
+  }, [manualClassroomId, attendanceStudents]);
 
   const filteredLog = scanLog
     .filter((item) => item.schoolId === selectedSchool.id)
@@ -9927,6 +9942,14 @@ function AttendancePage({ selectedSchool, currentUser, attendanceMethod, setAtte
     if (!scanValue.trim()) return;
     onScan(scanValue.trim());
     setScanValue("");
+  };
+
+  const handleManualSubmit = () => {
+    if (!manualStudentId) return;
+    const student = attendanceStudents.find((s) => String(s.id) === String(manualStudentId));
+    if (!student) return;
+    onScan(student.name);
+    setManualStudentId("");
   };
 
   const handleFaceFile = async (event) => {
@@ -10011,11 +10034,25 @@ function AttendancePage({ selectedSchool, currentUser, attendanceMethod, setAtte
             </div>
             <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
               <div className="mb-3 rounded-2xl bg-sky-50 px-4 py-3 text-sm font-bold text-sky-900 ring-1 ring-sky-200">التحضير اليدوي السريع</div>
-              <label className="mb-2 block text-sm font-bold text-slate-700">أدخل الاسم أو رقم الطالب أو الهوية أو الجوال ثم اضغط Enter أو زر التسجيل</label>
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
-                <input value={scanValue} onChange={(e) => setScanValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); }} placeholder="مثال: أحمد محمد أو 1164421669 أو 9665xxxxxxx" className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none" />
-                <button onClick={handleSubmit} className="rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white">تسجيل الحضور</button>
-                <button onClick={() => setScanValue('')} className="rounded-2xl bg-slate-100 px-5 py-3 font-bold text-slate-700">مسح</button>
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-sm font-bold text-slate-700">اختر الفصل أولاً</label>
+                  <select value={manualClassroomId} onChange={(e) => { setManualClassroomId(e.target.value); setManualStudentId(""); }} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none">
+                    <option value="">-- اختر الفصل --</option>
+                    {manualClassrooms.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={cx("mb-1 block text-sm font-bold", manualClassroomId ? "text-slate-700" : "text-slate-400")}>اختر الطالب</label>
+                  <select value={manualStudentId} onChange={(e) => setManualStudentId(e.target.value)} disabled={!manualClassroomId} className={cx("w-full rounded-2xl border px-4 py-3 outline-none", manualClassroomId ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed")}>
+                    <option value="">{manualClassroomId ? `-- اختر الطالب (${manualStudentsInClass.length} طالب) --` : '-- يجب اختيار الفصل أولاً --'}</option>
+                    {manualStudentsInClass.map((s) => <option key={s.id} value={s.id}>{s.name || s.fullName}</option>)}
+                  </select>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={handleManualSubmit} disabled={!manualStudentId} className={cx("flex-1 rounded-2xl px-5 py-3 font-bold", manualStudentId ? "bg-sky-700 text-white" : "bg-slate-200 text-slate-400 cursor-not-allowed")}>تسجيل الحضور</button>
+                  <button onClick={() => { setManualClassroomId(""); setManualStudentId(""); }} className="rounded-2xl bg-slate-100 px-5 py-3 font-bold text-slate-700">مسح</button>
+                </div>
               </div>
             </div>
             <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5">
