@@ -9911,26 +9911,42 @@ function AttendancePage({ selectedSchool, currentUser, attendanceMethod, setAtte
   const attendanceBinding = useMemo(() => getSchoolAttendanceBinding(selectedSchool), [selectedSchool]);
   const attendanceSource = useMemo(() => getAttendanceStudentsSource(selectedSchool), [selectedSchool]);
   const attendanceStudents = attendanceSource.students || [];
+  // نحدد مصدر الطلاب الفعلي للتحضير اليدوي
+  // إذا كان attendanceStudents فارغاً (structure بدون طلاب)، نرجع لـ school.students
+  const effectiveManualStudents = useMemo(() => {
+    if (attendanceStudents.length > 0) return attendanceStudents;
+    // fallback: نستخدم school.students مباشرة
+    return (selectedSchool?.students || []).map((s) => ({
+      ...s,
+      id: s.id,
+      name: s.name || s.fullName || 'طالب',
+      fullName: s.name || s.fullName || 'طالب',
+      barcode: s.barcode || s.studentNumber || String(s.id),
+      companyId: s.companyId,
+      classroomId: null,
+      source: 'school',
+    }));
+  }, [attendanceStudents, selectedSchool?.students]);
+
   const manualClassrooms = useMemo(() => {
-    if (attendanceSource.sourceMode === 'structure') {
-      // وضع الهيكل المدرسي: نبني الفصول من attendanceStudents
+    if (attendanceSource.sourceMode === 'structure' && attendanceStudents.length > 0) {
+      // وضع الهيكل المدرسي مع طلاب: نبني الفصول من attendanceStudents
       const map = {};
       attendanceStudents.forEach((s) => { if (s.classroomId && !map[s.classroomId]) map[s.classroomId] = s.classroomName || s.className || 'فصل'; });
       return Object.entries(map).map(([id, name]) => ({ id, name, type: 'structure' }));
-    } else {
-      // وضع المدرسة كاملة: نبني الفصول من companies
-      return (selectedSchool?.companies || []).map((c) => ({ id: String(c.id), name: c.name + (c.className ? ` (${c.className})` : ''), type: 'company' }));
     }
+    // وضع المدرسة كاملة أو fallback: نبني الفصول من companies
+    return (selectedSchool?.companies || []).map((c) => ({ id: String(c.id), name: c.name + (c.className ? ` (${c.className})` : ''), type: 'company' }));
   }, [attendanceStudents, attendanceSource.sourceMode, selectedSchool?.companies]);
+
   const manualStudentsInClass = useMemo(() => {
     if (!manualClassroomId) return [];
-    if (attendanceSource.sourceMode === 'structure') {
+    if (attendanceSource.sourceMode === 'structure' && attendanceStudents.length > 0) {
       return attendanceStudents.filter((s) => String(s.classroomId) === String(manualClassroomId));
-    } else {
-      // وضع المدرسة كاملة: نصفي بالشركة
-      return attendanceStudents.filter((s) => String(s.companyId) === String(manualClassroomId));
     }
-  }, [manualClassroomId, attendanceStudents, attendanceSource.sourceMode]);
+    // وضع المدرسة كاملة أو fallback: نصفي بالشركة
+    return effectiveManualStudents.filter((s) => String(s.companyId) === String(manualClassroomId));
+  }, [manualClassroomId, attendanceStudents, effectiveManualStudents, attendanceSource.sourceMode]);
 
   const filteredLog = scanLog
     .filter((item) => item.schoolId === selectedSchool.id)
