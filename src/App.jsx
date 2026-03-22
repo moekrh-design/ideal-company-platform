@@ -12258,7 +12258,12 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
                                     <div className="mt-1 text-xs text-slate-500">{teacher.mobile || 'لا يوجد رقم جوال'}</div>
                                   </div>
                                   <div className="flex flex-wrap gap-2">
-                                    {invite?.sentAt ? <Badge tone="violet">أرسل</Badge> : <Badge tone="slate">لم يرسل</Badge>}
+                                    {(() => {
+                                      const hasSubmitted = (selectedSession.submissions || []).some((item) => String(item.teacherId) === String(teacher.id));
+                                      if (invite?.sentAt) return <Badge tone="violet">أرسل</Badge>;
+                                      if (hasSubmitted) return <Badge tone="sky">حضر مباشرة</Badge>;
+                                      return <Badge tone="slate">لم يرسل</Badge>;
+                                    })()}
                                     {invite?.openedAt ? <Badge tone="blue">فتح الرابط</Badge> : null}
                                     {(selectedSession.submissions || []).some((item) => String(item.teacherId) === String(teacher.id)) ? <Badge tone="green">اعتمد</Badge> : null}
                                     {teacher.mobile ? (
