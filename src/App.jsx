@@ -14386,6 +14386,103 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
           </div>
         )}
 
+        {tab === "parentPortal" && canViewParentPortal && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <div className="rounded-3xl bg-emerald-50 p-5 ring-1 ring-emerald-100">
+                <div className="text-sm font-bold text-emerald-800">حالة البوابة</div>
+                <div className="mt-3 text-2xl font-black text-slate-900">{parentPortalConfig.enabled ? 'مفعلة' : 'مقفلة'}</div>
+                <div className="mt-2 text-sm leading-7 text-slate-600">عند الإقفال تتوقف طلبات الدخول الجديدة من /parent، وتبقى الإعدادات والبيانات محفوظة.</div>
+              </div>
+              <div className="rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-100">
+                <div className="text-sm font-bold text-sky-800">سياسة تحديث الرقم</div>
+                <div className="mt-3 text-2xl font-black text-slate-900">{parentPortalConfig.mode === 'auto' ? 'تلقائي' : 'يدوي'}</div>
+                <div className="mt-2 text-sm leading-7 text-slate-600">الاعتماد التلقائي هو الوضع الافتراضي حتى لا تتكدس الطلبات على المدير، مع بقاء الإشعار وسجل المراجعة.</div>
+              </div>
+              <div className="rounded-3xl bg-violet-50 p-5 ring-1 ring-violet-100">
+                <div className="text-sm font-bold text-violet-800">الطلبات الحالية</div>
+                <div className="mt-3 text-2xl font-black text-slate-900">{parentPortalConfig.pendingRequests} / {parentPortalConfig.totalRequests}</div>
+                <div className="mt-2 text-sm leading-7 text-slate-600">الأول رقم الطلبات المعلقة، والثاني جميع الطلبات المسجلة في المدرسة.</div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-3xl">
+                  <div className="text-lg font-black text-slate-900">إدارة بوابة ولي الأمر</div>
+                  <div className="mt-2 text-sm leading-8 text-slate-600">
+                    من هنا تفعّل أو تقفل البوابة، وتحدد هل تحديث الرقم الأساسي يتم تلقائيًا أو يدويًا، ثم تفتح صفحة الطلبات التفصيلية عند الحاجة.
+                  </div>
+                  {!canManageParentPortal ? <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800 ring-1 ring-amber-200">هذه الصفحة متاحة لك للمتابعة فقط، أما تغيير السياسة والتفعيل فهو من صلاحية الأدمن العام أو مدير المدرسة.</div> : null}
+                  {parentPortalConfig.error ? <div className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200">{parentPortalConfig.error}</div> : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => window.open('/parent', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100">فتح بوابة ولي الأمر</button>
+                  <button type="button" onClick={() => window.open('/admin/parent-primary-requests', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800">فتح شاشة الطلبات الكاملة</button>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-black text-slate-900">حالة البوابة</div>
+                      <div className="mt-1 text-sm text-slate-500">التحكم في إتاحة دخول أولياء الأمور إلى /parent</div>
+                    </div>
+                    <Badge tone={parentPortalConfig.enabled ? 'green' : 'slate'}>{parentPortalConfig.enabled ? 'مفعلة' : 'مقفلة'}</Badge>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.enabled} onClick={() => saveParentPortalEnabled(true)} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.enabled) ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-emerald-700 text-white hover:bg-emerald-800'}`}>تفعيل البوابة</button>
+                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || !parentPortalConfig.enabled} onClick={() => saveParentPortalEnabled(false)} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || !parentPortalConfig.enabled) ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-rose-700 text-white hover:bg-rose-800'}`}>إقفال البوابة</button>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-black text-slate-900">سياسة تحديث الرقم الأساسي</div>
+                      <div className="mt-1 text-sm text-slate-500">اختر الوضع الافتراضي المناسب لطريقة عمل المدرسة</div>
+                    </div>
+                    <Badge tone={parentPortalConfig.mode === 'auto' ? 'green' : 'amber'}>{parentPortalConfig.mode === 'auto' ? 'اعتماد تلقائي' : 'اعتماد يدوي'}</Badge>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'auto'} onClick={() => saveParentPortalMode('auto')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'auto') ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-sky-700 text-white hover:bg-sky-800'}`}>تلقائي (افتراضي)</button>
+                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'manual'} onClick={() => saveParentPortalMode('manual')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'manual') ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-amber-500 text-white hover:bg-amber-600'}`}>يدوي</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="text-lg font-black text-slate-900">آخر إشعارات طلبات الأرقام</div>
+                  <div className="mt-1 text-sm leading-7 text-slate-500">تنبيه سريع يساعد المدير على معرفة الطلبات المعتمدة تلقائيًا أو ما يحتاج متابعة لاحقة.</div>
+                </div>
+                <button type="button" onClick={() => setTab('parentPortal')} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200">تحديث البيانات</button>
+              </div>
+              {parentPortalConfig.loading ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">جاري تحميل إعدادات وإشعارات بوابة ولي الأمر...</div> : null}
+              {!parentPortalConfig.loading && !(parentPortalConfig.alerts || []).length ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">لا توجد إشعارات حديثة حتى الآن.</div> : null}
+              {!parentPortalConfig.loading && (parentPortalConfig.alerts || []).length ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                  {(parentPortalConfig.alerts || []).slice(0, 6).map((item, index) => (
+                    <div key={`${item.createdAt || index}-${index}`} className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-black text-slate-900">{item.guardianName || 'ولي الأمر'}</div>
+                          <div className="mt-1 text-sm leading-7 text-slate-600">{item.message || 'تم تسجيل تنبيه جديد.'}</div>
+                        </div>
+                        <Badge tone="blue">{item.status || 'معلومة'}</Badge>
+                      </div>
+                      <div className="mt-3 text-xs font-bold text-slate-400">{item.createdAt ? formatDateTime(item.createdAt) : '—'}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+
         <div className="mt-6 flex flex-wrap gap-3">
           <button onClick={save} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white"><Save className="h-4 w-4" /> حفظ الإعدادات</button>
           <button onClick={() => setLocalSettings(settings)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-5 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> التراجع</button>
@@ -18630,101 +18727,4 @@ function UserEditor({ editingUser, schools, currentUser, actionLog, settings, on
     </form>
   );
 }
-
-        {tab === "parentPortal" && canViewParentPortal && (
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-              <div className="rounded-3xl bg-emerald-50 p-5 ring-1 ring-emerald-100">
-                <div className="text-sm font-bold text-emerald-800">حالة البوابة</div>
-                <div className="mt-3 text-2xl font-black text-slate-900">{parentPortalConfig.enabled ? 'مفعلة' : 'مقفلة'}</div>
-                <div className="mt-2 text-sm leading-7 text-slate-600">عند الإقفال تتوقف طلبات الدخول الجديدة من /parent، وتبقى الإعدادات والبيانات محفوظة.</div>
-              </div>
-              <div className="rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-100">
-                <div className="text-sm font-bold text-sky-800">سياسة تحديث الرقم</div>
-                <div className="mt-3 text-2xl font-black text-slate-900">{parentPortalConfig.mode === 'auto' ? 'تلقائي' : 'يدوي'}</div>
-                <div className="mt-2 text-sm leading-7 text-slate-600">الاعتماد التلقائي هو الوضع الافتراضي حتى لا تتكدس الطلبات على المدير، مع بقاء الإشعار وسجل المراجعة.</div>
-              </div>
-              <div className="rounded-3xl bg-violet-50 p-5 ring-1 ring-violet-100">
-                <div className="text-sm font-bold text-violet-800">الطلبات الحالية</div>
-                <div className="mt-3 text-2xl font-black text-slate-900">{parentPortalConfig.pendingRequests} / {parentPortalConfig.totalRequests}</div>
-                <div className="mt-2 text-sm leading-7 text-slate-600">الأول رقم الطلبات المعلقة، والثاني جميع الطلبات المسجلة في المدرسة.</div>
-              </div>
-            </div>
-
-            <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="max-w-3xl">
-                  <div className="text-lg font-black text-slate-900">إدارة بوابة ولي الأمر</div>
-                  <div className="mt-2 text-sm leading-8 text-slate-600">
-                    من هنا تفعّل أو تقفل البوابة، وتحدد هل تحديث الرقم الأساسي يتم تلقائيًا أو يدويًا، ثم تفتح صفحة الطلبات التفصيلية عند الحاجة.
-                  </div>
-                  {!canManageParentPortal ? <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800 ring-1 ring-amber-200">هذه الصفحة متاحة لك للمتابعة فقط، أما تغيير السياسة والتفعيل فهو من صلاحية الأدمن العام أو مدير المدرسة.</div> : null}
-                  {parentPortalConfig.error ? <div className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200">{parentPortalConfig.error}</div> : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => window.open('/parent', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100">فتح بوابة ولي الأمر</button>
-                  <button type="button" onClick={() => window.open('/admin/parent-primary-requests', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800">فتح شاشة الطلبات الكاملة</button>
-                </div>
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-black text-slate-900">حالة البوابة</div>
-                      <div className="mt-1 text-sm text-slate-500">التحكم في إتاحة دخول أولياء الأمور إلى /parent</div>
-                    </div>
-                    <Badge tone={parentPortalConfig.enabled ? 'green' : 'slate'}>{parentPortalConfig.enabled ? 'مفعلة' : 'مقفلة'}</Badge>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.enabled} onClick={() => saveParentPortalEnabled(true)} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.enabled) ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-emerald-700 text-white hover:bg-emerald-800'}`}>تفعيل البوابة</button>
-                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || !parentPortalConfig.enabled} onClick={() => saveParentPortalEnabled(false)} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || !parentPortalConfig.enabled) ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-rose-700 text-white hover:bg-rose-800'}`}>إقفال البوابة</button>
-                  </div>
-                </div>
-
-                <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-black text-slate-900">سياسة تحديث الرقم الأساسي</div>
-                      <div className="mt-1 text-sm text-slate-500">اختر الوضع الافتراضي المناسب لطريقة عمل المدرسة</div>
-                    </div>
-                    <Badge tone={parentPortalConfig.mode === 'auto' ? 'green' : 'amber'}>{parentPortalConfig.mode === 'auto' ? 'اعتماد تلقائي' : 'اعتماد يدوي'}</Badge>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'auto'} onClick={() => saveParentPortalMode('auto')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'auto') ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-sky-700 text-white hover:bg-sky-800'}`}>تلقائي (افتراضي)</button>
-                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'manual'} onClick={() => saveParentPortalMode('manual')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'manual') ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-amber-500 text-white hover:bg-amber-600'}`}>يدوي</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="text-lg font-black text-slate-900">آخر إشعارات طلبات الأرقام</div>
-                  <div className="mt-1 text-sm leading-7 text-slate-500">تنبيه سريع يساعد المدير على معرفة الطلبات المعتمدة تلقائيًا أو ما يحتاج متابعة لاحقة.</div>
-                </div>
-                <button type="button" onClick={() => setTab('parentPortal')} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200">تحديث البيانات</button>
-              </div>
-              {parentPortalConfig.loading ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">جاري تحميل إعدادات وإشعارات بوابة ولي الأمر...</div> : null}
-              {!parentPortalConfig.loading && !(parentPortalConfig.alerts || []).length ? <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">لا توجد إشعارات حديثة حتى الآن.</div> : null}
-              {!parentPortalConfig.loading && (parentPortalConfig.alerts || []).length ? (
-                <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
-                  {(parentPortalConfig.alerts || []).slice(0, 6).map((item, index) => (
-                    <div key={`${item.createdAt || index}-${index}`} className="rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-black text-slate-900">{item.guardianName || 'ولي الأمر'}</div>
-                          <div className="mt-1 text-sm leading-7 text-slate-600">{item.message || 'تم تسجيل تنبيه جديد.'}</div>
-                        </div>
-                        <Badge tone="blue">{item.status || 'معلومة'}</Badge>
-                      </div>
-                      <div className="mt-3 text-xs font-bold text-slate-400">{item.createdAt ? formatDateTime(item.createdAt) : '—'}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        )}
 
