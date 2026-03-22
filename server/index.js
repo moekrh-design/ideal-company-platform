@@ -3580,332 +3580,1417 @@ function renderParentPortalHtml() {
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>بوابة ولي الأمر - منصة الشركة المثالية</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>بوابة ولي الأمر</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
   <style>
-    :root{--bg:#f4f7fb;--card:#ffffff;--text:#0f172a;--muted:#64748b;--primary:#0f766e;--primary2:#0ea5a4;--line:#e2e8f0;--soft:#ecfeff;--danger:#be123c;}
-    *{box-sizing:border-box} body{margin:0;font-family:Tahoma,Arial,sans-serif;background:linear-gradient(180deg,#f8fafc,#eef6ff);color:var(--text)}
-    .wrap{max-width:1100px;margin:0 auto;padding:24px}
-    .hero{background:linear-gradient(135deg,#0f766e,#1d4ed8);color:#fff;border-radius:28px;padding:28px;box-shadow:0 20px 60px rgba(15,23,42,.12)}
-    .hero h1{margin:0 0 8px;font-size:32px}.hero p{margin:0;color:#dbeafe;line-height:1.9}
-    .grid{display:grid;gap:18px}.grid-2{grid-template-columns:1.1fr .9fr}.card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:20px;box-shadow:0 10px 30px rgba(15,23,42,.05)}
-    label{display:block;margin-bottom:12px;font-size:14px;font-weight:700;color:#334155} input{width:100%;border:1px solid #cbd5e1;border-radius:16px;padding:14px 16px;font-size:16px;outline:none}
-    input:focus{border-color:#0ea5a4;box-shadow:0 0 0 3px rgba(14,165,164,.12)}
-    button{border:0;border-radius:16px;padding:14px 18px;font-size:15px;font-weight:700;cursor:pointer}.btn{background:linear-gradient(135deg,var(--primary),var(--primary2));color:#fff}.btn.alt{background:#fff;color:#0f172a;border:1px solid var(--line)}
-    .muted{color:var(--muted)} .msg{margin-top:12px;padding:12px 14px;border-radius:14px;background:#eff6ff;color:#1d4ed8;display:none}.msg.error{background:#fff1f2;color:var(--danger)} .msg.show{display:block}
-    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.stat{background:#f8fafc;border:1px solid var(--line);border-radius:18px;padding:14px}.stat b{display:block;font-size:26px;margin-top:6px}
-    .students{display:grid;gap:14px;margin-top:16px}.student{border:1px solid var(--line);border-radius:22px;padding:16px;background:#fff}
-    .student h3{margin:0 0 6px;font-size:20px}.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.chip{background:#f1f5f9;border:1px solid #e2e8f0;padding:8px 12px;border-radius:999px;font-size:13px}
-    .timeline{display:grid;gap:10px;margin-top:12px}.item{background:#f8fafc;border:1px solid var(--line);border-radius:16px;padding:12px}.item small{display:block;color:var(--muted);margin-top:4px}.filters{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.filters select{min-width:180px;border:1px solid #cbd5e1;border-radius:14px;padding:10px 12px;background:#fff}
-    .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 0}.section-title{margin:0 0 12px;font-size:18px}
-    .hidden{display:none !important}
-    .contact-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:16px;background:#f8fafc;margin-bottom:10px}.contact-row b{display:block}.contact-row small{color:var(--muted)}
-    .pill{display:inline-flex;align-items:center;gap:6px;background:#ecfeff;border:1px solid #a5f3fc;color:#155e75;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700}
-    @media (max-width:900px){.grid-2,.stats{grid-template-columns:1fr}.hero h1{font-size:26px}.wrap{padding:16px}}
+    /* ===== RESET & BASE ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --font: 'Tajawal', system-ui, sans-serif;
+      --bg: #f1f5f9;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #0f766e;
+      --primary-light: #ccfbf1;
+      --primary-dark: #0d5c56;
+      --accent: #1d4ed8;
+      --danger: #be123c;
+      --danger-light: #fff1f2;
+      --success: #15803d;
+      --success-light: #dcfce7;
+      --amber: #b45309;
+      --amber-light: #fef3c7;
+      --nav-h: 72px;
+      --header-h: 64px;
+      --radius: 20px;
+      --radius-sm: 14px;
+    }
+    html, body {
+      height: 100%;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ===== LAYOUT ===== */
+    #app { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+
+    /* ===== LOGIN SCREEN ===== */
+    #loginScreen {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px;
+      background: linear-gradient(160deg, #0f766e 0%, #1d4ed8 100%);
+      min-height: 100dvh;
+    }
+    .login-box {
+      width: 100%;
+      max-width: 420px;
+      background: #fff;
+      border-radius: 28px;
+      padding: 32px 28px;
+      box-shadow: 0 32px 80px rgba(15,23,42,.25);
+    }
+    .login-logo {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .login-logo .logo-icon {
+      width: 64px; height: 64px;
+      background: linear-gradient(135deg, #0f766e, #1d4ed8);
+      border-radius: 20px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 32px; margin-bottom: 12px;
+    }
+    .login-logo h1 { font-size: 22px; font-weight: 900; color: var(--text); }
+    .login-logo p { font-size: 14px; color: var(--muted); margin-top: 4px; }
+
+    /* ===== HEADER ===== */
+    #mainHeader {
+      height: var(--header-h);
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+    .header-user { display: flex; flex-direction: column; }
+    .header-user .greeting { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .header-user .name { font-size: 17px; font-weight: 800; color: var(--text); line-height: 1.2; }
+    .header-actions { display: flex; gap: 8px; }
+    .icon-btn {
+      width: 40px; height: 40px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--bg);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      transition: background .15s;
+    }
+    .icon-btn:hover { background: #e2e8f0; }
+
+    /* ===== PAGE CONTENT ===== */
+    #pageContent {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 16px calc(var(--nav-h) + 16px);
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* ===== BOTTOM NAV ===== */
+    #bottomNav {
+      height: var(--nav-h);
+      background: var(--card);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: stretch;
+      flex-shrink: 0;
+      position: sticky;
+      bottom: 0;
+      z-index: 50;
+      box-shadow: 0 -4px 20px rgba(15,23,42,.06);
+    }
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      font-family: var(--font);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      transition: color .15s;
+      position: relative;
+      padding: 8px 4px;
+    }
+    .nav-item .nav-icon { font-size: 22px; transition: transform .15s; }
+    .nav-item.active { color: var(--primary); }
+    .nav-item.active .nav-icon { transform: scale(1.15); }
+    .nav-item.active::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 20%; right: 20%;
+      height: 3px;
+      background: var(--primary);
+      border-radius: 0 0 4px 4px;
+    }
+    .nav-badge {
+      position: absolute;
+      top: 6px; left: calc(50% + 6px);
+      background: #ef4444;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      min-width: 18px; height: 18px;
+      border-radius: 999px;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 4px;
+    }
+
+    /* ===== CARDS ===== */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      margin-bottom: 14px;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title .icon { font-size: 18px; }
+
+    /* ===== STAT GRID ===== */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .stat-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px 12px;
+      text-align: center;
+    }
+    .stat-box .stat-val { font-size: 26px; font-weight: 900; color: var(--text); line-height: 1; }
+    .stat-box .stat-lbl { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 4px; }
+
+    /* ===== STUDENT CARD ===== */
+    .student-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .student-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .student-name { font-size: 17px; font-weight: 800; }
+    .student-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .student-points-badge {
+      background: linear-gradient(135deg, #0f766e, #1d4ed8);
+      color: #fff;
+      border-radius: 12px;
+      padding: 8px 14px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .student-points-badge .pts { font-size: 20px; font-weight: 900; line-height: 1; }
+    .student-points-badge .pts-lbl { font-size: 10px; font-weight: 700; opacity: .85; }
+    .student-stats { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .student-stat-chip {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    /* ===== INNER TABS ===== */
+    .inner-tabs {
+      display: flex;
+      gap: 6px;
+      background: var(--bg);
+      border-radius: 14px;
+      padding: 4px;
+      margin-bottom: 16px;
+    }
+    .inner-tab {
+      flex: 1;
+      text-align: center;
+      padding: 8px 6px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-family: var(--font);
+      transition: all .15s;
+    }
+    .inner-tab.active {
+      background: var(--card);
+      color: var(--primary);
+      box-shadow: 0 2px 8px rgba(15,23,42,.08);
+    }
+
+    /* ===== TIME FILTER ===== */
+    .time-filter {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .time-chip {
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: var(--font);
+      color: var(--muted);
+      transition: all .15s;
+    }
+    .time-chip.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    /* ===== ACTION ITEM ===== */
+    .action-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .action-item .action-title { font-size: 14px; font-weight: 700; }
+    .action-item .action-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .action-item .action-pts {
+      font-size: 15px;
+      font-weight: 900;
+      flex-shrink: 0;
+    }
+    .action-item .action-pts.positive { color: var(--success); }
+    .action-item .action-pts.negative { color: var(--danger); }
+
+    /* ===== PILL / BADGE ===== */
+    .pill {
+      display: inline-flex; align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .pill-green { background: var(--success-light); color: var(--success); }
+    .pill-red { background: var(--danger-light); color: var(--danger); }
+    .pill-amber { background: var(--amber-light); color: var(--amber); }
+    .pill-blue { background: #eff6ff; color: #1d4ed8; }
+    .pill-teal { background: var(--primary-light); color: var(--primary-dark); }
+    .pill-slate { background: #f1f5f9; color: #475569; }
+
+    /* ===== FORM ELEMENTS ===== */
+    .form-group { margin-bottom: 14px; }
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      font-size: 14px;
+      font-family: var(--font);
+      font-weight: 500;
+      color: var(--text);
+      background: var(--bg);
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(15,118,110,.12);
+      background: #fff;
+    }
+    .form-textarea { min-height: 90px; resize: vertical; }
+
+    /* ===== BUTTONS ===== */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 12px 20px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      font-weight: 700;
+      font-family: var(--font);
+      cursor: pointer;
+      border: none;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .btn-primary { background: linear-gradient(135deg, var(--primary), #0ea5a4); color: #fff; }
+    .btn-outline { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: var(--danger-light); color: var(--danger); border: 1px solid #fecdd3; }
+    .btn-full { width: 100%; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* ===== ALERT / MESSAGE ===== */
+    .alert {
+      padding: 12px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
+      margin-top: 10px;
+      display: none;
+    }
+    .alert.show { display: block; }
+    .alert-info { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .alert-success { background: var(--success-light); color: var(--success); border: 1px solid #86efac; }
+    .alert-error { background: var(--danger-light); color: var(--danger); border: 1px solid #fecdd3; }
+
+    /* ===== NOTIFICATION ITEM ===== */
+    .notif-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      margin-bottom: 8px;
+      background: var(--card);
+    }
+    .notif-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+    .notif-title { font-size: 14px; font-weight: 800; }
+    .notif-body { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.7; }
+    .notif-meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+    /* ===== REWARD ITEM ===== */
+    .reward-item {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      margin-bottom: 10px;
+      background: var(--card);
+    }
+    .reward-img { width: 100%; max-height: 160px; object-fit: cover; }
+    .reward-body { padding: 12px 14px; }
+    .reward-title { font-size: 15px; font-weight: 800; }
+    .reward-meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .reward-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+
+    /* ===== SETTINGS SECTION ===== */
+    .settings-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+    .settings-section-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .settings-section-body { padding: 18px; }
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+    .settings-row:last-child { border-bottom: none; }
+    .settings-row-label { font-size: 14px; font-weight: 700; }
+    .settings-row-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* ===== TOGGLE ===== */
+    .toggle-wrap { display: flex; align-items: center; gap: 10px; }
+    .toggle {
+      position: relative;
+      width: 44px; height: 24px;
+      flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0;
+      background: #cbd5e1;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 18px; height: 18px;
+      left: 3px; top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform .2s;
+      box-shadow: 0 1px 4px rgba(0,0,0,.2);
+    }
+    .toggle input:checked + .toggle-slider { background: var(--primary); }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(20px); }
+
+    /* ===== CONTACT ROW ===== */
+    .contact-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      margin-bottom: 8px;
+      background: var(--bg);
+    }
+    .contact-info .contact-num { font-size: 14px; font-weight: 700; }
+    .contact-info .contact-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* ===== EMPTY STATE ===== */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+    }
+    .empty-state .empty-icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-state p { font-size: 14px; font-weight: 600; }
+
+    /* ===== HIDDEN ===== */
+    .hidden { display: none !important; }
+
+    /* ===== OTP STEP ===== */
+    .otp-step { margin-top: 16px; }
+
+    /* ===== DIVIDER ===== */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 16px 0;
+    }
+
+    /* ===== PAGE TITLE ===== */
+    .page-title {
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+
+    /* ===== SCROLLABLE TABS (inner) ===== */
+    .scroll-tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      margin-bottom: 16px;
+      scrollbar-width: none;
+    }
+    .scroll-tabs::-webkit-scrollbar { display: none; }
+    .scroll-tab {
+      flex-shrink: 0;
+      padding: 7px 16px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: var(--font);
+      color: var(--muted);
+      white-space: nowrap;
+      transition: all .15s;
+    }
+    .scroll-tab.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    /* ===== RESPONSIVE ===== */
+    @media (min-width: 640px) {
+      #pageContent { padding: 24px 24px calc(var(--nav-h) + 20px); max-width: 640px; margin: 0 auto; }
+      #mainHeader { max-width: 640px; margin: 0 auto; }
+      #bottomNav { max-width: 640px; margin: 0 auto; }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="hero">
-      <h1>بوابة ولي الأمر</h1>
-      <p>دخول سريع وآمن برقم الجوال المسجل في النظام، مع عرض حضور الأبناء، آخر التنبيهات، وسجل المتابعة داخل منصة الشركة المثالية.</p>
-    </div>
+<div id="app">
 
-    <div id="loginView" class="grid grid-2" style="margin-top:20px">
-      <div class="card">
-        <h2 style="margin-top:0">تسجيل الدخول</h2>
-        <p class="muted">استخدم رقم الجوال الأساسي المسجل لولي الأمر. سيصل رمز تحقق لمرة واحدة.</p>
-        <label>رقم الجوال الأساسي
-          <input id="mobileInput" placeholder="05xxxxxxxx أو 9665xxxxxxxx" />
-        </label>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <button class="btn" id="requestOtpBtn">إرسال رمز التحقق</button>
-        </div>
-        <div id="requestMsg" class="msg"></div>
-        <div id="otpWrap" class="hidden" style="margin-top:16px">
-          <label>رمز التحقق
-            <input id="otpInput" placeholder="أدخل الرمز" maxlength="6" />
-          </label>
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <button class="btn" id="verifyOtpBtn">دخول</button>
-            <button class="btn alt" id="resendOtpBtn">إعادة الإرسال</button>
-          </div>
-          <div id="verifyMsg" class="msg"></div>
-        </div>
+  <!-- ===== LOGIN SCREEN ===== -->
+  <div id="loginScreen">
+    <div class="login-box">
+      <div class="login-logo">
+        <div class="logo-icon">🏫</div>
+        <h1>بوابة ولي الأمر</h1>
+        <p>دخول آمن برقم الجوال المسجل</p>
       </div>
-      <div class="card">
-        <h3 style="margin-top:0">ماذا يرى ولي الأمر؟</h3>
-        <div class="timeline">
-          <div class="item">حضور اليوم وآخر عملية دخول <small>وقت الحضور، النتيجة، والبوابة</small></div>
-          <div class="item">مؤشر النقاط والانضباط <small>النقاط الحالية ومعدل الحضور</small></div>
-          <div class="item">آخر التنبيهات <small>واتساب / SMS / سجل داخلي</small></div>
-          <div class="item">ملف متعدد الأبناء <small>إذا كان نفس الرقم مرتبطًا بأكثر من طالب</small></div>
+
+      <div class="form-group">
+        <label class="form-label">رقم الجوال الأساسي</label>
+        <input id="mobileInput" class="form-input" placeholder="05xxxxxxxx أو 9665xxxxxxxx" type="tel" inputmode="numeric" />
+      </div>
+      <button class="btn btn-primary btn-full" id="requestOtpBtn">إرسال رمز التحقق</button>
+      <div id="requestMsg" class="alert"></div>
+
+      <div id="otpStep" class="otp-step hidden">
+        <div class="divider"></div>
+        <div class="form-group">
+          <label class="form-label">رمز التحقق</label>
+          <input id="otpInput" class="form-input" placeholder="أدخل الرمز المرسل" maxlength="6" type="text" inputmode="numeric" />
         </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" style="flex:1" id="verifyOtpBtn">دخول</button>
+          <button class="btn btn-outline" id="resendOtpBtn">إعادة الإرسال</button>
+        </div>
+        <div id="verifyMsg" class="alert"></div>
       </div>
     </div>
+  </div>
 
-    <div id="portalView" class="hidden" style="margin-top:20px">
-      <div class="topbar">
-        <div>
-          <div class="muted">مرحبًا</div>
-          <div id="guardianName" style="font-size:26px;font-weight:800">ولي الأمر</div>
-          <div id="guardianMeta" class="muted"></div>
+  <!-- ===== MAIN APP ===== -->
+  <div id="mainApp" class="hidden" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+
+    <!-- Header -->
+    <div id="mainHeader">
+      <div class="header-user">
+        <span class="greeting">مرحباً</span>
+        <span class="name" id="headerName">ولي الأمر</span>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="refreshBtn" title="تحديث">🔄</button>
+        <button class="icon-btn" id="logoutBtn" title="خروج">🚪</button>
+      </div>
+    </div>
+
+    <!-- Page Content -->
+    <div id="pageContent">
+
+      <!-- ===== PAGE: POINTS ===== -->
+      <div id="pagePoints" class="page-section">
+        <div class="page-title">نقاط الأبناء</div>
+
+        <!-- Summary Stats -->
+        <div class="stat-grid" id="pointsSummaryGrid">
+          <div class="stat-box"><div class="stat-val" id="statTotalPoints">0</div><div class="stat-lbl">إجمالي النقاط</div></div>
+          <div class="stat-box"><div class="stat-val" id="statAttendance">0%</div><div class="stat-lbl">متوسط الحضور</div></div>
+          <div class="stat-box"><div class="stat-val" id="statStudents">0</div><div class="stat-lbl">عدد الأبناء</div></div>
+          <div class="stat-box"><div class="stat-val" id="statSchools">0</div><div class="stat-lbl">المدارس</div></div>
         </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <button class="btn alt" id="refreshBtn">تحديث</button>
-          <button class="btn alt" id="logoutBtn">تسجيل خروج</button>
+
+        <!-- Inner Tabs: Rewards / Deductions -->
+        <div class="inner-tabs">
+          <button class="inner-tab active" data-ptab="rewards">المكافآت</button>
+          <button class="inner-tab" data-ptab="deductions">الخصومات</button>
+          <button class="inner-tab" data-ptab="attendance">الحضور</button>
         </div>
+
+        <!-- Time Filter -->
+        <div class="time-filter">
+          <button class="time-chip active" data-days="0">الكل</button>
+          <button class="time-chip" data-days="1">اليوم</button>
+          <button class="time-chip" data-days="7">الأسبوع</button>
+          <button class="time-chip" data-days="30">الشهر</button>
+        </div>
+
+        <!-- Students List -->
+        <div id="studentsList"></div>
       </div>
 
-      <div class="stats">
-        <div class="stat"><div class="muted">عدد الأبناء</div><b id="statStudents">0</b></div>
-        <div class="stat"><div class="muted">إجمالي النقاط</div><b id="statPoints">0</b></div>
-        <div class="stat"><div class="muted">متوسط الحضور</div><b id="statAttendance">0%</b></div>
-        <div class="stat"><div class="muted">عدد المدارس</div><b id="statSchools">0</b></div>
-      </div>
+      <!-- ===== PAGE: STORE ===== -->
+      <div id="pageStore" class="page-section hidden">
+        <div class="page-title">متجر النقاط</div>
 
-      <div class="grid grid-2" style="margin-top:18px">
-        <div class="card">
-          <h3 class="section-title">الأبناء المرتبطون</h3>
-          <div id="studentsList" class="students"></div>
+        <!-- Store Tabs -->
+        <div class="scroll-tabs">
+          <button class="scroll-tab active" data-stab="catalog">الجوائز المتاحة</button>
+          <button class="scroll-tab" data-stab="redeem">استبدال نقاط</button>
+          <button class="scroll-tab" data-stab="propose">مقترح شراكة</button>
+          <button class="scroll-tab" data-stab="history">السجل</button>
         </div>
-        <div class="card">
-          <h3 class="section-title">آخر التنبيهات</h3>
-          <div id="messagesList" class="timeline"></div>
-        </div>
-      </div>
 
-      <div class="grid grid-2" style="margin-top:18px">
-        <div class="card">
-          <h3 class="section-title">متجر النقاط المعتمد</h3>
-          <p class="muted" style="margin-top:0">هذه الجوائز أصبحت متاحة بعد اعتماد إدارة المدرسة ويمكن للطلاب الاستفادة منها بالنقاط.</p>
-          <div id="rewardCatalogList" class="timeline"></div>
+        <!-- Catalog -->
+        <div id="storeCatalog" class="store-tab-content">
+          <div id="rewardCatalogList"></div>
         </div>
-        <div class="card">
-          <h3 class="section-title">إضافة جائزة بالشراكة مع المدرسة</h3>
-          <label>المدرسة
-            <select id="rewardProposalSchool"></select>
-          </label>
-          <label>اسم الجائزة
-            <input id="rewardProposalTitle" placeholder="مثال: كوبون شراء أو هدية تحفيزية" />
-          </label>
-          <label>الكمية المقترحة
-            <input id="rewardProposalQuantity" type="number" min="1" value="1" />
-          </label>
-          <label>اسم المتبرع الظاهر (اختياري)
-            <input id="rewardProposalDonorName" placeholder="اسم ولي الأمر أو اسم المتبرع إذا رغبت" />
-          </label>
-          <label style="display:flex;align-items:center;gap:10px"><input id="rewardProposalShowDonor" type="checkbox" checked /> إظهار اسم المتبرع في المتجر بعد الاعتماد</label>
-          <label>صورة الجائزة
-            <input id="rewardProposalImage" type="file" accept="image/*" />
-          </label>
-          <label>وصف أو ملاحظة
-            <textarea id="rewardProposalNote" style="min-height:96px" placeholder="وصف مختصر للجائزة أو طريقة تسليمها"></textarea>
-          </label>
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <button class="btn" id="submitRewardProposalBtn">إرسال المقترح</button>
-          </div>
-          <div id="rewardProposalMsg" class="msg"></div>
-          <div style="margin-top:14px" id="rewardProposalHistory"></div>
-        </div>
-      </div>
 
-      <div class="grid grid-2" style="margin-top:18px">
-        <div class="card">
-          <h3 class="section-title">طلب استبدال جائزة بالنقاط</h3>
-          <label>المدرسة
-            <select id="rewardRedeemSchool"></select>
-          </label>
-          <label>الطالب
-            <select id="rewardRedeemStudent"></select>
-          </label>
-          <label>الجائزة
-            <select id="rewardRedeemItem"></select>
-          </label>
-          <label>ملاحظة
-            <textarea id="rewardRedeemNote" style="min-height:90px" placeholder="مثال: يرجى تسليم الجائزة في الطابور الصباحي"></textarea>
-          </label>
-          <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn" id="submitRewardRedeemBtn">إرسال طلب الاستبدال</button></div>
-          <div id="rewardRedeemMsg" class="msg"></div>
-          <div style="margin-top:14px" id="rewardRedeemHistory"></div>
-        </div>
-        <div class="card">
-          <h3 class="section-title">ملخص متجر النقاط</h3>
-          <div id="rewardCatalogSummary" class="timeline"></div>
-          <div class="item" style="margin-top:10px">النقاط لا يحددها ولي الأمر أو المتبرع، بل يحددها مدير المدرسة بعد التأكد من استلام الجائزة واعتمادها للمتجر.</div>
-        </div>
-      </div>
-
-      <div class="grid grid-2" style="margin-top:18px">
-        <div class="card">
-          <h3 class="section-title">أرقام التنبيهات المرتبطة</h3>
-          <p class="muted" style="margin-top:0">يمكن إضافة رقم ثانوي للتنبيهات بعد التحقق منه. يبقى الرقم الأساسي هو رقم الدخول الرئيسي.</p>
-          <div id="extraContactsList"></div>
-        </div>
-        <div class="card">
-          <h3 class="section-title">إضافة رقم تنبيهات إضافي</h3>
-          <label>رقم الجوال الإضافي
-            <input id="extraMobileInput" placeholder="05xxxxxxxx أو 9665xxxxxxxx" />
-          </label>
-          <label>قناة الاستقبال المفضلة
-            <input id="extraChannelInput" placeholder="whatsapp أو sms" value="whatsapp" />
-          </label>
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <button class="btn" id="requestExtraOtpBtn">إرسال رمز التحقق</button>
-          </div>
-          <div id="extraRequestMsg" class="msg"></div>
-          <div id="extraOtpWrap" class="hidden" style="margin-top:16px">
-            <label>رمز تحقق الرقم الإضافي
-              <input id="extraOtpInput" placeholder="أدخل الرمز" maxlength="6" />
-            </label>
-            <div style="display:flex;gap:10px;flex-wrap:wrap">
-              <button class="btn" id="verifyExtraOtpBtn">تأكيد الربط</button>
+        <!-- Redeem -->
+        <div id="storeRedeem" class="store-tab-content hidden">
+          <div class="card">
+            <div class="card-title"><span class="icon">🎁</span> طلب استبدال جائزة</div>
+            <div class="form-group">
+              <label class="form-label">المدرسة</label>
+              <select id="rewardRedeemSchool" class="form-select"></select>
             </div>
-            <div id="extraVerifyMsg" class="msg"></div>
+            <div class="form-group">
+              <label class="form-label">الطالب</label>
+              <select id="rewardRedeemStudent" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">الجائزة</label>
+              <select id="rewardRedeemItem" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">ملاحظة (اختياري)</label>
+              <textarea id="rewardRedeemNote" class="form-textarea" placeholder="مثال: يرجى تسليم الجائزة في الطابور الصباحي"></textarea>
+            </div>
+            <button class="btn btn-primary btn-full" id="submitRewardRedeemBtn">إرسال طلب الاستبدال</button>
+            <div id="rewardRedeemMsg" class="alert"></div>
+          </div>
+          <div id="rewardRedeemHistory"></div>
+        </div>
+
+        <!-- Propose -->
+        <div id="storePropose" class="store-tab-content hidden">
+          <div class="card">
+            <div class="card-title"><span class="icon">🤝</span> إضافة جائزة بالشراكة</div>
+            <div class="form-group">
+              <label class="form-label">المدرسة</label>
+              <select id="rewardProposalSchool" class="form-select"></select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">اسم الجائزة</label>
+              <input id="rewardProposalTitle" class="form-input" placeholder="مثال: كوبون شراء أو هدية تحفيزية" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">الكمية</label>
+              <input id="rewardProposalQuantity" class="form-input" type="number" min="1" value="1" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">اسم المتبرع الظاهر (اختياري)</label>
+              <input id="rewardProposalDonorName" class="form-input" placeholder="اسمك أو اسم المتبرع" />
+            </div>
+            <div class="form-group toggle-wrap">
+              <label class="toggle">
+                <input type="checkbox" id="rewardProposalShowDonor" checked />
+                <span class="toggle-slider"></span>
+              </label>
+              <span style="font-size:13px;font-weight:700">إظهار اسم المتبرع في المتجر بعد الاعتماد</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label">صورة الجائزة (اختياري)</label>
+              <input id="rewardProposalImage" class="form-input" type="file" accept="image/*" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">وصف أو ملاحظة</label>
+              <textarea id="rewardProposalNote" class="form-textarea" placeholder="وصف مختصر للجائزة أو طريقة تسليمها"></textarea>
+            </div>
+            <button class="btn btn-primary btn-full" id="submitRewardProposalBtn">إرسال المقترح</button>
+            <div id="rewardProposalMsg" class="alert"></div>
+          </div>
+        </div>
+
+        <!-- History -->
+        <div id="storeHistory" class="store-tab-content hidden">
+          <div class="card">
+            <div class="card-title"><span class="icon">📋</span> مقترحاتي السابقة</div>
+            <div id="rewardProposalHistory"></div>
+          </div>
+          <div class="card">
+            <div class="card-title"><span class="icon">🔄</span> طلبات الاستبدال</div>
+            <div id="rewardRedeemHistoryStore"></div>
           </div>
         </div>
       </div>
 
+      <!-- ===== PAGE: NOTIFICATIONS ===== -->
+      <div id="pageNotifications" class="page-section hidden">
+        <div class="page-title">التنبيهات</div>
 
-      <div class="grid grid-2" style="margin-top:18px">
-        <div class="card">
-          <h3 class="section-title">تحديث الرقم الأساسي</h3>
-          <p class="muted" style="margin-top:0">يمكنك طلب تحديث رقم الدخول الرئيسي. يتم التحقق من الرقم الجديد أولًا ثم يُحفظ الطلب بانتظار اعتماد الإدارة.</p>
-          <div id="primaryChangeSummary" class="item" style="margin-bottom:12px">لا يوجد طلب قائم حاليًا.</div>
-          <label>الرقم الأساسي الجديد
-            <input id="primaryNewMobileInput" placeholder="05xxxxxxxx أو 9665xxxxxxxx" />
-          </label>
-          <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <button class="btn" id="requestPrimaryChangeOtpBtn">إرسال رمز التحقق</button>
-          </div>
-          <div id="primaryChangeRequestMsg" class="msg"></div>
-          <div id="primaryChangeOtpWrap" class="hidden" style="margin-top:16px">
-            <label>رمز تحقق الرقم الجديد
-              <input id="primaryChangeOtpInput" placeholder="أدخل الرمز" maxlength="6" />
-            </label>
-            <div style="display:flex;gap:10px;flex-wrap:wrap">
-              <button class="btn" id="verifyPrimaryChangeOtpBtn">تأكيد الطلب</button>
-            </div>
-            <div id="primaryChangeVerifyMsg" class="msg"></div>
-          </div>
+        <!-- Notif Tabs -->
+        <div class="scroll-tabs">
+          <button class="scroll-tab active" data-ntab="all">الكل</button>
+          <button class="scroll-tab" data-ntab="whatsapp">واتساب</button>
+          <button class="scroll-tab" data-ntab="sms">SMS</button>
+          <button class="scroll-tab" data-ntab="internal">داخلي</button>
         </div>
-        <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-            <div>
-              <h3 class="section-title" style="margin-bottom:6px">سجل التنبيهات المفصل</h3>
-              <div class="muted">يعرض آخر عمليات الإرسال الفعلية، القناة، حالة الإرسال، والرقم المستهدف.</div>
-            </div>
-          </div>
-          <div class="filters">
-            <select id="historyFilterStatus">
-              <option value="all">كل الحالات</option>
-              <option value="success">الناجحة فقط</option>
-              <option value="failed">المتعثرة فقط</option>
-            </select>
-            <select id="historyFilterChannel">
-              <option value="all">كل القنوات</option>
-              <option value="whatsapp">واتساب</option>
-              <option value="sms">SMS</option>
-              <option value="internal">داخلي</option>
-            </select>
-            <select id="historyFilterStudent">
-              <option value="all">كل الأبناء</option>
-            </select>
-          </div>
-          <div id="historyList" class="timeline"></div>
+
+        <!-- Filters -->
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+          <select id="historyFilterStatus" class="form-select" style="flex:1;min-width:140px">
+            <option value="all">كل الحالات</option>
+            <option value="success">الناجحة</option>
+            <option value="failed">المتعثرة</option>
+          </select>
+          <select id="historyFilterStudent" class="form-select" style="flex:1;min-width:140px">
+            <option value="all">كل الأبناء</option>
+          </select>
         </div>
+
+        <div id="notifList"></div>
       </div>
-      <div class="grid" style="margin-top:18px">
-        <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-            <div>
-              <h3 class="section-title" style="margin-bottom:6px">سجل التنبيهات المفصل</h3>
-              <div class="muted">يعرض آخر عمليات الإرسال الفعلية، القناة، حالة الإرسال، والرقم المستهدف.</div>
+
+      <!-- ===== PAGE: SETTINGS ===== -->
+      <div id="pageSettings" class="page-section hidden">
+        <div class="page-title">الإعدادات</div>
+
+        <!-- Settings Tabs -->
+        <div class="inner-tabs" style="margin-bottom:16px">
+          <button class="inner-tab active" data-settab="primary">الرقم الأساسي</button>
+          <button class="inner-tab" data-settab="contacts">أرقام التنبيهات</button>
+          <button class="inner-tab" data-settab="notifSettings">إعدادات التنبيهات</button>
+        </div>
+
+        <!-- Primary Number -->
+        <div id="settingsPrimary" class="settings-tab-content">
+          <div class="settings-section">
+            <div class="settings-section-header">📱 تحديث الرقم الأساسي</div>
+            <div class="settings-section-body">
+              <div id="primaryChangeSummary" class="notif-item" style="margin-bottom:14px">لا يوجد طلب قائم حاليًا.</div>
+              <div class="form-group">
+                <label class="form-label">الرقم الأساسي الجديد</label>
+                <input id="primaryNewMobileInput" class="form-input" placeholder="05xxxxxxxx أو 9665xxxxxxxx" type="tel" inputmode="numeric" />
+              </div>
+              <button class="btn btn-primary btn-full" id="requestPrimaryChangeOtpBtn">إرسال رمز التحقق</button>
+              <div id="primaryChangeRequestMsg" class="alert"></div>
+              <div id="primaryChangeOtpStep" class="otp-step hidden">
+                <div class="divider"></div>
+                <div class="form-group">
+                  <label class="form-label">رمز تحقق الرقم الجديد</label>
+                  <input id="primaryChangeOtpInput" class="form-input" placeholder="أدخل الرمز" maxlength="6" type="text" inputmode="numeric" />
+                </div>
+                <button class="btn btn-primary btn-full" id="verifyPrimaryChangeOtpBtn">تأكيد الطلب</button>
+                <div id="primaryChangeVerifyMsg" class="alert"></div>
+              </div>
             </div>
           </div>
-          <h3 class="section-title">إعدادات التنبيهات</h3>
-          <p class="muted" style="margin-top:0">حدد نوع التنبيهات التي ترغب في استلامها، والقناة المفضلة، وهل تذهب الأرقام الإضافية مع الرقم الأساسي.</p>
-          <div class="grid grid-2">
-            <div>
-              <label>القناة المفضلة
-                <select id="notifPreferredChannel">
+        </div>
+
+        <!-- Extra Contacts -->
+        <div id="settingsContacts" class="settings-tab-content hidden">
+          <div class="settings-section">
+            <div class="settings-section-header">📲 أرقام التنبيهات المرتبطة</div>
+            <div class="settings-section-body">
+              <div id="extraContactsList"></div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-header">➕ إضافة رقم تنبيهات إضافي</div>
+            <div class="settings-section-body">
+              <div class="form-group">
+                <label class="form-label">رقم الجوال الإضافي</label>
+                <input id="extraMobileInput" class="form-input" placeholder="05xxxxxxxx أو 9665xxxxxxxx" type="tel" inputmode="numeric" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">قناة الاستقبال المفضلة</label>
+                <select id="extraChannelSelect" class="form-select">
+                  <option value="whatsapp">واتساب</option>
+                  <option value="sms">SMS</option>
+                </select>
+              </div>
+              <button class="btn btn-primary btn-full" id="requestExtraOtpBtn">إرسال رمز التحقق</button>
+              <div id="extraRequestMsg" class="alert"></div>
+              <div id="extraOtpStep" class="otp-step hidden">
+                <div class="divider"></div>
+                <div class="form-group">
+                  <label class="form-label">رمز تحقق الرقم الإضافي</label>
+                  <input id="extraOtpInput" class="form-input" placeholder="أدخل الرمز" maxlength="6" type="text" inputmode="numeric" />
+                </div>
+                <button class="btn btn-primary btn-full" id="verifyExtraOtpBtn">تأكيد الربط</button>
+                <div id="extraVerifyMsg" class="alert"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Notification Settings -->
+        <div id="settingsNotif" class="settings-tab-content hidden">
+          <div class="settings-section">
+            <div class="settings-section-header">🔔 إعدادات التنبيهات</div>
+            <div class="settings-section-body">
+              <div class="form-group">
+                <label class="form-label">القناة المفضلة</label>
+                <select id="notifPreferredChannel" class="form-select">
                   <option value="whatsapp">واتساب</option>
                   <option value="sms">SMS</option>
                   <option value="both">كلاهما</option>
                 </select>
-              </label>
-            </div>
-            <div>
-              <label>نطاق الإرسال
-                <select id="notifDeliveryScope">
+              </div>
+              <div class="form-group">
+                <label class="form-label">نطاق الإرسال</label>
+                <select id="notifDeliveryScope" class="form-select">
                   <option value="primary_and_extra">الرقم الأساسي + الأرقام الإضافية</option>
                   <option value="primary_only">الرقم الأساسي فقط</option>
                 </select>
-              </label>
+              </div>
+              <div class="divider"></div>
+              <div style="font-size:13px;font-weight:800;color:var(--muted);margin-bottom:10px">أنواع التنبيهات</div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">تنبيهات التأخر الصباحي</div></div>
+                <label class="toggle"><input type="checkbox" id="evtLate" /><span class="toggle-slider"></span></label>
+              </div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">تنبيهات الغياب</div></div>
+                <label class="toggle"><input type="checkbox" id="evtAbsent" /><span class="toggle-slider"></span></label>
+              </div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">التنبيهات الإيجابية والتميز</div></div>
+                <label class="toggle"><input type="checkbox" id="evtPositive" /><span class="toggle-slider"></span></label>
+              </div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">المخالفات والملاحظات السلوكية</div></div>
+                <label class="toggle"><input type="checkbox" id="evtNegative" /><span class="toggle-slider"></span></label>
+              </div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">الإعلانات الرسمية للمدرسة</div></div>
+                <label class="toggle"><input type="checkbox" id="evtAnnouncements" /><span class="toggle-slider"></span></label>
+              </div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">الملخص الأسبوعي</div></div>
+                <label class="toggle"><input type="checkbox" id="sumWeekly" /><span class="toggle-slider"></span></label>
+              </div>
+              <div class="settings-row">
+                <div><div class="settings-row-label">الملخص اليومي</div></div>
+                <label class="toggle"><input type="checkbox" id="sumDaily" /><span class="toggle-slider"></span></label>
+              </div>
+              <div style="margin-top:16px">
+                <button class="btn btn-primary btn-full" id="saveNotifSettingsBtn">حفظ الإعدادات</button>
+                <div id="notifSettingsMsg" class="alert"></div>
+              </div>
             </div>
           </div>
-          <div class="grid grid-2" style="margin-top:12px">
-            <label><input type="checkbox" id="evtLate" /> تنبيهات التأخر الصباحي</label>
-            <label><input type="checkbox" id="evtAbsent" /> تنبيهات الغياب</label>
-            <label><input type="checkbox" id="evtPositive" /> التنبيهات الإيجابية والتميز</label>
-            <label><input type="checkbox" id="evtNegative" /> المخالفات والملاحظات السلوكية</label>
-            <label><input type="checkbox" id="evtAnnouncements" /> الإعلانات الرسمية للمدرسة</label>
-            <label><input type="checkbox" id="sumWeekly" /> الملخص الأسبوعي</label>
-          </div>
-          <div style="margin-top:8px">
-            <label><input type="checkbox" id="sumDaily" /> الملخص اليومي</label>
-          </div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-            <button class="btn" id="saveNotifSettingsBtn">حفظ الإعدادات</button>
-          </div>
-          <div id="notifSettingsMsg" class="msg"></div>
         </div>
+
       </div>
+      <!-- end pageSettings -->
+
     </div>
+    <!-- end pageContent -->
+
+    <!-- Bottom Navigation -->
+    <div id="bottomNav">
+      <button class="nav-item active" data-page="points">
+        <span class="nav-icon">🏆</span>
+        <span>النقاط</span>
+      </button>
+      <button class="nav-item" data-page="store">
+        <span class="nav-icon">🛍️</span>
+        <span>المتجر</span>
+      </button>
+      <button class="nav-item" data-page="notifications">
+        <span class="nav-icon">🔔</span>
+        <span>التنبيهات</span>
+        <span class="nav-badge hidden" id="notifBadge">0</span>
+      </button>
+      <button class="nav-item" data-page="settings">
+        <span class="nav-icon">⚙️</span>
+        <span>الإعدادات</span>
+      </button>
+    </div>
+
   </div>
+  <!-- end mainApp -->
+
+</div>
+<!-- end app -->
+
 <script>
-const tokenKey = 'ideal_parent_token';
+'use strict';
+/* ===== UTILITIES ===== */
+const tokenKey = 'ideal_parent_token_v2';
 const $ = (id) => document.getElementById(id);
-function setMessage(id, text, error){ const el=$(id); el.textContent=text||''; el.className='msg show'+(error?' error':''); if(!text){el.className='msg';}}
-function norm(v){ return String(v||'').trim(); }
-async function api(path, options){
+const norm = (v) => String(v || '').trim();
+function showAlert(id, text, type) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'alert show alert-' + (type || 'info');
+  if (!text) el.className = 'alert';
+}
+function clearAlert(id) { showAlert(id, '', ''); }
+function saveToken(v) { localStorage.setItem(tokenKey, v || ''); }
+function getToken() { return localStorage.getItem(tokenKey) || ''; }
+function clearToken() { localStorage.removeItem(tokenKey); }
+
+async function api(path, options) {
   options = options || {};
-  const headers = Object.assign({ 'Content-Type':'application/json' }, options.headers || {});
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
   const res = await fetch(path, Object.assign({}, options, { headers }));
-  const data = await res.json().catch(function(){ return { ok:false, message:'تعذر قراءة الاستجابة.' }; });
-  if(!res.ok || data.ok===false) throw new Error(data.message || 'فشل الطلب');
+  const data = await res.json().catch(() => ({ ok: false, message: 'تعذر قراءة الاستجابة.' }));
+  if (!res.ok || data.ok === false) throw new Error(data.message || 'فشل الطلب');
   return data;
 }
-function saveToken(v){ localStorage.setItem(tokenKey, v || ''); }
-function getToken(){ return localStorage.getItem(tokenKey) || ''; }
-function clearToken(){ localStorage.removeItem(tokenKey); }
-function renderActions(actions){
-  if(!actions || !actions.length) return '<div class="item">لا توجد إجراءات حديثة.</div>';
-  return actions.slice(0,3).map(function(item){
-    var points = item.points ? (' • ' + (item.points > 0 ? '+' : '') + item.points + ' نقطة') : '';
-    var note = item.note ? (' • ' + item.note) : '';
-    return '<div class="item">' + (item.title || 'إجراء') + points + '<small>' + (item.actorName || '—') + ' • ' + (item.createdAt || '') + note + '</small></div>';
+
+/* ===== STATE ===== */
+let profileData = null;
+let activeNavPage = 'points';
+let activePointsTab = 'rewards';
+let activeStoreTab = 'catalog';
+let activeNotifTab = 'all';
+let activeSettingsTab = 'primary';
+let activeDaysFilter = 0;
+let rewardProposalImageData = '';
+
+/* ===== NAVIGATION ===== */
+function navigateTo(page) {
+  activeNavPage = page;
+  document.querySelectorAll('.page-section').forEach(el => el.classList.add('hidden'));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const pageMap = { points: 'pagePoints', store: 'pageStore', notifications: 'pageNotifications', settings: 'pageSettings' };
+  const pageEl = $(pageMap[page]);
+  if (pageEl) pageEl.classList.remove('hidden');
+  const navEl = document.querySelector('[data-page="' + page + '"]');
+  if (navEl) navEl.classList.add('active');
+}
+
+/* ===== RENDER HELPERS ===== */
+function formatDate(str) {
+  if (!str) return '—';
+  try {
+    const d = new Date(str);
+    return d.toLocaleDateString('ar-SA', { year: 'numeric', month: 'short', day: 'numeric' });
+  } catch(e) { return str; }
+}
+
+function filterByDays(items, dateKey, days) {
+  if (!days) return items;
+  const cutoff = Date.now() - days * 86400000;
+  return items.filter(item => {
+    const d = new Date(item[dateKey] || item.createdAt || 0);
+    return d.getTime() >= cutoff;
+  });
+}
+
+function renderStudentsList() {
+  if (!profileData) return;
+  const container = $('studentsList');
+  if (!container) return;
+  const students = profileData.students || [];
+  if (!students.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">👨‍👩‍👧</div><p>لا يوجد أبناء مرتبطون بهذا الرقم.</p></div>';
+    return;
+  }
+  container.innerHTML = students.map(student => {
+    const allActions = student.recentActions || [];
+    let actions = allActions;
+    if (activeDaysFilter > 0) {
+      actions = filterByDays(allActions, 'createdAt', activeDaysFilter);
+    }
+    const rewards = actions.filter(a => (a.points || 0) > 0);
+    const deductions = actions.filter(a => (a.points || 0) < 0);
+    const attendance = student.lastAttendance;
+    let tabContent = '';
+    if (activePointsTab === 'rewards') {
+      tabContent = rewards.length
+        ? rewards.map(a => renderActionItem(a)).join('')
+        : '<div class="empty-state" style="padding:20px"><p>لا توجد مكافآت في هذه الفترة.</p></div>';
+    } else if (activePointsTab === 'deductions') {
+      tabContent = deductions.length
+        ? deductions.map(a => renderActionItem(a)).join('')
+        : '<div class="empty-state" style="padding:20px"><p>لا توجد خصومات في هذه الفترة.</p></div>';
+    } else {
+      tabContent = attendance
+        ? '<div class="action-item"><div><div class="action-title">آخر حضور</div><div class="action-meta">' + (attendance.isoDate || '') + ' ' + (attendance.time || '') + ' • ' + (attendance.result || '') + ' • ' + (attendance.gateName || '—') + '</div></div><span class="pill pill-teal">' + (student.attendanceRate || 0) + '%</span></div>'
+        : '<div class="empty-state" style="padding:20px"><p>لا يوجد سجل حضور بعد.</p></div>';
+    }
+    return '<div class="student-card">'
+      + '<div class="student-header">'
+      + '<div><div class="student-name">' + (student.name || 'طالب') + '</div><div class="student-meta">' + (student.schoolName || '') + ' • ' + (student.className || '—') + '</div></div>'
+      + '<div class="student-points-badge"><div class="pts">' + (student.points || 0) + '</div><div class="pts-lbl">نقطة</div></div>'
+      + '</div>'
+      + '<div class="student-stats">'
+      + '<span class="student-stat-chip">الحضور: ' + (student.attendanceRate || 0) + '%</span>'
+      + '<span class="student-stat-chip pill ' + (student.status === 'active' ? 'pill-green' : 'pill-slate') + '">' + (student.status || '—') + '</span>'
+      + '</div>'
+      + tabContent
+      + '</div>';
   }).join('');
 }
-function renderExtraContacts(contacts){
-  $('extraContactsList').innerHTML = (contacts || []).map(function(item){
-    return '<div class="contact-row"><div><b>' + (item.mobileMasked || item.mobile || '') + '</b><small>' + (item.label || 'رقم إضافي') + ' • ' + (item.channel || 'whatsapp') + ' • ' + (item.verifiedAt || '') + '</small></div><span class="pill">موثّق</span></div>';
-  }).join('') || '<div class="item">لا توجد أرقام إضافية مرتبطة حتى الآن.</div>';
+
+function renderActionItem(a) {
+  const pts = a.points || 0;
+  const ptsClass = pts > 0 ? 'positive' : 'negative';
+  const ptsText = (pts > 0 ? '+' : '') + pts + ' نقطة';
+  return '<div class="action-item">'
+    + '<div><div class="action-title">' + (a.title || 'إجراء') + '</div>'
+    + '<div class="action-meta">' + (a.actorName || '—') + ' • ' + formatDate(a.createdAt) + (a.note ? ' • ' + a.note : '') + '</div></div>'
+    + '<span class="action-pts ' + ptsClass + '">' + ptsText + '</span>'
+    + '</div>';
 }
-function setCheckbox(id, value){ var el=$(id); if(el) el.checked=!!value; }
-function renderNotificationSettings(settings){
-  settings = settings || {};
-  $('notifPreferredChannel').value = settings.preferredChannel || 'whatsapp';
-  $('notifDeliveryScope').value = settings.deliveryScope || 'primary_and_extra';
-  setCheckbox('evtLate', settings.events && settings.events.late);
-  setCheckbox('evtAbsent', settings.events && settings.events.absent);
-  setCheckbox('evtPositive', settings.events && settings.events.positive);
-  setCheckbox('evtNegative', settings.events && settings.events.negative);
-  setCheckbox('evtAnnouncements', settings.events && settings.events.announcements);
-  setCheckbox('sumDaily', settings.summaries && settings.summaries.daily);
-  setCheckbox('sumWeekly', settings.summaries && settings.summaries.weekly);
+
+function renderRewardCatalog() {
+  if (!profileData) return;
+  const catalog = profileData.rewardCatalog || [];
+  const schools = {};
+  const studentsBySchool = {};
+  (profileData.students || []).forEach(student => {
+    const sid = String(student.schoolId || '');
+    if (!sid) return;
+    if (!schools[sid]) schools[sid] = student.schoolName || ('المدرسة ' + sid);
+    if (!studentsBySchool[sid]) studentsBySchool[sid] = [];
+    studentsBySchool[sid].push(student);
+  });
+  const schoolOptions = Object.keys(schools).map(id => '<option value="' + id + '">' + schools[id] + '</option>').join('');
+  if ($('rewardProposalSchool')) $('rewardProposalSchool').innerHTML = schoolOptions || '<option value="">لا توجد مدرسة</option>';
+  if ($('rewardRedeemSchool')) $('rewardRedeemSchool').innerHTML = schoolOptions || '<option value="">لا توجد مدرسة</option>';
+  const catalogEl = $('rewardCatalogList');
+  if (catalogEl) {
+    catalogEl.innerHTML = catalog.length
+      ? catalog.map(item => {
+          const img = item.image ? '<img src="' + item.image + '" class="reward-img" alt="' + (item.title || '') + '" />' : '';
+          return '<div class="reward-item">' + img
+            + '<div class="reward-body">'
+            + '<div class="reward-title">' + (item.title || 'جائزة') + '</div>'
+            + '<div class="reward-meta">' + (item.schoolName || '') + ' • ' + (item.donorName || (item.source === 'parent' ? 'ولي أمر' : 'إدارة المدرسة')) + '</div>'
+            + '<div class="reward-footer">'
+            + '<span class="pill pill-teal">' + (item.pointsCost || 0) + ' نقطة</span>'
+            + '<span class="pill pill-slate">متبقي: ' + (item.remainingQuantity || 0) + '/' + (item.quantity || 0) + '</span>'
+            + '</div>'
+            + (item.note ? '<div style="margin-top:8px;font-size:13px;color:var(--muted);line-height:1.7">' + item.note + '</div>' : '')
+            + '</div></div>';
+        }).join('')
+      : '<div class="empty-state"><div class="empty-icon">🎁</div><p>لا توجد جوائز معتمدة في المتجر حتى الآن.</p></div>';
+  }
+  fillRedeemDropdowns(schools, studentsBySchool, catalog);
+  renderStoreHistory();
 }
-function collectNotificationSettings(){
+
+function fillRedeemDropdowns(schools, studentsBySchool, catalog) {
+  function fillStudents() {
+    const schoolId = $('rewardRedeemSchool') ? $('rewardRedeemSchool').value : '';
+    const students = studentsBySchool[schoolId] || [];
+    if ($('rewardRedeemStudent')) {
+      $('rewardRedeemStudent').innerHTML = students.map(s => '<option value="' + (s.studentId || s.id || '') + '">' + (s.name || 'طالب') + ' — ' + (s.points || 0) + ' نقطة</option>').join('') || '<option value="">لا يوجد طلاب</option>';
+    }
+    fillItems();
+  }
+  function fillItems() {
+    const schoolId = $('rewardRedeemSchool') ? $('rewardRedeemSchool').value : '';
+    const items = catalog.filter(item => String(item.schoolId || '') === String(schoolId || ''));
+    if ($('rewardRedeemItem')) {
+      $('rewardRedeemItem').innerHTML = items.map(item => '<option value="' + (item.id || '') + '">' + (item.title || 'جائزة') + ' — ' + (item.pointsCost || 0) + ' نقطة</option>').join('') || '<option value="">لا توجد جوائز معتمدة</option>';
+    }
+  }
+  fillStudents();
+  if ($('rewardRedeemSchool')) $('rewardRedeemSchool').onchange = fillStudents;
+}
+
+function renderStoreHistory() {
+  if (!profileData) return;
+  const proposals = profileData.rewardProposals || [];
+  const redemptions = profileData.rewardRedemptions || [];
+  const phEl = $('rewardProposalHistory');
+  if (phEl) {
+    phEl.innerHTML = proposals.length
+      ? proposals.slice(0, 5).map(item => '<div class="notif-item"><div class="notif-header"><div class="notif-title">' + (item.title || 'جائزة') + '</div><span class="pill ' + (item.status === 'approved' ? 'pill-green' : item.status === 'rejected' ? 'pill-red' : 'pill-amber') + '">' + (item.status === 'approved' ? 'قُبل' : item.status === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد') + '</span></div><div class="notif-meta">' + (item.schoolName || '') + ' • ' + formatDate(item.createdAt) + ' • ' + (item.quantity || 1) + ' قطعة</div>' + (item.decisionNote || item.note ? '<div class="notif-body">' + (item.decisionNote || item.note) + '</div>' : '') + '</div>').join('')
+      : '<div class="empty-state" style="padding:20px"><p>لم يتم إرسال مقترحات حتى الآن.</p></div>';
+  }
+  const rhEl = $('rewardRedeemHistory');
+  const rhStoreEl = $('rewardRedeemHistoryStore');
+  const redeemHtml = redemptions.length
+    ? redemptions.slice(0, 5).map(item => '<div class="notif-item"><div class="notif-header"><div class="notif-title">' + (item.itemTitle || 'جائزة') + '</div><span class="pill ' + (item.status === 'approved' ? 'pill-green' : item.status === 'rejected' ? 'pill-red' : 'pill-amber') + '">' + (item.status === 'approved' ? 'معتمد' : item.status === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد') + '</span></div><div class="notif-meta">' + (item.studentName || 'طالب') + ' • ' + (item.schoolName || '') + ' • ' + formatDate(item.createdAt) + '</div>' + (item.decisionNote || item.note ? '<div class="notif-body">' + (item.decisionNote || item.note) + '</div>' : '') + '</div>').join('')
+    : '<div class="empty-state" style="padding:20px"><p>لم يتم إرسال طلبات استبدال حتى الآن.</p></div>';
+  if (rhEl) rhEl.innerHTML = redeemHtml;
+  if (rhStoreEl) rhStoreEl.innerHTML = redeemHtml;
+}
+
+function renderNotifications() {
+  if (!profileData) return;
+  const history = profileData.notificationHistory || [];
+  const statusFilter = $('historyFilterStatus') ? $('historyFilterStatus').value : 'all';
+  const studentFilter = $('historyFilterStudent') ? $('historyFilterStudent').value : 'all';
+  // Fill student filter
+  const studentOptions = '<option value="all">كل الأبناء</option>' + (profileData.students || []).map(s => '<option value="' + String(s.studentId || s.id || '') + '">' + (s.name || 'طالب') + '</option>').join('');
+  if ($('historyFilterStudent')) {
+    const cur = $('historyFilterStudent').value;
+    $('historyFilterStudent').innerHTML = studentOptions;
+    $('historyFilterStudent').value = cur || 'all';
+  }
+  let filtered = history.filter(item => {
+    if (statusFilter === 'success' && String(item.status || '') !== 'نجاح') return false;
+    if (statusFilter === 'failed' && String(item.status || '') === 'نجاح') return false;
+    if (studentFilter !== 'all' && String(item.studentId || '') !== String(studentFilter)) return false;
+    if (activeNotifTab !== 'all' && String(item.channel || '') !== activeNotifTab) return false;
+    return true;
+  });
+  const notifBadge = $('notifBadge');
+  const unread = history.filter(item => String(item.status || '') !== 'نجاح').length;
+  if (notifBadge) {
+    if (unread > 0) { notifBadge.textContent = unread; notifBadge.classList.remove('hidden'); }
+    else notifBadge.classList.add('hidden');
+  }
+  const container = $('notifList');
+  if (!container) return;
+  container.innerHTML = filtered.length
+    ? filtered.map(item => {
+        const statusOk = item.status === 'نجاح';
+        return '<div class="notif-item">'
+          + '<div class="notif-header">'
+          + '<div class="notif-title">' + (item.title || 'تنبيه') + '</div>'
+          + '<span class="pill ' + (statusOk ? 'pill-green' : 'pill-red') + '">' + (statusOk ? 'نجاح' : (item.status || 'تعثر')) + '</span>'
+          + '</div>'
+          + '<div class="notif-body">' + (item.body || '—') + '</div>'
+          + '<div class="notif-meta">' + [item.studentName, item.schoolName, item.channel, item.recipientMasked || item.recipient, formatDate(item.sentAt || item.createdAt)].filter(Boolean).join(' • ') + '</div>'
+          + (item.reason ? '<div style="margin-top:6px;font-size:12px;color:var(--danger)">سبب التعثر: ' + item.reason + '</div>' : '')
+          + '</div>';
+      }).join('')
+    : '<div class="empty-state"><div class="empty-icon">🔔</div><p>لا توجد تنبيهات مطابقة.</p></div>';
+}
+
+function renderExtraContacts() {
+  if (!profileData) return;
+  const contacts = profileData.extraContacts || [];
+  const el = $('extraContactsList');
+  if (!el) return;
+  el.innerHTML = contacts.length
+    ? contacts.map(item => '<div class="contact-row"><div class="contact-info"><div class="contact-num">' + (item.mobileMasked || item.mobile || '') + '</div><div class="contact-meta">' + (item.label || 'رقم إضافي') + ' • ' + (item.channel || 'whatsapp') + ' • ' + formatDate(item.verifiedAt) + '</div></div><span class="pill pill-teal">موثّق ✓</span></div>').join('')
+    : '<div class="empty-state" style="padding:20px"><p>لا توجد أرقام إضافية مرتبطة حتى الآن.</p></div>';
+}
+
+function renderNotificationSettings() {
+  if (!profileData) return;
+  const settings = profileData.notificationSettings || {};
+  const ch = $('notifPreferredChannel');
+  const sc = $('notifDeliveryScope');
+  if (ch) ch.value = settings.preferredChannel || 'whatsapp';
+  if (sc) sc.value = settings.deliveryScope || 'primary_and_extra';
+  const evts = settings.events || {};
+  const sums = settings.summaries || {};
+  ['evtLate','evtAbsent','evtPositive','evtNegative','evtAnnouncements'].forEach(id => {
+    const el = $(id); if (el) el.checked = !!evts[id.replace('evt','').toLowerCase()];
+  });
+  const sumDaily = $('sumDaily'); if (sumDaily) sumDaily.checked = !!sums.daily;
+  const sumWeekly = $('sumWeekly'); if (sumWeekly) sumWeekly.checked = !!sums.weekly;
+}
+
+function renderPrimaryChangeRequest() {
+  if (!profileData) return;
+  const req = profileData.primaryChangeRequest;
+  const el = $('primaryChangeSummary');
+  if (!el) return;
+  if (!req) { el.innerHTML = 'لا يوجد طلب قائم حاليًا.'; return; }
+  const statusText = req.status === 'pending' ? 'بانتظار الاعتماد' : (req.status || 'pending');
+  el.innerHTML = '<div style="font-weight:800">' + (req.requestedMobileMasked || req.requestedMobile || '—') + '</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:4px">الحالة: ' + statusText + ' • ' + formatDate(req.requestedAt) + '</div>'
+    + (req.note ? '<div style="font-size:12px;margin-top:4px">' + req.note + '</div>' : '');
+}
+
+function renderProfile(profile) {
+  profileData = profile;
+  // Header
+  const headerName = $('headerName');
+  if (headerName) headerName.textContent = profile.guardianName || 'ولي الأمر';
+  // Stats
+  const sp = $('statTotalPoints'); if (sp) sp.textContent = profile.totalPoints || 0;
+  const sa = $('statAttendance'); if (sa) sa.textContent = (profile.avgAttendance || 0) + '%';
+  const ss = $('statStudents'); if (ss) ss.textContent = profile.studentsCount || 0;
+  const sc = $('statSchools'); if (sc) sc.textContent = profile.schoolsCount || 0;
+  // Render all sections
+  renderStudentsList();
+  renderRewardCatalog();
+  renderNotifications();
+  renderExtraContacts();
+  renderNotificationSettings();
+  renderPrimaryChangeRequest();
+  // Show main app
+  $('loginScreen').classList.add('hidden');
+  $('mainApp').classList.remove('hidden');
+  $('mainApp').style.display = 'flex';
+}
+
+/* ===== BOOTSTRAP ===== */
+async function bootstrapParent() {
+  const token = getToken();
+  if (!token) return;
+  try {
+    const data = await api('/api/parent/bootstrap', { headers: { 'X-Session-Token': token } });
+    renderProfile(data.profile || {});
+  } catch(e) { clearToken(); }
+}
+
+/* ===== LOGIN EVENTS ===== */
+$('requestOtpBtn').onclick = async function() {
+  const mobile = norm($('mobileInput').value);
+  this.disabled = true;
+  clearAlert('requestMsg');
+  try {
+    const data = await api('/api/parent/request-otp', { method: 'POST', body: JSON.stringify({ mobile }) });
+    let msg = data.message || 'تم إرسال الرمز.';
+    if (data.previewCode) msg += ' (للاختبار: ' + data.previewCode + ')';
+    showAlert('requestMsg', msg, 'success');
+    $('otpStep').classList.remove('hidden');
+  } catch(e) { showAlert('requestMsg', e.message || 'تعذر إرسال الرمز.', 'error'); }
+  finally { this.disabled = false; }
+};
+$('resendOtpBtn').onclick = function() { $('requestOtpBtn').click(); };
+$('verifyOtpBtn').onclick = async function() {
+  const mobile = norm($('mobileInput').value);
+  const code = norm($('otpInput').value);
+  this.disabled = true;
+  clearAlert('verifyMsg');
+  try {
+    const data = await api('/api/parent/verify-otp', { method: 'POST', body: JSON.stringify({ mobile, code }) });
+    saveToken(data.token || '');
+    renderProfile(data.profile || {});
+  } catch(e) { showAlert('verifyMsg', e.message || 'تعذر التحقق.', 'error'); }
+  finally { this.disabled = false; }
+};
+
+/* ===== HEADER EVENTS ===== */
+$('refreshBtn').onclick = bootstrapParent;
+$('logoutBtn').onclick = async function() {
+  try { await api('/api/parent/logout', { method: 'POST', headers: { 'X-Session-Token': getToken() } }); } catch(e) {}
+  clearToken();
+  location.reload();
+};
+
+/* ===== BOTTOM NAV ===== */
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.addEventListener('click', () => navigateTo(btn.dataset.page));
+});
+
+/* ===== POINTS INNER TABS ===== */
+document.querySelectorAll('[data-ptab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activePointsTab = btn.dataset.ptab;
+    document.querySelectorAll('[data-ptab]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderStudentsList();
+  });
+});
+
+/* ===== TIME FILTER ===== */
+document.querySelectorAll('[data-days]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeDaysFilter = parseInt(btn.dataset.days, 10);
+    document.querySelectorAll('[data-days]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderStudentsList();
+  });
+});
+
+/* ===== STORE TABS ===== */
+document.querySelectorAll('[data-stab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeStoreTab = btn.dataset.stab;
+    document.querySelectorAll('[data-stab]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.store-tab-content').forEach(el => el.classList.add('hidden'));
+    const tabMap = { catalog: 'storeCatalog', redeem: 'storeRedeem', propose: 'storePropose', history: 'storeHistory' };
+    const el = $(tabMap[activeStoreTab]);
+    if (el) el.classList.remove('hidden');
+  });
+});
+
+/* ===== NOTIF TABS ===== */
+document.querySelectorAll('[data-ntab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeNotifTab = btn.dataset.ntab;
+    document.querySelectorAll('[data-ntab]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderNotifications();
+  });
+});
+['historyFilterStatus','historyFilterStudent'].forEach(id => {
+  const el = $(id);
+  if (el) el.onchange = renderNotifications;
+});
+
+/* ===== SETTINGS TABS ===== */
+document.querySelectorAll('[data-settab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeSettingsTab = btn.dataset.settab;
+    document.querySelectorAll('[data-settab]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.settings-tab-content').forEach(el => el.classList.add('hidden'));
+    const tabMap = { primary: 'settingsPrimary', contacts: 'settingsContacts', notifSettings: 'settingsNotif' };
+    const el = $(tabMap[activeSettingsTab]);
+    if (el) el.classList.remove('hidden');
+  });
+});
+
+/* ===== EXTRA CONTACT ===== */
+$('requestExtraOtpBtn').onclick = async function() {
+  const mobile = norm($('extraMobileInput').value);
+  const channel = $('extraChannelSelect').value;
+  this.disabled = true;
+  clearAlert('extraRequestMsg');
+  try {
+    const data = await api('/api/parent/add-contact/request-otp', { method: 'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({ mobile, channel }) });
+    let msg = data.message || 'تم إرسال الرمز.';
+    if (data.previewCode) msg += ' (للاختبار: ' + data.previewCode + ')';
+    showAlert('extraRequestMsg', msg, 'success');
+    $('extraOtpStep').classList.remove('hidden');
+  } catch(e) { showAlert('extraRequestMsg', e.message || 'تعذر إرسال الرمز.', 'error'); }
+  finally { this.disabled = false; }
+};
+$('verifyExtraOtpBtn').onclick = async function() {
+  const mobile = norm($('extraMobileInput').value);
+  const code = norm($('extraOtpInput').value);
+  const channel = $('extraChannelSelect').value;
+  this.disabled = true;
+  clearAlert('extraVerifyMsg');
+  try {
+    const data = await api('/api/parent/add-contact/verify-otp', { method: 'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({ mobile, code, channel }) });
+    showAlert('extraVerifyMsg', data.message || 'تم ربط الرقم الإضافي بنجاح.', 'success');
+    if (data.profile) renderProfile(data.profile);
+    $('extraMobileInput').value = '';
+    $('extraOtpInput').value = '';
+    $('extraOtpStep').classList.add('hidden');
+  } catch(e) { showAlert('extraVerifyMsg', e.message || 'تعذر توثيق الرقم.', 'error'); }
+  finally { this.disabled = false; }
+};
+
+/* ===== PRIMARY CHANGE ===== */
+$('requestPrimaryChangeOtpBtn').onclick = async function() {
+  const mobile = norm($('primaryNewMobileInput').value);
+  this.disabled = true;
+  clearAlert('primaryChangeRequestMsg');
+  try {
+    const data = await api('/api/parent/change-primary/request-otp', { method: 'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({ mobile }) });
+    let msg = data.message || 'تم إرسال الرمز للرقم الجديد.';
+    if (data.previewCode) msg += ' (للاختبار: ' + data.previewCode + ')';
+    showAlert('primaryChangeRequestMsg', msg, 'success');
+    $('primaryChangeOtpStep').classList.remove('hidden');
+  } catch(e) { showAlert('primaryChangeRequestMsg', e.message || 'تعذر إرسال الرمز.', 'error'); }
+  finally { this.disabled = false; }
+};
+$('verifyPrimaryChangeOtpBtn').onclick = async function() {
+  const mobile = norm($('primaryNewMobileInput').value);
+  const code = norm($('primaryChangeOtpInput').value);
+  this.disabled = true;
+  clearAlert('primaryChangeVerifyMsg');
+  try {
+    const data = await api('/api/parent/change-primary/verify-otp', { method: 'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({ mobile, code }) });
+    showAlert('primaryChangeVerifyMsg', data.message || 'تم رفع الطلب بنجاح.', 'success');
+    if (data.profile) renderProfile(data.profile);
+    $('primaryChangeOtpInput').value = '';
+    $('primaryChangeOtpStep').classList.add('hidden');
+  } catch(e) { showAlert('primaryChangeVerifyMsg', e.message || 'تعذر توثيق الرقم الجديد.', 'error'); }
+  finally { this.disabled = false; }
+};
+
+/* ===== NOTIFICATION SETTINGS ===== */
+function collectNotificationSettings() {
   return {
     preferredChannel: $('notifPreferredChannel').value || 'whatsapp',
     deliveryScope: $('notifDeliveryScope').value || 'primary_and_extra',
@@ -3916,243 +5001,80 @@ function collectNotificationSettings(){
       negative: !!$('evtNegative').checked,
       announcements: !!$('evtAnnouncements').checked,
     },
-    summaries: {
-      daily: !!$('sumDaily').checked,
-      weekly: !!$('sumWeekly').checked,
-    }
+    summaries: { daily: !!$('sumDaily').checked, weekly: !!$('sumWeekly').checked }
   };
 }
+$('saveNotifSettingsBtn').onclick = async function() {
+  this.disabled = true;
+  clearAlert('notifSettingsMsg');
+  try {
+    const data = await api('/api/parent/notification-settings', { method: 'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify(collectNotificationSettings()) });
+    showAlert('notifSettingsMsg', data.message || 'تم حفظ الإعدادات بنجاح.', 'success');
+    if (data.profile) renderProfile(data.profile);
+  } catch(e) { showAlert('notifSettingsMsg', e.message || 'تعذر حفظ الإعدادات.', 'error'); }
+  finally { this.disabled = false; }
+};
 
-
-function renderPrimaryChangeRequest(req){
-  if(!req){ $('primaryChangeSummary').innerHTML = 'لا يوجد طلب قائم حاليًا.'; return; }
-  var statusText = req.status === 'pending' ? 'بانتظار الاعتماد' : (req.status || 'pending');
-  var note = req.note ? '<small>' + req.note + '</small>' : '';
-  $('primaryChangeSummary').innerHTML = '<b>' + (req.requestedMobileMasked || req.requestedMobile || '—') + '</b><small>الحالة: ' + statusText + ' • ' + (req.requestedAt || '') + '</small>' + note;
-}
-
-function renderHistory(profile){
-  var history = (profile.notificationHistory || []).slice();
-  var statusFilter = $('historyFilterStatus') ? $('historyFilterStatus').value : 'all';
-  var channelFilter = $('historyFilterChannel') ? $('historyFilterChannel').value : 'all';
-  var studentFilter = $('historyFilterStudent') ? $('historyFilterStudent').value : 'all';
-  var studentOptions = '<option value="all">كل الأبناء</option>' + (profile.students || []).map(function(student){
-    return '<option value="' + String(student.studentId || student.id || '') + '">' + (student.name || 'طالب') + '</option>';
-  }).join('');
-  if ($('historyFilterStudent')) {
-    var current = studentFilter;
-    $('historyFilterStudent').innerHTML = studentOptions;
-    $('historyFilterStudent').value = current || 'all';
-    studentFilter = $('historyFilterStudent').value || 'all';
-  }
-  history = history.filter(function(item){
-    if(statusFilter === 'success' && String(item.status || '') !== 'نجاح') return false;
-    if(statusFilter === 'failed' && String(item.status || '') === 'نجاح') return false;
-    if(channelFilter !== 'all' && String(item.channel || '') !== channelFilter) return false;
-    if(studentFilter !== 'all' && String(item.studentId || '') !== String(studentFilter)) return false;
-    return true;
+/* ===== REWARD PROPOSAL ===== */
+$('rewardProposalImage').onchange = async function(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) { rewardProposalImageData = ''; return; }
+  rewardProposalImageData = await new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.readAsDataURL(file);
   });
-  $('historyList').innerHTML = history.map(function(item){
-    var meta = [item.studentName || 'الطالب', item.schoolName || '', item.channel || '', item.recipientMasked || item.recipient || '', item.sentAt || item.createdAt || ''].filter(Boolean).join(' • ');
-    var status = item.status === 'نجاح' ? '<span class="pill">نجاح</span>' : '<span class="pill" style="background:#fff1f2;border-color:#fecdd3;color:#9f1239">' + (item.status || 'تعثر') + '</span>';
-    var reason = item.reason ? '<div style="margin-top:8px;color:#9f1239">سبب التعثر: ' + item.reason + '</div>' : '';
-    return '<div class="item"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px"><div><b>' + (item.title || 'تنبيه') + '</b><small>' + meta + '</small></div>' + status + '</div><div style="margin-top:8px;line-height:1.9">' + (item.body || '—') + '</div>' + reason + '</div>';
-  }).join('') || '<div class="item">لا توجد سجلات مطابقة للفلاتر الحالية.</div>';
-}
+};
+$('submitRewardProposalBtn').onclick = async function() {
+  this.disabled = true;
+  clearAlert('rewardProposalMsg');
+  try {
+    const data = await api('/api/parent/reward-proposals', { method: 'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({
+      schoolId: $('rewardProposalSchool').value,
+      title: $('rewardProposalTitle').value,
+      quantity: $('rewardProposalQuantity').value,
+      donorName: $('rewardProposalDonorName').value,
+      showDonorName: $('rewardProposalShowDonor').checked,
+      note: $('rewardProposalNote').value,
+      image: rewardProposalImageData
+    })});
+    showAlert('rewardProposalMsg', data.message || 'تم إرسال المقترح.', 'success');
+    rewardProposalImageData = '';
+    $('rewardProposalTitle').value = ''; $('rewardProposalQuantity').value = '1';
+    $('rewardProposalDonorName').value = ''; $('rewardProposalShowDonor').checked = true;
+    $('rewardProposalNote').value = ''; $('rewardProposalImage').value = '';
+    if (data.profile) renderProfile(data.profile);
+  } catch(e) { showAlert('rewardProposalMsg', e.message || 'تعذر إرسال المقترح.', 'error'); }
+  finally { this.disabled = false; }
+};
 
-let rewardProposalImageData = '';
-function renderRewardCatalog(profile){
-  var schools = {};
-  var studentsBySchool = {};
-  (profile.students || []).forEach(function(student){
-    var schoolId = String(student.schoolId || '');
-    if(!schoolId) return;
-    if(!schools[schoolId]) schools[schoolId] = student.schoolName || ('المدرسة ' + schoolId);
-    if(!studentsBySchool[schoolId]) studentsBySchool[schoolId] = [];
-    studentsBySchool[schoolId].push(student);
-  });
-  var schoolOptions = Object.keys(schools).map(function(id){ return '<option value="' + id + '">' + schools[id] + '</option>'; }).join('');
-  if ($('rewardProposalSchool')) $('rewardProposalSchool').innerHTML = schoolOptions || '<option value="">لا توجد مدرسة</option>';
-  if ($('rewardRedeemSchool')) $('rewardRedeemSchool').innerHTML = schoolOptions || '<option value="">لا توجد مدرسة</option>';
-  var catalog = profile.rewardCatalog || [];
-  $('rewardCatalogList').innerHTML = catalog.map(function(item){
-    var img = item.image ? '<img src="' + item.image + '" alt="' + (item.title || '') + '" style="width:100%;max-height:180px;object-fit:cover;border-radius:16px;margin-top:10px" />' : '';
-    return '<div class="item"><div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div><b>' + (item.title || 'جائزة') + '</b><small>' + (item.schoolName || '') + ' • ' + (item.donorName || (item.source === 'parent' ? 'ولي أمر' : 'إدارة المدرسة')) + ' • المتبقي ' + (item.remainingQuantity || 0) + '/' + (item.quantity || 0) + '</small></div><span class="pill">' + (item.pointsCost || 0) + ' نقطة</span></div>' + img + '<div style="margin-top:8px;line-height:1.8">' + (item.note || '—') + '</div></div>';
-  }).join('') || '<div class="item">لا توجد جوائز معتمدة في المتجر حتى الآن.</div>';
-  var proposals = profile.rewardProposals || [];
-  $('rewardProposalHistory').innerHTML = proposals.length ? '<div class="muted" style="margin-bottom:8px">آخر المقترحات</div>' + proposals.slice(0,5).map(function(item){ return '<div class="item"><div style="display:flex;justify-content:space-between;gap:12px"><div><b>' + (item.title || 'جائزة') + '</b><small>' + (item.schoolName || '') + ' • ' + (item.createdAt || '') + ' • ' + (item.quantity || 1) + ' قطعة</small></div><span class="pill">' + (item.status === 'approved' ? 'قُبل للمخزون' : item.status === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد') + '</span></div><div style="margin-top:8px">' + (item.decisionNote || item.note || '—') + '</div></div>'; }).join('') : '<div class="item">لم يتم إرسال مقترحات حتى الآن.</div>';
-  var redemptions = profile.rewardRedemptions || [];
-  $('rewardRedeemHistory').innerHTML = redemptions.length ? '<div class="muted" style="margin-bottom:8px">آخر طلبات الاستبدال</div>' + redemptions.slice(0,5).map(function(item){ return '<div class="item"><div style="display:flex;justify-content:space-between;gap:12px"><div><b>' + (item.itemTitle || 'جائزة') + '</b><small>' + (item.studentName || 'طالب') + ' • ' + (item.schoolName || '') + ' • ' + (item.createdAt || '') + '</small></div><span class="pill">' + (item.status === 'approved' ? 'معتمد' : item.status === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد') + '</span></div><div style="margin-top:8px">' + (item.decisionNote || item.note || '—') + '</div></div>'; }).join('') : '<div class="item">لم يتم إرسال طلبات استبدال حتى الآن.</div>';
-  $('rewardCatalogSummary').innerHTML = [
-    '<div class="item"><b>الجوائز المعتمدة</b><small>' + catalog.length + ' جائزة متاحة</small></div>',
-    '<div class="item"><b>مقترحاتكم</b><small>' + proposals.length + ' مقترحًا سابقًا</small></div>',
-    '<div class="item"><b>المتبرعون الظاهرون</b><small>' + Array.from(new Set(items.map(function(item){ return item.donorName || ''; }).filter(Boolean))).length + ' متبرعين</small></div>',
-    '<div class="item"><b>طلبات الاستبدال</b><small>' + redemptions.length + ' طلبًا مسجلاً</small></div>'
-  ].join('');
-  function fillRedeemStudents(){
-    var schoolId = $('rewardRedeemSchool') ? $('rewardRedeemSchool').value : '';
-    var students = studentsBySchool[schoolId] || [];
-    if ($('rewardRedeemStudent')) $('rewardRedeemStudent').innerHTML = students.map(function(student){ return '<option value="' + (student.studentId || student.id || '') + '">' + (student.name || 'طالب') + ' — ' + (student.points || 0) + ' نقطة</option>'; }).join('') || '<option value="">لا يوجد طلاب</option>';
-  }
-  function fillRedeemItems(){
-    var schoolId = $('rewardRedeemSchool') ? $('rewardRedeemSchool').value : '';
-    var items = catalog.filter(function(item){ return String(item.schoolId || '') === String(schoolId || ''); });
-    if ($('rewardRedeemItem')) $('rewardRedeemItem').innerHTML = items.map(function(item){ return '<option value="' + (item.id || '') + '">' + (item.title || 'جائزة') + ' — ' + (item.pointsCost || 0) + ' نقطة</option>'; }).join('') || '<option value="">لا توجد جوائز معتمدة</option>';
-  }
-  fillRedeemStudents();
-  fillRedeemItems();
-  if ($('rewardRedeemSchool')) $('rewardRedeemSchool').onchange = function(){ fillRedeemStudents(); fillRedeemItems(); };
-}
+/* ===== REWARD REDEEM ===== */
+$('submitRewardRedeemBtn').onclick = async function() {
+  this.disabled = true;
+  clearAlert('rewardRedeemMsg');
+  try {
+    const data = await api('/api/parent/reward-redemptions', { method: 'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({
+      schoolId: $('rewardRedeemSchool').value,
+      studentId: $('rewardRedeemStudent').value,
+      itemId: $('rewardRedeemItem').value,
+      note: $('rewardRedeemNote').value
+    })});
+    showAlert('rewardRedeemMsg', data.message || 'تم إرسال طلب الاستبدال.', 'success');
+    $('rewardRedeemNote').value = '';
+    if (data.profile) renderProfile(data.profile);
+  } catch(e) { showAlert('rewardRedeemMsg', e.message || 'تعذر إرسال طلب الاستبدال.', 'error'); }
+  finally { this.disabled = false; }
+};
 
-function renderProfile(profile){
-  $('guardianName').textContent = profile.guardianName || 'ولي الأمر';
-  $('guardianMeta').textContent = (profile.mobileMasked || '') + ' • ' + (profile.studentsCount || 0) + ' طالب/ـة';
-  $('statStudents').textContent = profile.studentsCount || 0;
-  $('statPoints').textContent = profile.totalPoints || 0;
-  $('statAttendance').textContent = (profile.avgAttendance || 0) + '%';
-  $('statSchools').textContent = profile.schoolsCount || 0;
-  $('studentsList').innerHTML = (profile.students || []).map(function(student){
-    var lastAttendance = 'لا يوجد بعد';
-    var lastAttendanceMeta = 'بانتظار أول تسجيل';
-    if(student.lastAttendance){
-      lastAttendance = (student.lastAttendance.isoDate || '') + ' ' + (student.lastAttendance.time || '');
-      lastAttendanceMeta = (student.lastAttendance.result || '') + ' • ' + (student.lastAttendance.gateName || '—');
-    }
-    return '<div class="student">'
-      + '<h3>' + (student.name || 'طالب') + '</h3>'
-      + '<div class="muted">' + (student.schoolName || '') + ' • ' + (student.className || '—') + '</div>'
-      + '<div class="chips">'
-      + '<span class="chip">النقاط: ' + (student.points || 0) + '</span>'
-      + '<span class="chip">الحضور: ' + (student.attendanceRate || 0) + '%</span>'
-      + '<span class="chip">الحالة: ' + (student.status || '—') + '</span>'
-      + '</div>'
-      + '<div class="timeline">'
-      + '<div class="item">آخر حضور: ' + lastAttendance + '<small>' + lastAttendanceMeta + '</small></div>'
-      + renderActions(student.recentActions || [])
-      + '</div></div>';
-  }).join('') || '<div class="item">لا يوجد أبناء مرتبطون بهذا الرقم.</div>';
-  renderExtraContacts(profile.extraContacts || []);
-  renderNotificationSettings(profile.notificationSettings || {});
-  renderPrimaryChangeRequest(profile.primaryChangeRequest || null);
-  $('messagesList').innerHTML = (profile.latestMessages || []).map(function(item){
-    return '<div class="item">' + (item.title || 'تنبيه') + '<small>' + (item.studentName || 'الطالب') + ' • ' + (item.schoolName || '') + ' • ' + (item.channel || '') + ' • ' + (item.sentAt || '') + '</small><div style="margin-top:8px;line-height:1.8">' + (item.body || '—') + '</div></div>';
-  }).join('') || '<div class="item">لا توجد تنبيهات حديثة.</div>';
-  renderHistory(profile);
-  $('loginView').classList.add('hidden');
-  $('portalView').classList.remove('hidden');
-}
-async function bootstrapParent(){
-  const token = getToken();
-  if(!token) return;
-  try {
-    const data = await api('/api/parent/bootstrap', { headers: { 'X-Session-Token': token } });
-    renderProfile(data.profile || {});
-  } catch(e){ clearToken(); }
-}
-$('requestOtpBtn').onclick = async function(){
-  const mobile = norm($('mobileInput').value);
-  try {
-    const data = await api('/api/parent/request-otp', { method:'POST', body: JSON.stringify({ mobile: mobile }) });
-    var msg = data.message || 'تم إرسال الرمز.';
-    if(data.previewCode) msg += ' (للاختبار: ' + data.previewCode + ')';
-    setMessage('requestMsg', msg, false);
-    $('otpWrap').classList.remove('hidden');
-  } catch(e){ setMessage('requestMsg', e.message || 'تعذر إرسال الرمز.', true); }
-};
-$('resendOtpBtn').onclick = function(){ $('requestOtpBtn').click(); };
-$('verifyOtpBtn').onclick = async function(){
-  const mobile = norm($('mobileInput').value);
-  const code = norm($('otpInput').value);
-  try {
-    const data = await api('/api/parent/verify-otp', { method:'POST', body: JSON.stringify({ mobile: mobile, code: code }) });
-    saveToken(data.token || '');
-    setMessage('verifyMsg', 'تم التحقق بنجاح.', false);
-    renderProfile(data.profile || {});
-  } catch(e){ setMessage('verifyMsg', e.message || 'تعذر التحقق.', true); }
-};
-$('requestExtraOtpBtn').onclick = async function(){
-  const mobile = norm($('extraMobileInput').value);
-  const channel = norm($('extraChannelInput').value).toLowerCase() === 'sms' ? 'sms' : 'whatsapp';
-  try {
-    const data = await api('/api/parent/add-contact/request-otp', { method:'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({ mobile: mobile, channel: channel }) });
-    var msg = data.message || 'تم إرسال الرمز.';
-    if(data.previewCode) msg += ' (للاختبار: ' + data.previewCode + ')';
-    setMessage('extraRequestMsg', msg, false);
-    $('extraOtpWrap').classList.remove('hidden');
-  } catch(e){ setMessage('extraRequestMsg', e.message || 'تعذر إرسال الرمز.', true); }
-};
-$('verifyExtraOtpBtn').onclick = async function(){
-  const mobile = norm($('extraMobileInput').value);
-  const code = norm($('extraOtpInput').value);
-  const channel = norm($('extraChannelInput').value).toLowerCase() === 'sms' ? 'sms' : 'whatsapp';
-  try {
-    const data = await api('/api/parent/add-contact/verify-otp', { method:'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({ mobile: mobile, code: code, channel: channel }) });
-    setMessage('extraVerifyMsg', data.message || 'تم ربط الرقم الإضافي بنجاح.', false);
-    renderProfile(data.profile || {});
-    $('extraMobileInput').value = '';
-    $('extraOtpInput').value = '';
-    $('extraOtpWrap').classList.add('hidden');
-  } catch(e){ setMessage('extraVerifyMsg', e.message || 'تعذر توثيق الرقم.', true); }
-};
-$('requestPrimaryChangeOtpBtn').onclick = async function(){
-  const mobile = norm($('primaryNewMobileInput').value);
-  try {
-    const data = await api('/api/parent/change-primary/request-otp', { method:'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({ mobile: mobile }) });
-    var msg = data.message || 'تم إرسال الرمز للرقم الجديد.';
-    if(data.previewCode) msg += ' (للاختبار: ' + data.previewCode + ')';
-    setMessage('primaryChangeRequestMsg', msg, false);
-    $('primaryChangeOtpWrap').classList.remove('hidden');
-  } catch(e){ setMessage('primaryChangeRequestMsg', e.message || 'تعذر إرسال الرمز.', true); }
-};
-$('verifyPrimaryChangeOtpBtn').onclick = async function(){
-  const mobile = norm($('primaryNewMobileInput').value);
-  const code = norm($('primaryChangeOtpInput').value);
-  try {
-    const data = await api('/api/parent/change-primary/verify-otp', { method:'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({ mobile: mobile, code: code }) });
-    setMessage('primaryChangeVerifyMsg', data.message || 'تم رفع الطلب بنجاح.', false);
-    if (data.profile) renderProfile(data.profile);
-    $('primaryChangeOtpInput').value = '';
-    $('primaryChangeOtpWrap').classList.add('hidden');
-  } catch(e){ setMessage('primaryChangeVerifyMsg', e.message || 'تعذر توثيق الرقم الجديد.', true); }
-};
-$('saveNotifSettingsBtn').onclick = async function(){
-  try {
-    const data = await api('/api/parent/notification-settings', { method:'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify(collectNotificationSettings()) });
-    setMessage('notifSettingsMsg', data.message || 'تم حفظ إعدادات التنبيهات بنجاح.', false);
-    if (data.profile) renderProfile(data.profile);
-  } catch(e){ setMessage('notifSettingsMsg', e.message || 'تعذر حفظ الإعدادات.', true); }
-};
-['historyFilterStatus','historyFilterChannel','historyFilterStudent'].forEach(function(id){ var el=$(id); if(el){ el.onchange = bootstrapParent; } });
-
-$('rewardProposalImage').onchange = async function(e){
-  var file = e.target.files && e.target.files[0];
-  if(!file){ rewardProposalImageData=''; return; }
-  rewardProposalImageData = await new Promise(function(resolve){ var reader=new FileReader(); reader.onload=function(){ resolve(String(reader.result || '')); }; reader.readAsDataURL(file); });
-};
-$('submitRewardProposalBtn').onclick = async function(){
-  try {
-    const data = await api('/api/parent/reward-proposals', { method:'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({ schoolId: $('rewardProposalSchool').value, title: $('rewardProposalTitle').value, quantity: $('rewardProposalQuantity').value, donorName: $('rewardProposalDonorName').value, showDonorName: $('rewardProposalShowDonor').checked, note: $('rewardProposalNote').value, image: rewardProposalImageData }) });
-    setMessage('rewardProposalMsg', data.message || 'تم إرسال المقترح.', false);
-    rewardProposalImageData='';
-    $('rewardProposalTitle').value=''; $('rewardProposalQuantity').value='1'; $('rewardProposalDonorName').value=''; $('rewardProposalShowDonor').checked=true; $('rewardProposalNote').value=''; $('rewardProposalImage').value='';
-    if (data.profile) renderProfile(data.profile);
-  } catch(e){ setMessage('rewardProposalMsg', e.message || 'تعذر إرسال المقترح.', true); }
-};
-$('submitRewardRedeemBtn').onclick = async function(){
-  try {
-    const data = await api('/api/parent/reward-redemptions', { method:'POST', headers: { 'X-Session-Token': getToken() }, body: JSON.stringify({ schoolId: $('rewardRedeemSchool').value, studentId: $('rewardRedeemStudent').value, itemId: $('rewardRedeemItem').value, note: $('rewardRedeemNote').value }) });
-    setMessage('rewardRedeemMsg', data.message || 'تم إرسال طلب الاستبدال.', false);
-    $('rewardRedeemNote').value='';
-    if (data.profile) renderProfile(data.profile);
-  } catch(e){ setMessage('rewardRedeemMsg', e.message || 'تعذر إرسال طلب الاستبدال.', true); }
-};
-$('refreshBtn').onclick = bootstrapParent;
-$('logoutBtn').onclick = async function(){ try{ await api('/api/parent/logout', { method:'POST', headers: { 'X-Session-Token': getToken() } }); }catch(e){} clearToken(); location.reload(); };
+/* ===== INIT ===== */
 bootstrapParent();
 </script>
 </body>
-</html>`;
+</html>
+`;
 }
+
+
 
 
 function renderParentRequestsAdminHtml() {
