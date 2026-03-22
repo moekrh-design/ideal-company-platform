@@ -782,7 +782,7 @@ const navItems = [
   { key: "companies", label: "الشركات والفصول", icon: Layers3, permission: "companies" },
   { key: "students", label: "البصمة والمعرفات", icon: GraduationCap, permission: "students" },
   { key: "attendance", label: "الحضور الذكي", icon: ScanLine, permission: "attendance" },
-  { key: "lessonAttendanceSessions", label: "تحضير الحصص", icon: ClipboardList, permission: "attendance", roles: ["superadmin", "principal", "supervisor", "teacher"] },
+  { key: "lessonAttendanceSessions", label: "تحضير الحصص", icon: ClipboardList, permission: "actions", roles: ["superadmin", "principal", "supervisor", "teacher"] },
   { key: "actions", label: "إجراءات الطلاب", icon: ClipboardCheck, permission: "actions" },
   { key: "points", label: "النقاط والترتيب", icon: Trophy, permission: "points" },
   { key: "reports", label: "مركز التقارير", icon: LineChart, permission: "reports" },
