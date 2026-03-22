@@ -16131,6 +16131,28 @@ export default function App() {
     failed: 0,
     items: [],
   });
+  const [parentPortalDashboard, setParentPortalDashboard] = useState({
+    loading: false,
+    loaded: false,
+    error: '',
+    enabled: true,
+    mode: 'auto',
+    pending: 0,
+    approvedToday: 0,
+    activeParents: 0,
+    lastAlert: null,
+  });
+  const [parentPortalConfig, setParentPortalConfig] = useState({
+    loaded: false,
+    loading: false,
+    saving: false,
+    mode: 'auto',
+    enabled: true,
+    alerts: [],
+    totalRequests: 0,
+    pendingRequests: 0,
+    error: '',
+  });
   const bootstrappedRef = useRef(false);
   const saveTimerRef = useRef(null);
 
@@ -16162,6 +16184,8 @@ export default function App() {
   const currentRoleObject = roles.find((role) => role.key === currentUser?.role) || roles[0];
   const RoleIcon = currentRoleObject.icon;
   const canUseHeaderAlerts = ['superadmin', 'principal', 'supervisor'].includes(String(currentUser?.role || ''));
+  const canManageParentPortalApp = ['superadmin', 'principal'].includes(String(currentUser?.role || ''));
+  const canViewParentPortal = canManageParentPortalApp || String(currentUser?.role || '') === 'supervisor';
 
   const selectedSchool = useMemo(() => {
     if (currentUser?.role && currentUser.role !== "superadmin") {
