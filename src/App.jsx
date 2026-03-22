@@ -5511,14 +5511,17 @@ function PublicScreenPage({ token }) {
               <div className="mt-6 grid gap-3 sm:grid-cols-2">
                 {(rewardStoreSummary.items || []).slice(0, Number(rewardStoreSummary.maxItems || 8)).map((item) => (
                   <div key={item.id} className="flex items-center gap-4 rounded-[1.7rem] bg-slate-50 p-4 ring-1 ring-slate-200">
-                    <div className="h-20 w-24 overflow-hidden rounded-2xl bg-slate-100">{item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs text-slate-400">بدون صورة</div>}</div>
+                    <div className="relative h-20 w-24 overflow-hidden rounded-2xl bg-slate-100 flex-shrink-0">{item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs text-slate-400">بدون صورة</div>}</div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xl font-black text-slate-900">{item.title}</div>
                       <div className="mt-1 text-sm text-slate-500">{item.donorLabel} • المتبقي {formatEnglishDigits(item.remainingQuantity || 0)}</div>
                       <div className="mt-2 flex items-center gap-2">
                         {item.featured ? <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800">مهمة</span> : null}
-                        <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-800">{formatEnglishDigits(item.pointsCost || 0)} نقطة</span>
                       </div>
+                    </div>
+                    <div className="flex-shrink-0 rounded-2xl bg-emerald-600 px-4 py-3 text-center shadow-sm">
+                      <div className="text-2xl font-black text-white leading-none">{formatEnglishDigits(item.pointsCost || 0)}</div>
+                      <div className="text-xs font-bold text-emerald-100 mt-0.5">نقطة</div>
                     </div>
                   </div>
                 ))}
@@ -14995,7 +14998,7 @@ function StudentRolePage({ selectedSchool, currentUser, onCreateRewardRedemption
   );
 }
 
-function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem, onDecideProposal, onCreateRedemptionRequest, onDecideRedemption, onActivateRewardItem, onUpdateRewardItemMeta }) {
+function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem, onDecideProposal, onCreateRedemptionRequest, onDecideRedemption, onActivateRewardItem, onUpdateRewardItemMeta, onEditItem }) {
   const summary = useMemo(() => buildRewardStoreSummary(selectedSchool), [selectedSchool]);
   const store = useMemo(() => getRewardStore(selectedSchool), [selectedSchool]);
   const students = useMemo(() => getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }), [selectedSchool]);
@@ -15004,6 +15007,22 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
   const [redemptionDecisionNotes, setRedemptionDecisionNotes] = useState({});
   const [activationDrafts, setActivationDrafts] = useState({});
   const [redemptionDraft, setRedemptionDraft] = useState({ studentId: '', itemId: '', note: '' });
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editDraft, setEditDraft] = useState({});
+
+  const startEditItem = (item) => {
+    setEditingItemId(item.id);
+    setEditDraft({ title: item.title || '', pointsCost: item.pointsCost || 0, quantity: item.quantity || 1, note: item.note || '', image: item.image || '', showOnScreens: item.showOnScreens !== false, featured: item.featured === true, displayPriority: item.displayPriority || 0 });
+  };
+  const saveEditItem = () => {
+    const result = onEditItem?.(editingItemId, editDraft);
+    window.alert(result?.message || (result?.ok ? 'تم تعديل الجائزة.' : 'تعذر التعديل.'));
+    if (result?.ok) setEditingItemId(null);
+  };
+  const handleEditImage = async (file) => {
+    const dataUrl = await fileToDataUrl(file);
+    if (dataUrl) setEditDraft((prev) => ({ ...prev, image: dataUrl }));
+  };
 
   const handleImage = async (file) => {
     const dataUrl = await fileToDataUrl(file);
@@ -15279,9 +15298,16 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
     {storeTab === 'items' && <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {approvedItems.map((item) => <div key={item.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <div className="aspect-[16/10] bg-slate-100">{item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400">بدون صورة</div>}</div>
+          <div className="relative aspect-[16/10] bg-slate-100">{item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-400">بدون صورة</div>}
+            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center bg-gradient-to-t from-black/70 to-transparent py-3">
+              <span className="text-xl font-black text-white">{item.pointsCost} <span className="text-sm font-bold opacity-80">نقطة</span></span>
+            </div>
+          </div>
           <div className="space-y-3 p-4">
-            <div className="flex items-start justify-between gap-3"><div><div className="font-black text-slate-900">{item.title}</div><div className="mt-1 text-xs text-slate-500">{getRewardStoreDonorLabel(item)} • {item.remainingQuantity}/{item.quantity} متبقي</div></div><Badge tone="green">{item.pointsCost} نقطة</Badge></div>
+            <div className="flex items-start justify-between gap-3">
+              <div><div className="font-black text-slate-900">{item.title}</div><div className="mt-1 text-xs text-slate-500">{getRewardStoreDonorLabel(item)} • {item.remainingQuantity}/{item.quantity} متبقي</div></div>
+              <div className="rounded-2xl bg-emerald-100 px-3 py-1.5 text-center min-w-[60px]"><div className="text-lg font-black text-emerald-800 leading-none">{item.pointsCost}</div><div className="text-xs font-bold text-emerald-600">نقطة</div></div>
+            </div>
             {item.note ? <p className="text-sm leading-7 text-slate-600">{item.note}</p> : null}
             <div className="flex flex-wrap gap-2 text-xs">{item.featured ? <span className="rounded-full bg-amber-100 px-3 py-1 font-black text-amber-800">مهمة</span> : null}{item.showOnScreens !== false ? <span className="rounded-full bg-sky-100 px-3 py-1 font-black text-sky-800">تظهر في الشاشات</span> : <span className="rounded-full bg-slate-200 px-3 py-1 font-black text-slate-700">مخفية عن الشاشات</span>}<span className="rounded-full bg-slate-100 px-3 py-1 font-black text-slate-700">أولوية {formatEnglishDigits(item.displayPriority || 0)}</span></div>
             <div className="grid gap-2 md:grid-cols-3">
@@ -15289,9 +15315,31 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
               <label className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"><input type="checkbox" checked={item.featured === true} onChange={(e) => onUpdateRewardItemMeta?.(item.id, { featured: e.target.checked })} />مهمة</label>
               <Input label="أولوية العرض" type="number" value={item.displayPriority || 0} onChange={(e) => onUpdateRewardItemMeta?.(item.id, { displayPriority: e.target.value })} />
             </div>
-            <div className="flex gap-2"><button type="button" onClick={() => onDeleteItem?.(item.id)} className="rounded-2xl border border-rose-200 px-4 py-2 text-sm font-bold text-rose-700">حذف</button></div>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => startEditItem(item)} className="flex-1 rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white">تعديل الجائزة</button>
+              <button type="button" onClick={() => onDeleteItem?.(item.id)} className="rounded-2xl border border-rose-200 px-4 py-2 text-sm font-bold text-rose-700">حذف</button>
+            </div>
           </div>
         </div>)}
+        {editingItemId && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={(e) => { if (e.target === e.currentTarget) setEditingItemId(null); }}>
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-auto">
+            <div className="flex items-center justify-between"><h3 className="text-lg font-black text-slate-900">تعديل الجائزة</h3><button onClick={() => setEditingItemId(null)} className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-600">إغلاق</button></div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Input label="اسم الجائزة" value={editDraft.title || ''} onChange={(e) => setEditDraft((p) => ({ ...p, title: e.target.value }))} />
+              <div className="grid gap-1"><label className="text-sm font-bold text-slate-700">تكلفة النقاط</label><input type="number" min="0" value={editDraft.pointsCost || 0} onChange={(e) => setEditDraft((p) => ({ ...p, pointsCost: e.target.value }))} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-emerald-700 outline-none ring-2 ring-emerald-200" /></div>
+              <Input label="الكمية الإجمالية" type="number" value={editDraft.quantity || 1} onChange={(e) => setEditDraft((p) => ({ ...p, quantity: e.target.value }))} />
+              <Input label="أولوية العرض" type="number" value={editDraft.displayPriority || 0} onChange={(e) => setEditDraft((p) => ({ ...p, displayPriority: e.target.value }))} />
+              <label className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"><input type="checkbox" checked={editDraft.showOnScreens !== false} onChange={(e) => setEditDraft((p) => ({ ...p, showOnScreens: e.target.checked }))} />عرض في الشاشات</label>
+              <label className="flex items-center gap-2 rounded-2xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 ring-1 ring-slate-200"><input type="checkbox" checked={editDraft.featured === true} onChange={(e) => setEditDraft((p) => ({ ...p, featured: e.target.checked }))} />جائزة مهمة</label>
+              <label className="grid gap-2 text-sm font-bold text-slate-700 md:col-span-2">صورة الجائزة (اتركها فارغة للإبقاء على الصورة الحالية)<input type="file" accept="image/*" onChange={async (e) => { const file = e.target.files?.[0]; if (file) await handleEditImage(file); e.target.value=''; }} className="mt-1 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm" /></label>
+              <label className="grid gap-2 text-sm font-bold text-slate-700 md:col-span-2">ملاحظة<textarea value={editDraft.note || ''} onChange={(e) => setEditDraft((p) => ({ ...p, note: e.target.value }))} className="min-h-[80px] rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm" /></label>
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={saveEditItem} className="flex-1 rounded-2xl bg-emerald-700 px-5 py-3 font-bold text-white">حفظ التعديلات</button>
+              <button type="button" onClick={() => setEditingItemId(null)} className="rounded-2xl border border-slate-200 px-5 py-3 font-bold text-slate-700">إلغاء</button>
+            </div>
+          </div>
+        </div>}
         {!approvedItems.length ? <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-sm text-slate-500 col-span-3">لا توجد جوائز معتمدة في المتجر حتى الآن.</div> : null}
       </div>
       {depletedItems.length ? <div><div className="mb-3 text-sm font-bold text-slate-500">جوائز منتهية الكمية</div><div className="grid gap-3 md:grid-cols-2">{depletedItems.map((item) => <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm"><div className="font-black text-slate-800">{item.title}</div><div className="mt-1 text-slate-500">{getRewardStoreDonorLabel(item)} • الكمية الأصلية {item.quantity}</div></div>)}</div></div> : null}
@@ -18517,6 +18565,32 @@ ${buildLessonSessionLink(sessionId)}
     return { ok: true, message: 'تم اعتماد الجائزة وإظهارها في المتجر.' };
   };
 
+  const handleEditRewardStoreItem = (itemId, payload = {}) => {
+    if (!selectedSchool?.id) return { ok: false, message: 'لم يتم تحديد المدرسة.' };
+    let changed = false;
+    setSchools((prev) => prev.map((school) => {
+      if (school.id !== selectedSchool.id) return school;
+      const store = getRewardStore(school);
+      const items = store.items.map((entry) => {
+        if (String(entry.id) !== String(itemId)) return entry;
+        changed = true;
+        return {
+          ...normalizeRewardStoreItem(entry),
+          ...(payload.title !== undefined ? { title: payload.title } : {}),
+          ...(payload.pointsCost !== undefined ? { pointsCost: safeNumber(payload.pointsCost, 0) } : {}),
+          ...(payload.quantity !== undefined ? { quantity: safeNumber(payload.quantity, 1) } : {}),
+          ...(payload.note !== undefined ? { note: payload.note } : {}),
+          ...(payload.image !== undefined ? { image: payload.image } : {}),
+          ...(payload.showOnScreens !== undefined ? { showOnScreens: payload.showOnScreens } : {}),
+          ...(payload.featured !== undefined ? { featured: payload.featured } : {}),
+          ...(payload.displayPriority !== undefined ? { displayPriority: safeNumber(payload.displayPriority, 0) } : {}),
+        };
+      });
+      return { ...school, rewardStore: prependRewardStoreNotification({ ...store, items }, { type: 'item-edited', title: 'تعديل جائزة', body: `تم تعديل بيانات الجائزة في المتجر.`, schoolId: school.id, itemId, createdByName: currentUser?.name || currentUser?.username || 'المدير', audience: 'admin' }) };
+    }));
+    if (!changed) return { ok: false, message: 'تعذر العثور على الجائزة.' };
+    return { ok: true, message: 'تم تعديل الجائزة بنجاح.' };
+  };
   const handleUpdateRewardStoreItemMeta = (itemId, payload = {}) => {
     if (!selectedSchool?.id) return { ok: false, message: 'لم يتم تحديد المدرسة.' };
     let changed = false;
@@ -18672,7 +18746,7 @@ ${buildLessonSessionLink(sessionId)}
       case "pointsRewards":
         return <PointsRewardsConfigPage selectedSchool={selectedSchool} settings={settings} currentUser={currentUser} onSaveSettings={handleSaveSettings} />;
       case "rewardStore":
-        return <RewardStorePage selectedSchool={selectedSchool} currentUser={currentUser} onSaveItem={handleSaveRewardStoreItem} onDeleteItem={handleDeleteRewardStoreItem} onDecideProposal={handleDecideRewardStoreProposal} onCreateRedemptionRequest={handleCreateRewardRedemptionRequest} onDecideRedemption={handleDecideRewardRedemption} onActivateRewardItem={handleActivateRewardStoreItem} onUpdateRewardItemMeta={handleUpdateRewardStoreItemMeta} />;
+        return <RewardStorePage selectedSchool={selectedSchool} currentUser={currentUser} onSaveItem={handleSaveRewardStoreItem} onDeleteItem={handleDeleteRewardStoreItem} onDecideProposal={handleDecideRewardStoreProposal} onCreateRedemptionRequest={handleCreateRewardRedemptionRequest} onDecideRedemption={handleDecideRewardRedemption} onActivateRewardItem={handleActivateRewardStoreItem} onUpdateRewardItemMeta={handleUpdateRewardStoreItemMeta} onEditItem={handleEditRewardStoreItem} />;
       case "schoolStructure":
         return <PageErrorBoundary resetKey={`${selectedSchool?.id || 'none'}-${activePage}`}><SchoolStructurePage selectedSchool={selectedSchool} schoolUsers={users.filter((user) => user.schoolId === selectedSchool?.id)} currentUser={currentUser} onSaveSchoolStructureProfile={handleSaveSchoolStructureProfile} onSaveSchoolStructureStageConfigs={handleSaveSchoolStructureStageConfigs} onGenerateSchoolStructureClassrooms={handleGenerateSchoolStructureClassrooms} onUpdateSchoolStructureClassroom={handleUpdateSchoolStructureClassroom} onDeleteSchoolStructureClassroom={handleDeleteSchoolStructureClassroom} onClearSchoolStructureClassroomStudents={handleClearSchoolStructureClassroomStudents} onAddStudentToSchoolStructureClassroom={handleAddStudentToSchoolStructureClassroom} onUpdateStudentInSchoolStructureClassroom={handleUpdateStudentInSchoolStructureClassroom} onArchiveStudentInSchoolStructureClassroom={handleArchiveStudentInSchoolStructureClassroom} onTransferStudentInSchoolStructureClassroom={handleTransferStudentInSchoolStructureClassroom} onImportStudentsToSchoolStructureClassroom={handleImportStudentsToSchoolStructureClassroom} onUpdateScreenLink={handleUpdateScreenLink} /></PageErrorBoundary>;
       case "users":
