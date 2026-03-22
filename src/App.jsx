@@ -11858,28 +11858,28 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
         </SectionCard>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.4fr_0.6fr]">
         <SectionCard title={viewMode === 'main' ? (canCreate ? 'سجل الاستئذان' : 'طلبات الاستئذان الواردة') : (viewMode === 'agent' ? 'طلبات الوكيل' : 'طلبات المرشد')} icon={ClipboardCheck}>
           {viewMode !== 'main' ? <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
             <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">بانتظار الاعتماد</div><div className="mt-1 text-2xl font-black text-slate-900">{formatEnglishDigits(preparedRows.filter((item) => ['viewed','sent-system','sent-manual','created'].includes(String(item.status || ''))).length)}</div></div>
             <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">قيد التنفيذ</div><div className="mt-1 text-2xl font-black text-slate-900">{formatEnglishDigits(preparedRows.filter((item) => ['approved-agent','approved-counselor','released-guardian'].includes(String(item.status || ''))).length)}</div></div>
             <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">متأخرة</div><div className="mt-1 text-2xl font-black text-slate-900">{formatEnglishDigits(preparedRows.filter((item) => ['overdue-teacher','overdue-close'].includes(String(item.queueMeta?.key || item.queueKey || ''))).length)}</div></div>
           </div> : null}
-          <DataTable columns={principalColumns} rows={preparedRows} emptyMessage={viewMode === 'main' ? (canCreate ? 'لا توجد طلبات استئذان بعد.' : 'لا توجد طلبات موجّهة لهذا المعلم.') : (viewMode === 'agent' ? 'لا توجد طلبات موجّهة إلى الوكيل.' : 'لا توجد طلبات موجّهة إلى المرشد.')} />
+          <DataTable columns={principalColumns} rows={preparedRows} onRowClick={(row) => setSelectedId(String(row.id))} emptyMessage={viewMode === 'main' ? (canCreate ? 'لا توجد طلبات استئذان بعد.' : 'لا توجد طلبات موجّهة لهذا المعلم.') : (viewMode === 'agent' ? 'لا توجد طلبات موجّهة إلى الوكيل.' : 'لا توجد طلبات موجّهة إلى المرشد.')} />
         </SectionCard>
 
-        <SectionCard title={selectedPass ? `تفاصيل الطلب: ${selectedPass.studentName}` : 'تفاصيل الطلب'} icon={ExternalLink}>
+        <SectionCard title={selectedPass ? `تفاصيل: ${selectedPass.studentName}` : 'تفاصيل الطلب'} icon={ExternalLink}>
           {!selectedPass ? (
-            <div className="rounded-2xl bg-slate-50 p-6 text-sm text-slate-500 ring-1 ring-slate-200">اختر طلبًا من السجل لعرض التفاصيل.</div>
+            <div className="rounded-2xl bg-slate-50 p-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">اضغط على أي طلب لعرض تفاصيله.</div>
           ) : (
-            <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الطالب</div><div className="mt-1 font-black text-slate-900">{selectedPass.studentName}</div><div className="mt-1 text-xs text-slate-500">{selectedPass.className || selectedPass.companyName || '—'}</div></div>
-                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">المعلم</div><div className="mt-1 font-black text-slate-900">{selectedPass.teacherName}</div><div className="mt-1 text-xs text-slate-500">{selectedPass.teacherMobile || 'بدون رقم جوال'}</div></div>
-                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الوجهة</div><div className="mt-1 font-black text-slate-900">{getLeavePassDestinationLabel(selectedPass.destination)}</div></div>
-                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-sm text-slate-500">الحالة</div><div className="mt-2"><Badge tone={getLeavePassStatusTone(selectedPass.status)}>{getLeavePassStatusLabel(selectedPass.status)}</Badge></div></div>
-                <div className={cx('rounded-2xl p-4 ring-1', getLeavePassQueueMeta(selectedPass).cardClass)}><div className="text-sm text-slate-500">المتابعة اليومية</div><div className="mt-2"><Badge tone={getLeavePassQueueMeta(selectedPass).tone}>{getLeavePassQueueMeta(selectedPass).label}</Badge></div><div className="mt-2 text-xs font-bold text-slate-600">{getLeavePassElapsedLabel(selectedPass)}</div></div>
+            <div className="space-y-3">
+              <div className="grid gap-2 grid-cols-2">
+                <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الطالب</div><div className="mt-1 text-sm font-black text-slate-900">{selectedPass.studentName}</div><div className="text-xs text-slate-500">{selectedPass.className || selectedPass.companyName || '—'}</div></div>
+                <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs text-slate-500">المعلم</div><div className="mt-1 text-sm font-black text-slate-900">{selectedPass.teacherName}</div><div className="text-xs text-slate-500">{selectedPass.teacherMobile || '—'}</div></div>
+                <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الوجهة</div><div className="mt-1 text-sm font-black text-slate-900">{getLeavePassDestinationLabel(selectedPass.destination)}</div></div>
+                <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الحالة</div><div className="mt-1"><Badge tone={getLeavePassStatusTone(selectedPass.status)}>{getLeavePassStatusLabel(selectedPass.status)}</Badge></div></div>
               </div>
+              <div className={cx('rounded-2xl p-3 ring-1', getLeavePassQueueMeta(selectedPass).cardClass)}><div className="flex items-center justify-between"><div className="text-xs text-slate-500">المتابعة</div><div className="text-xs font-bold text-slate-600">{getLeavePassElapsedLabel(selectedPass)}</div></div><div className="mt-1"><Badge tone={getLeavePassQueueMeta(selectedPass).tone}>{getLeavePassQueueMeta(selectedPass).label}</Badge></div></div>
               <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
                 <div className="text-sm text-slate-500">سبب الاستئذان</div>
                 <div className="mt-1 font-bold text-slate-900">{selectedPass.reason || '—'}</div>
@@ -11892,36 +11892,31 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
                   </div>
                 ) : null}
               </div>
-              <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-                <div className="flex items-center justify-between gap-3"><div className="text-sm text-slate-500">المسار التنفيذي</div><button onClick={() => printLeavePass(selectedPass)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"><Printer className="h-4 w-4" /> طباعة النموذج</button></div>
-                <div className="mt-3 grid gap-3 md:grid-cols-3">
-                  <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الإنشاء</div><div className="mt-1 font-bold text-slate-900">{selectedPass.createdAt ? formatDateTime(selectedPass.createdAt) : '—'}</div></div>
-                  <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">اطلاع المعلم</div><div className="mt-1 font-bold text-slate-900">{selectedPass.viewedAt ? formatDateTime(selectedPass.viewedAt) : '—'}</div></div>
-                  <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">آخر اعتماد / إقفال</div><div className="mt-1 font-bold text-slate-900">{selectedPass.approvedAt ? `${selectedPass.approvedByName || 'الإدارة'} — ${formatDateTime(selectedPass.approvedAt)}` : selectedPass.completedAt ? `${selectedPass.completedByName || 'الإدارة'} — ${formatDateTime(selectedPass.completedAt)}` : '—'}</div></div>
+              <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="text-xs font-bold text-slate-700">السجل الزمني</div>
+                  <button onClick={() => printLeavePass(selectedPass)} className="inline-flex items-center gap-1 rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white"><Printer className="h-3 w-3" /> طباعة</button>
                 </div>
-                <div className="mt-4 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
-                  <div className="text-sm font-bold text-slate-700">السجل الزمني</div>
-                  <div className="mt-3 space-y-2">
-                    {getLeavePassTimeline(selectedPass).length ? getLeavePassTimeline(selectedPass).map((event) => (
-                      <div key={event.id} className="rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
-                        <div className="flex flex-wrap items-center justify-between gap-2"><div className="font-bold text-slate-900">{getLeavePassEventLabel(event.type)}</div><div className="text-xs text-slate-500">{event.at ? formatDateTime(event.at) : '—'}</div></div>
-                        <div className="mt-1 text-sm text-slate-600">{event.actorName || 'مستخدم النظام'}{event.note ? ` — ${event.note}` : ''}</div>
-                      </div>
-                    )) : <div className="text-sm text-slate-500">لا توجد حركات مسجلة بعد.</div>}
-                  </div>
+                <div className="space-y-1.5 max-h-[16rem] overflow-auto">
+                  {getLeavePassTimeline(selectedPass).length ? getLeavePassTimeline(selectedPass).map((event) => (
+                    <div key={event.id} className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+                      <div className="flex flex-wrap items-center justify-between gap-1"><div className="text-xs font-bold text-slate-900">{getLeavePassEventLabel(event.type)}</div><div className="text-[10px] text-slate-500">{event.at ? formatDateTime(event.at) : '—'}</div></div>
+                      <div className="text-[11px] text-slate-600">{event.actorName || 'مستخدم النظام'}{event.note ? ` — ${event.note}` : ''}</div>
+                    </div>
+                  )) : <div className="text-xs text-slate-500">لا توجد حركات مسجلة بعد.</div>}
                 </div>
               </div>
-              <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
-                <div className="text-sm text-slate-500">رابط المعلم</div>
-                <div className="mt-2 break-all text-sm font-bold text-slate-800">{selectedPass.passLink}</div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button onClick={() => navigator.clipboard?.writeText(selectedPass.passLink || '')} className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200"><Copy className="h-4 w-4" /> نسخ الرابط</button>
-                  {canCreate && <button onClick={() => openManualWhatsapp(selectedPass)} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white"><ExternalLink className="h-4 w-4" /> واتساب يدوي للمعلم</button>}
-                  {canCreate && <button onClick={() => sendSystem(selectedPass)} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white"><Bell className="h-4 w-4" /> إرسال من النظام للمعلم</button>}
-                  {canCreate && selectedPass.destination === 'guardian' && selectedPass.guardianMobile ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'manual', 'guardian'); if (result?.whatsAppUrl) window.open(result.whatsAppUrl, '_blank'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-2 rounded-2xl bg-fuchsia-600 px-4 py-2 text-sm font-bold text-white"><ExternalLink className="h-4 w-4" /> إشعار ولي الأمر يدويًا</button> : null}
-                  {canCreate && selectedPass.destination === 'guardian' && selectedPass.guardianMobile ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'guardian'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-2 rounded-2xl bg-violet-700 px-4 py-2 text-sm font-bold text-white"><Bell className="h-4 w-4" /> إشعار ولي الأمر بالنظام</button> : null}
-                  {(canCreate || viewMode === 'agent') && selectedPass.destination === 'agent' ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'agent'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white"><Bell className="h-4 w-4" /> إشعار الوكيل</button> : null}
-                  {(canCreate || viewMode === 'counselor') && selectedPass.destination === 'counselor' ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'counselor'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white"><Bell className="h-4 w-4" /> إشعار المرشد</button> : null}
+              <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+                <div className="text-xs font-bold text-slate-700 mb-1">رابط المعلم</div>
+                <div className="break-all text-xs text-slate-600 bg-white rounded-xl px-3 py-2 ring-1 ring-slate-200 mb-2">{selectedPass.passLink}</div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button onClick={() => navigator.clipboard?.writeText(selectedPass.passLink || '')} className="inline-flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-slate-700 ring-1 ring-slate-200"><Copy className="h-3 w-3" /> نسخ</button>
+                  {canCreate && <button onClick={() => openManualWhatsapp(selectedPass)} className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white"><ExternalLink className="h-3 w-3" /> واتساب يدوي</button>}
+                  {canCreate && <button onClick={() => sendSystem(selectedPass)} className="inline-flex items-center gap-1 rounded-xl bg-sky-700 px-3 py-1.5 text-xs font-bold text-white"><Bell className="h-3 w-3" /> إرسال نظام</button>}
+                  {canCreate && selectedPass.destination === 'guardian' && selectedPass.guardianMobile ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'manual', 'guardian'); if (result?.whatsAppUrl) window.open(result.whatsAppUrl, '_blank'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-1 rounded-xl bg-fuchsia-600 px-3 py-1.5 text-xs font-bold text-white"><ExternalLink className="h-3 w-3" /> ولي الأمر يدوي</button> : null}
+                  {canCreate && selectedPass.destination === 'guardian' && selectedPass.guardianMobile ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'guardian'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-1 rounded-xl bg-violet-700 px-3 py-1.5 text-xs font-bold text-white"><Bell className="h-3 w-3" /> ولي الأمر نظام</button> : null}
+                  {(canCreate || viewMode === 'agent') && selectedPass.destination === 'agent' ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'agent'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-1 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white"><Bell className="h-3 w-3" /> إشعار الوكيل</button> : null}
+                  {(canCreate || viewMode === 'counselor') && selectedPass.destination === 'counselor' ? <button onClick={async () => { const result = await onSendLeavePass?.(selectedPass.id, 'system', 'counselor'); if (result?.message) window.alert(result.message); }} className="inline-flex items-center gap-1 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white"><Bell className="h-3 w-3" /> إشعار المرشد</button> : null}
                 </div>
               </div>
               {String(currentUser?.role || '') === 'teacher' && (
@@ -11950,15 +11945,20 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
 function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, initialSessionId, onCreateSession, onCloseSession, onDeleteSession, onSubmitSession, onSendSessionInvites, onMarkSessionOpened }) {
   const isManager = ['superadmin', 'principal', 'supervisor'].includes(String(currentUser?.role || ''));
   const schoolUsers = useMemo(() => (users || []).filter((user) => Number(user.schoolId) === Number(selectedSchool?.id)), [users, selectedSchool?.id]);
-  const sessions = useMemo(() => [...getLessonAttendanceSessions(selectedSchool)].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))), [selectedSchool]);
+  const todayIsoSession = getTodayIso();
+  const [showAllDays, setShowAllDays] = useState(false);
+  const allSessions = useMemo(() => [...getLessonAttendanceSessions(selectedSchool)].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))), [selectedSchool]);
+  const sessions = useMemo(() => showAllDays ? allSessions : allSessions.filter((session) => String(session.dateIso || '').startsWith(todayIsoSession) || String(session.createdAt || '').startsWith(todayIsoSession)), [allSessions, showAllDays, todayIsoSession]);
   const [selectedSessionId, setSelectedSessionId] = useState(initialSessionId || sessions[0]?.id || '');
-  const [createForm, setCreateForm] = useState({ dateIso: getTodayIso(), slotLabel: 'الحصة الأولى', startTime: '', endTime: '', note: '' });
+  const [createForm, setCreateForm] = useState(() => { const now = new Date(); const hh = String(now.getHours()).padStart(2, '0'); const mm = String(now.getMinutes()).padStart(2, '0'); const endDate = new Date(now.getTime() + 30 * 60000); const ehh = String(endDate.getHours()).padStart(2, '0'); const emm = String(endDate.getMinutes()).padStart(2, '0'); return { dateIso: getTodayIso(), slotLabel: 'الحصة الأولى', startTime: `${hh}:${mm}`, endTime: `${ehh}:${emm}`, note: '' }; });
   const [teacherClassKey, setTeacherClassKey] = useState('');
   const [teacherAbsentIds, setTeacherAbsentIds] = useState([]);
-  const [teacherAcknowledgement, setTeacherAcknowledgement] = useState(true);
+  const [teacherAcknowledgement, setTeacherAcknowledgement] = useState(false);
   const [teacherStatus, setTeacherStatus] = useState('');
   const [targetTeacherIds, setTargetTeacherIds] = useState([]);
   const [sendStatus, setSendStatus] = useState('');
+  const [customMessage, setCustomMessage] = useState('');
+  const [showMessageEditor, setShowMessageEditor] = useState(false);
 
   const teacherOptions = useMemo(() => (schoolUsers || []).filter((user) => user.role === 'teacher' && String(user.status || 'نشط') === 'نشط'), [schoolUsers]);
   const selectedSession = useMemo(() => sessions.find((session) => String(session.id) === String(selectedSessionId)) || null, [sessions, selectedSessionId]);
@@ -12003,7 +12003,7 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
       setTeacherAcknowledgement(existingTeacherSubmission.acknowledged !== false);
     } else {
       setTeacherAbsentIds([]);
-      setTeacherAcknowledgement(true);
+      setTeacherAcknowledgement(false);
     }
   }, [existingTeacherSubmission, selectedSessionId, teacherClassKey]);
 
@@ -12043,8 +12043,19 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
 
   const handleSendInvitesNow = async () => {
     if (!selectedSession) return;
-    const result = await onSendSessionInvites?.(selectedSession.id, targetTeacherIds);
+    if (!targetTeacherIds.length) { setSendStatus('حدد معلمًا واحدًا على الأقل.'); return; }
+    const result = await onSendSessionInvites?.(selectedSession.id, targetTeacherIds, customMessage || null);
     setSendStatus(result?.message || (result?.ok ? 'تم الإرسال.' : 'تعذر الإرسال.'));
+  };
+
+  const buildSessionMessage = (session) => customMessage || `نأمل تنفيذ تحضير ${buildLessonAttendanceSessionLabel(session)} عبر الرابط التالي:\n${buildLessonSessionLink(session.id)}\nيرجى اختيار الفصل يدويًا ثم اعتماد التحضير.`;
+
+  const handleCopyMessage = () => {
+    if (!selectedSession) return;
+    const msg = buildSessionMessage(selectedSession);
+    navigator.clipboard?.writeText(msg);
+    setCustomMessage(msg);
+    setShowMessageEditor(true);
   };
 
   const exportSessionSummary = () => {
@@ -12116,6 +12127,10 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
               </div>
             )}
             <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-bold text-slate-500">{showAllDays ? 'جميع الأيام' : 'جلسات اليوم فقط'}</div>
+                <button onClick={() => setShowAllDays((prev) => !prev)} className="rounded-xl bg-white px-3 py-1 text-xs font-black text-slate-600 ring-1 ring-slate-200">{showAllDays ? 'اليوم فقط' : 'عرض كل الأيام'}</button>
+              </div>
               {sessions.length ? sessions.map((session) => {
                 const summary = computeLessonAttendanceSessionSummary(session, selectedSchool, schoolUsers);
                 return (
@@ -12139,6 +12154,12 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
           </div>
 
           <div className="space-y-4">
+            {!selectedSession && (
+              <div className="rounded-[1.8rem] bg-white p-8 text-center ring-1 ring-slate-200">
+                <div className="text-base font-black text-slate-700">{isManager ? 'اختر جلسة أو أنشئ جلسة جديدة' : 'اختر جلسة من القائمة'}</div>
+                <div className="mt-2 text-sm text-slate-500">{isManager ? 'بعد إنشاء الجلسة يمكنك إرسال رابط التحضير للمعلمين عبر الواتساب أو النظام.' : 'اختر الجلسة من القائمة على اليسار لبدء التحضير.'}</div>
+              </div>
+            )}
             {selectedSession ? (
               <>
                 <div className="grid grid-cols-2 gap-3 xl:grid-cols-6">
@@ -12170,8 +12191,7 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <button onClick={() => navigator.clipboard?.writeText(buildLessonSessionLink(selectedSession.id))} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200">نسخ الرابط</button>
-                      <button onClick={() => navigator.clipboard?.writeText(`نأمل تنفيذ تحضير ${buildLessonAttendanceSessionLabel(selectedSession)} عبر الرابط التالي:
-${buildLessonSessionLink(selectedSession.id)}`)} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200">نسخ الرسالة</button>
+                      <button onClick={handleCopyMessage} className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200">نسخ/تخصيص الرسالة</button>
                       {isManager ? <button onClick={() => onCloseSession?.(selectedSession.id, selectedSession.status === 'closed' ? 'open' : 'closed')} className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-black text-white">{selectedSession.status === 'closed' ? 'إعادة فتح' : 'إغلاق الجلسة'}</button> : null}
                       {isManager ? <button onClick={() => { if (window.confirm('هل أنت متأكد من حذف هذه الجلسة؟ لا يمكن التراجع عن هذا الإجراء.')) { onDeleteSession?.(selectedSession.id); setSelectedSessionId(''); } }} className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-black text-white">حذف الجلسة</button> : null}
                       <button onClick={exportSessionSummary} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">CSV الملخص</button>
@@ -12201,8 +12221,22 @@ ${buildLessonSessionLink(selectedSession.id)}`)} className="rounded-2xl bg-white
                               );
                             })}
                           </div>
+                          {showMessageEditor && (
+                            <div className="mt-3 space-y-2">
+                              <div className="text-xs font-bold text-slate-700">نص الرسالة (يمكنك تعديلها)</div>
+                              <textarea value={customMessage || buildSessionMessage(selectedSession)} onChange={(e) => setCustomMessage(e.target.value)} rows={4} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs leading-6 outline-none" />
+                              <div className="flex gap-2">
+                                <button onClick={() => { navigator.clipboard?.writeText(customMessage || buildSessionMessage(selectedSession)); setSendStatus('تم نسخ الرسالة.'); }} className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-black text-slate-700 ring-1 ring-slate-200">نسخ الرسالة</button>
+                                <button onClick={() => { setCustomMessage(''); setShowMessageEditor(false); }} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-slate-500 ring-1 ring-slate-200">إعادة تعيين</button>
+                              </div>
+                            </div>
+                          )}
                           <div className="mt-4 flex flex-wrap gap-2">
-                            <button onClick={handleSendInvitesNow} className="rounded-2xl bg-emerald-700 px-4 py-3 text-sm font-black text-white">إرسال واتساب للمحددين</button>
+                            <button onClick={handleSendInvitesNow} className="rounded-2xl bg-emerald-700 px-4 py-3 text-sm font-black text-white">إرسال من النظام</button>
+                            <a href={targetTeacherIds.length === 1 ? `https://wa.me/${String((teacherOptions.find((t) => String(t.id) === targetTeacherIds[0])?.mobile || '')).replace(/\D/g, '')}?text=${encodeURIComponent(customMessage || buildSessionMessage(selectedSession))}` : `https://wa.me/?text=${encodeURIComponent(customMessage || buildSessionMessage(selectedSession))}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-2xl bg-[#25D366] px-4 py-3 text-sm font-black text-white">
+                              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                              إرسال رابط واتساب
+                            </a>
                             {sendStatus ? <Badge tone={/تم/.test(sendStatus) ? 'green' : 'amber'}>{sendStatus}</Badge> : null}
                           </div>
                         </div>
@@ -12324,7 +12358,7 @@ ${buildLessonSessionLink(selectedSession.id)}`)} className="rounded-2xl bg-white
                   )}
                 </div>
               </>
-            ) : <div className="rounded-[1.8rem] bg-white p-8 text-center text-sm font-bold text-slate-500 ring-1 ring-slate-200">اختر جلسة من القائمة أو أنشئ جلسة جديدة للبدء.</div>}
+            ) : null}
           </div>
         </div>
       </SectionCard>
@@ -18196,13 +18230,24 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
     pushNotification(status === 'closed' ? 'إغلاق جلسة التحضير' : 'تحديث جلسة التحضير', `تم ${status === 'closed' ? 'إغلاق' : 'تحديث'} الجلسة بنجاح.`);
   };
 
-  const handleDeleteLessonAttendanceSession = (sessionId) => {
+  const handleDeleteLessonAttendanceSession = async (sessionId) => {
     if (!selectedSchool?.id) return;
-    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
+    const nextSchools = schools.map((school) => school.id !== selectedSchool.id ? school : {
       ...school,
       lessonAttendanceSessions: getLessonAttendanceSessions(school).filter((session) => String(session.id) !== String(sessionId)),
-    }));
+    });
+    setSchools(nextSchools);
     pushNotification('حذف جلسة التحضير', 'تم حذف الجلسة بنجاح.');
+    // حفظ فوري على السيرفر لمنع عودة الجلسة بعد تحديث الصفحة
+    try {
+      const token = getSessionToken();
+      if (token) {
+        const nextState = { ...sharedState, schools: nextSchools };
+        await apiRequest('/api/state/save', { method: 'POST', token, body: { state: nextState } });
+      }
+    } catch (e) {
+      console.error('خطأ في حفظ حذف الجلسة:', e);
+    }
   };
 
   const handleSubmitLessonAttendanceSession = ({ sessionId, classKey, acknowledgement, absentStudentIds = [] }) => {
@@ -18279,6 +18324,12 @@ ${buildLessonSessionLink(sessionId)}
         return { ...item, targetTeacherIds: targets.map((teacher) => teacher.id), teacherInvites: [...mapped, ...others] };
       }),
     }));
+    // إضافة تنبيه للمعلمين المستهدفين
+    const sessionLabel = buildLessonAttendanceSessionLabel(session);
+    setNotifications((prev) => [
+      { id: Date.now(), title: 'تحضير حصة جديد', body: `طلب منك المدير تحضير ${sessionLabel}. افتح صفحة تحضير الحصص للبدء.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: targets.map((t) => t.id) },
+      ...prev,
+    ].slice(0, 30));
     return { ok: true, message: `تم إرسال الجلسة إلى ${targets.length} معلم/ـة عبر واتساب.` };
   };
 
