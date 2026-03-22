@@ -676,6 +676,14 @@ const defaultSettings = {
     initiative: 10,
     behavior: 4,
   },
+  attendancePointsSystem: {
+    enabled: false,
+    dailyPresencePoints: 5,
+    earlyBonusPoints: 3,
+    absentDeductPoints: 3,
+    lateDeductPoints: 3,
+    excusedPoints: 0,
+  },
   teacherPoints: {
     perReward: 5,
     perViolation: 2,
@@ -1514,6 +1522,7 @@ function createDefaultState() {
       ...defaultSettings,
       policy: { ...defaultSettings.policy },
       points: { ...defaultSettings.points },
+      attendancePointsSystem: { ...defaultSettings.attendancePointsSystem },
       devices: { ...defaultSettings.devices },
       actions: hydrateActionCatalog(defaultSettings.actions),
       auth: {
@@ -1548,6 +1557,7 @@ function buildHydratedClientState(parsed = {}, uiState = {}) {
       ...(parsed.settings || {}),
       policy: { ...defaultSettings.policy, ...(parsed.settings?.policy || {}) },
       points: { ...defaultSettings.points, ...(parsed.settings?.points || {}) },
+      attendancePointsSystem: { ...defaultSettings.attendancePointsSystem, ...(parsed.settings?.attendancePointsSystem || {}) },
       teacherPoints: { ...defaultSettings.teacherPoints, ...(parsed.settings?.teacherPoints || {}) },
       devices: { ...defaultSettings.devices, ...(parsed.settings?.devices || {}) },
       actions: hydrateActionCatalog(parsed.settings?.actions || defaultSettings.actions),
@@ -12309,13 +12319,21 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
                                 <div className="mt-3 max-h-[22rem] overflow-auto space-y-2">
                                   {teacherClassStudents.length ? teacherClassStudents.map((student) => {
                                     const absent = teacherAbsentIds.includes(String(student.id));
+                                    const aps = settings?.attendancePointsSystem;
+                                    const apsEnabled = Boolean(aps?.enabled);
+                                    const absentPointsImpact = apsEnabled ? -(safeNumber(aps?.dailyPresencePoints ?? 5) + safeNumber(aps?.absentDeductPoints ?? 3)) : null;
                                     return (
                                       <button key={student.id} onClick={() => toggleAbsent(student.id)} className={cx('flex w-full items-center justify-between rounded-2xl px-4 py-3 text-right ring-1 transition', absent ? 'bg-rose-50 text-rose-900 ring-rose-200' : 'bg-emerald-50 text-emerald-900 ring-emerald-200')}>
                                         <div>
                                           <div className="font-black">{student.name}</div>
                                           <div className="mt-1 text-xs opacity-80">{student.studentNumber || student.nationalId || '—'}</div>
                                         </div>
-                                        <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-black">{absent ? 'غائب' : 'حاضر'}</span>
+                                        <div className="flex items-center gap-2">
+                                          {apsEnabled && absent && absentPointsImpact !== null && (
+                                            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-black text-rose-700">{absentPointsImpact} نقطة</span>
+                                          )}
+                                          <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-black">{absent ? 'غائب' : 'حاضر'}</span>
+                                        </div>
                                       </button>
                                     );
                                   }) : <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">اختر الفصل لعرض الطلاب.</div>}
@@ -14803,6 +14821,59 @@ function PointsRewardsConfigPage({ selectedSchool, settings, currentUser, onSave
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
           {overview.map((item) => <div key={item.label} className="rounded-3xl bg-white p-5 ring-1 ring-slate-200"><div className="text-sm font-bold text-slate-500">{item.label}</div><div className={`mt-3 text-3xl font-black ${item.tone === 'emerald' ? 'text-emerald-700' : item.tone === 'rose' ? 'text-rose-700' : item.tone === 'amber' ? 'text-amber-700' : 'text-sky-700'}`}>{item.value}</div></div>)}
         </div>
+      </SectionCard>
+
+      <SectionCard title="نظام نقاط الحضور التلقائي" icon={ClipboardCheck}>
+        <div className="mb-5 flex items-start justify-between gap-4 rounded-3xl bg-emerald-50 p-5 ring-1 ring-emerald-100">
+          <div>
+            <div className="font-black text-emerald-900">تفعيل نظام النقاط التلقائي للحضور والغياب</div>
+            <div className="mt-2 text-sm leading-7 text-emerald-800">عند التفعيل، يحصل كل طالب تلقائياً على نقاط الحضور اليومية. ولا تُخصم النقاط إلا إذا سجّل المعلم الطالب غائباً أو متأخراً صراحةً. الأصل هو الحضور.</div>
+          </div>
+          <button onClick={() => setLocalSettings({ ...localSettings, attendancePointsSystem: { ...(localSettings.attendancePointsSystem || {}), enabled: !(localSettings.attendancePointsSystem?.enabled) } })} className={`flex-shrink-0 rounded-2xl px-5 py-3 font-black transition-colors ${localSettings.attendancePointsSystem?.enabled ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'}`}>{localSettings.attendancePointsSystem?.enabled ? '✓ مفعّل' : 'معطّل'}</button>
+        </div>
+        {localSettings.attendancePointsSystem?.enabled && (
+          <div className="space-y-5">
+            <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+              <div className="mb-4 font-black text-slate-900">نقاط الحضور</div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <Input label="نقاط الحضور اليومي (الأساسية)" type="number" min="0" value={localSettings.attendancePointsSystem?.dailyPresencePoints ?? 5} onChange={(e) => setLocalSettings({ ...localSettings, attendancePointsSystem: { ...(localSettings.attendancePointsSystem || {}), dailyPresencePoints: safeNumber(e.target.value) } })} />
+                  <div className="mt-2 text-xs text-slate-500">تُضاف تلقائياً لكل طالب مع بداية اليوم الدراسي. الأصل هو الحضور.</div>
+                </div>
+                <div>
+                  <Input label="نقاط مكافأة الحضور المبكر (إضافية)" type="number" min="0" value={localSettings.attendancePointsSystem?.earlyBonusPoints ?? 3} onChange={(e) => setLocalSettings({ ...localSettings, attendancePointsSystem: { ...(localSettings.attendancePointsSystem || {}), earlyBonusPoints: safeNumber(e.target.value) } })} />
+                  <div className="mt-2 text-xs text-slate-500">تُضاف فوق النقاط الأساسية لمن يسجل حضوره مبكراً عبر البوابة. الإجمالي = الأساسية + المبكر.</div>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-3xl bg-white p-5 ring-1 ring-slate-200">
+              <div className="mb-4 font-black text-slate-900">خصومات الغياب والتأخر</div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div>
+                  <Input label="خصم الغياب (بدون عذر)" type="number" min="0" value={localSettings.attendancePointsSystem?.absentDeductPoints ?? 3} onChange={(e) => setLocalSettings({ ...localSettings, attendancePointsSystem: { ...(localSettings.attendancePointsSystem || {}), absentDeductPoints: safeNumber(e.target.value) } })} />
+                  <div className="mt-2 text-xs text-rose-600">تُسحب النقاط الأساسية + هذا الخصم عند تسجيل المعلم للطالب غائباً. الإجمالي = -(الأساسية + الخصم).</div>
+                </div>
+                <div>
+                  <Input label="خصم التأخر" type="number" min="0" value={localSettings.attendancePointsSystem?.lateDeductPoints ?? 3} onChange={(e) => setLocalSettings({ ...localSettings, attendancePointsSystem: { ...(localSettings.attendancePointsSystem || {}), lateDeductPoints: safeNumber(e.target.value) } })} />
+                  <div className="mt-2 text-xs text-amber-600">تُسحب من النقاط الأساسية عند تسجيل المعلم للطالب متأخراً. الطالب يحتفظ بالفرق.</div>
+                </div>
+                <div>
+                  <Input label="نقاط الغياب بعذر" type="number" min="0" value={localSettings.attendancePointsSystem?.excusedPoints ?? 0} onChange={(e) => setLocalSettings({ ...localSettings, attendancePointsSystem: { ...(localSettings.attendancePointsSystem || {}), excusedPoints: safeNumber(e.target.value) } })} />
+                  <div className="mt-2 text-xs text-sky-600">تُسحب النقاط الأساسية لكن لا يُطبَّق خصم إضافي. القيمة هنا هي ما يحتفظ به الطالب (0 = لا شيء).</div>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-100">
+              <div className="font-black text-amber-900">ملخص النظام</div>
+              <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+                <div className="rounded-2xl bg-white p-3 text-center ring-1 ring-slate-200"><div className="text-xs text-slate-500">حضور مبكر</div><div className="mt-1 text-2xl font-black text-emerald-700">+{(localSettings.attendancePointsSystem?.dailyPresencePoints ?? 5) + (localSettings.attendancePointsSystem?.earlyBonusPoints ?? 3)}</div></div>
+                <div className="rounded-2xl bg-white p-3 text-center ring-1 ring-slate-200"><div className="text-xs text-slate-500">حضور عادي</div><div className="mt-1 text-2xl font-black text-sky-700">+{localSettings.attendancePointsSystem?.dailyPresencePoints ?? 5}</div></div>
+                <div className="rounded-2xl bg-white p-3 text-center ring-1 ring-slate-200"><div className="text-xs text-slate-500">متأخر</div><div className="mt-1 text-2xl font-black text-amber-700">+{Math.max(0, (localSettings.attendancePointsSystem?.dailyPresencePoints ?? 5) - (localSettings.attendancePointsSystem?.lateDeductPoints ?? 3))}</div></div>
+                <div className="rounded-2xl bg-white p-3 text-center ring-1 ring-slate-200"><div className="text-xs text-slate-500">غائب</div><div className="mt-1 text-2xl font-black text-rose-700">-{localSettings.attendancePointsSystem?.absentDeductPoints ?? 3}</div></div>
+              </div>
+            </div>
+          </div>
+        )}
       </SectionCard>
 
       <SectionCard title="درجات النقاط الأساسية" icon={BadgeCheck}>
@@ -17560,14 +17631,28 @@ export default function App() {
     const earlyCutoff = parseTimeToMinutes(settings.policy.earlyEnd);
     const onTimeCutoff = parseTimeToMinutes(settings.policy.onTimeEnd);
 
+    // نظام النقاط التلقائي: إذا كان مفعّلاً، نستخدم قيمه بدلاً من القيم القديمة
+    const aps = settings?.attendancePointsSystem;
+    const apsEnabled = Boolean(aps?.enabled);
     let result = "تم تسجيل تأخر";
-    let deltaPoints = safeNumber(settings.points.late);
+    let deltaPoints;
     if (currentMinutes <= earlyCutoff) {
       result = "تم تسجيل حضور مبكر";
-      deltaPoints = safeNumber(settings.points.early);
+      // في النظام التلقائي: النقاط الأساسية + مكافأة المبكر
+      deltaPoints = apsEnabled
+        ? safeNumber(aps?.dailyPresencePoints ?? 5) + safeNumber(aps?.earlyBonusPoints ?? 3)
+        : safeNumber(settings.points.early);
     } else if (currentMinutes <= onTimeCutoff) {
       result = "تم تسجيل حضور في الوقت";
-      deltaPoints = safeNumber(settings.points.onTime);
+      // في النظام التلقائي: النقاط الأساسية فقط (0 إضافية)
+      deltaPoints = apsEnabled
+        ? safeNumber(aps?.dailyPresencePoints ?? 5)
+        : safeNumber(settings.points.onTime);
+    } else {
+      // متأخر: في النظام التلقائي يحصل على الفرق (dailyPts - lateDeduct)
+      deltaPoints = apsEnabled
+        ? Math.max(0, safeNumber(aps?.dailyPresencePoints ?? 5) - safeNumber(aps?.lateDeductPoints ?? 3))
+        : safeNumber(settings.points.late);
     }
 
     const logEntry = {
@@ -18398,13 +18483,32 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
       submittedAt: new Date().toISOString(),
       acknowledged: Boolean(acknowledgement),
     };
-    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
-      ...school,
-      lessonAttendanceSessions: getLessonAttendanceSessions(school).map((session) => {
-        if (String(session.id) !== String(sessionId)) return session;
-        const existing = (session.submissions || []).filter((item) => !(String(item.teacherId) === String(currentUser.id) && String(item.classKey) === String(classKey)));
-        return { ...session, submissions: [submission, ...existing] };
-      }),
+    // تطبيق نظام نقاط الحضور التلقائي إذا كان مفعّلاً
+    const aps = settings?.attendancePointsSystem;
+    const apsEnabled = Boolean(aps?.enabled);
+    setSchools((prev) => prev.map((school) => {
+      if (school.id !== selectedSchool.id) return school;
+      // تحديث جلسات التحضير
+      const updatedSchool = {
+        ...school,
+        lessonAttendanceSessions: getLessonAttendanceSessions(school).map((session) => {
+          if (String(session.id) !== String(sessionId)) return session;
+          const existing = (session.submissions || []).filter((item) => !(String(item.teacherId) === String(currentUser.id) && String(item.classKey) === String(classKey)));
+          return { ...session, submissions: [submission, ...existing] };
+        }),
+      };
+      // تطبيق النقاط إذا كان النظام مفعّلاً
+      if (!apsEnabled) return updatedSchool;
+      const dailyPts = safeNumber(aps?.dailyPresencePoints ?? 5);
+      const absentDeduct = safeNumber(aps?.absentDeductPoints ?? 3);
+      const lateDeduct = safeNumber(aps?.lateDeductPoints ?? 3);
+      // نطبق الخصومات على الغائبين فقط (الحاضرون يحتفظون بنقاطهم التلقائية)
+      let schoolWithPoints = updatedSchool;
+      absentStudents.forEach((absentStudent) => {
+        const totalDeduct = dailyPts + absentDeduct;
+        schoolWithPoints = applyPointsToUnifiedStudent(schoolWithPoints, absentStudent.id, -totalDeduct, 'غائب', { actorName: currentUser?.name || currentUser?.username || 'معلم', actorRole: currentUser?.role || 'teacher', actionType: 'absence', note: 'غياب مسجّل من تحضير الحصة' });
+      });
+      return schoolWithPoints;
     }));
     pushNotification('تحضير حصة', `أتم ${currentUser.name || currentUser.username} تحضير ${submission.className} في ${selectedSchool.name}.`);
     return { ok: true, submission, message: `تم اعتماد التحضير لفصل ${submission.className}.` };
