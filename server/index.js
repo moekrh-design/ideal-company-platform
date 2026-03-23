@@ -2704,9 +2704,29 @@ async function processSchoolMessageSend(state, schoolId, actor, payload = {}) {
     return { ok: true, state: hydrateSharedState(next), log, message: 'تم حفظ الرسالة كعملية مجدولة.' };
   }
   if (isTeacherAudience) {
+    next.notifications = Array.isArray(next.notifications) ? next.notifications : [];
     for (const teacher of targetedTeachers) {
       const recipient = String(teacher.mobile || '').trim();
       const rendered = applyMessageVariablesServer(payload.message, { schoolName: school.name, teacherName: teacher.name });
+      if (channel === 'internal') {
+        // إضافة إشعار داخلي في state.notifications ليراه المعلم في تطبيقه
+        const notifTime = new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+        next.notifications = [{
+          id: Date.now() + Math.random(),
+          title: String(payload.subject || 'رسالة من الإدارة'),
+          body: rendered,
+          time: notifTime,
+          createdAt: new Date().toISOString(),
+          recipientId: teacher.id,
+          recipientUsername: teacher.username || '',
+          schoolId: school.id,
+          channel: 'internal',
+          sourceType: 'system',
+        }, ...next.notifications].slice(0, 300);
+        log.successCount += 1;
+        log.deliveries.push({ teacherId: teacher.id, teacherName: teacher.name, status: 'نجاح', recipient: `internal:${teacher.id}`, recipientType: 'teacher', channel: 'internal', providerMessageId: `internal-${Date.now()}` });
+        continue;
+      }
       if (!recipient) {
         log.failedCount += 1;
         log.deliveries.push({ teacherId: teacher.id, teacherName: teacher.name, status: 'فشل', reason: 'لا يوجد رقم جوال صالح للمعلم.' });
