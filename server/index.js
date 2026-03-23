@@ -1442,6 +1442,7 @@ async function appendParentNotificationHistory(phone, entry = {}) {
     reason: String(entry.reason || '').trim(),
     eventType: String(entry.eventType || '').trim(),
     sourceType: String(entry.sourceType || '').trim() || 'manual',
+    deltaPoints: entry.deltaPoints !== undefined ? Number(entry.deltaPoints) : null,
   };
   await appMetaSetJson(`parent_history_${normalizedPhone}`, {
     phone: normalizedPhone,
@@ -4961,11 +4962,31 @@ function renderNotifications() {
   if (!container) return;
   container.innerHTML = filtered.length
     ? filtered.map(item => {
-        const statusOk = item.status === 'نجاح';
+        // استخراج deltaPoints من body إذا لم يكن محفوظاً (للإشعارات القديمة)
+        let effectiveDelta = item.deltaPoints;
+        if ((effectiveDelta === null || effectiveDelta === undefined) && item.body) {
+          const m = String(item.body).match(/\(([+-]?\d+)\s*نقط/);
+          if (m) effectiveDelta = Number(m[1]);
+        }
+        const isReward = String(item.eventType || '').includes('reward') || (effectiveDelta !== null && effectiveDelta !== undefined && Number(effectiveDelta) > 0);
+        const isViolation = String(item.eventType || '').includes('violation') || (effectiveDelta !== null && effectiveDelta !== undefined && Number(effectiveDelta) < 0);
+        const titleColor = isReward ? '#16a34a' : isViolation ? '#dc2626' : '#0f766e';
+        // عرض قيمة النقاط بدلاً من "نجاح"
+        let pointsBadge = '';
+        if (effectiveDelta !== null && effectiveDelta !== undefined && effectiveDelta !== 0) {
+          const pts = Number(effectiveDelta);
+          const ptsText = pts > 0 ? '+' + pts : String(pts);
+          const ptsColor = pts > 0 ? '#16a34a' : '#dc2626';
+          const ptsBg = pts > 0 ? 'rgba(22,163,74,0.1)' : 'rgba(220,38,38,0.1)';
+          pointsBadge = '<span style="background:' + ptsBg + ';color:' + ptsColor + ';font-weight:900;font-size:13px;padding:3px 10px;border-radius:999px;border:1.5px solid ' + ptsColor + ';">' + ptsText + '</span>';
+        } else {
+          const statusOk = item.status === 'نجاح';
+          pointsBadge = '<span class="pill ' + (statusOk ? 'pill-green' : 'pill-red') + '">' + (statusOk ? 'نجاح' : (item.status || 'تعثر')) + '</span>';
+        }
         return '<div class="notif-item">'
           + '<div class="notif-header">'
-          + '<div class="notif-title">' + (item.title || 'تنبيه') + '</div>'
-          + '<span class="pill ' + (statusOk ? 'pill-green' : 'pill-red') + '">' + (statusOk ? 'نجاح' : (item.status || 'تعثر')) + '</span>'
+          + '<div class="notif-title" style="color:' + titleColor + ';">' + (item.title || 'تنبيه') + '</div>'
+          + pointsBadge
           + '</div>'
           + '<div class="notif-body">' + (item.body || '—') + '</div>'
           + '<div class="notif-meta">' + [item.studentName, item.schoolName, item.channel, item.recipientMasked || item.recipient, formatDate(item.sentAt || item.createdAt)].filter(Boolean).join(' • ') + '</div>'
@@ -7251,6 +7272,7 @@ log('User Agent: ' + navigator.userAgent, true);
             status: 'نجاح',
             eventType: logEntry.actionType === 'violation' ? 'behavior_violation' : 'behavior_reward',
             sourceType: 'action',
+            deltaPoints: Number(logEntry.deltaPoints || 0),
             createdAt: logEntry.createdAt || nowIso(),
           });
         }
