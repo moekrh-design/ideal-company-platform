@@ -1625,7 +1625,8 @@ function renderNotifications() {
   }
   container.innerHTML = notifs.map((n) => {
     const body = n.body || n.message || n.content || '';
-    const linkMatch = body.match(/https?:\/\/[^\s]+/);
+    // Improved regex to handle trailing punctuation in URLs
+    const linkMatch = body.match(/https?:\/\/[^\s]+(?<![.,;!?])/);
     const link = linkMatch ? linkMatch[0] : null;
     const isClickable = !!link;
     
@@ -1636,6 +1637,9 @@ function renderNotifications() {
         const leavePassId = url.searchParams.get('leavePass');
         if (leavePassId) {
           clickHandler = `onclick="handleNotifClick('${leavePassId}')"`;
+        } else if (url.pathname.includes('/teacher')) {
+          // Internal link to teacher portal but different page
+          clickHandler = `onclick="window.location.href='${link}'"`;
         } else {
           clickHandler = `onclick="window.open('${link}', '_blank')"`;
         }
