@@ -18107,54 +18107,32 @@ export default function App() {
     if (!unifiedStudent) return { ok: false, message: "الطالب غير موجود." };
 
     if (unifiedStudent.source === 'structure') {
-      const definitionPool = actionType === 'violation' ? (settings.actions?.violations || []) : (actionType === 'program' ? (settings.actions?.programs || []) : (settings.actions?.rewards || []));
-      const definition = specialDefinition?.scope === 'special' ? specialDefinition : (definitionPool.find((item) => String(item.id) === String(definitionId)) || definitionPool[0] || { title: 'إجراء', points: 0, description: '' });
-      const deltaPoints = Number(definition.points || 0);
-      const now = new Date();
-      const entry = {
-        id: Date.now(),
-        schoolId: selectedSchool.id,
-        studentId: unifiedStudent.id,
-        companyId: null,
-        classroomId: unifiedStudent.classroomId || null,
-        student: unifiedStudent.name,
-        actionType,
-        actionTitle: definition.title || 'إجراء',
-        definitionId: definition.id || definitionId,
-        deltaPoints,
-        specialDefinitionId: specialDefinition?.scope === 'special' ? specialDefinition.id : null,
-        specialSubject: specialDefinition?.scope === 'special' ? specialDefinition.subject : '',
-        specialTermId: specialDefinition?.scope === 'special' ? getCurrentAcademicTermId(settings) : '',
-        note: String(note || '').trim(),
-        actorName: currentUser?.name || currentUser?.username || 'مستخدم',
-        actorRole: currentUser?.role || 'user',
-        method: method || 'هيكل مدرسي',
-        date: toArabicDate(now),
-        isoDate: getTodayIso(),
-        time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
-      };
-      setActionLog((prev) => [entry, ...prev]);
-      setSchools((prev) => prev.map((school) => {
-        if (school.id !== selectedSchool.id) return school;
-        return {
-          ...school,
-          structure: {
-            ...(school.structure || {}),
-            classrooms: (school.structure?.classrooms || []).map((classroom) => String(classroom.id) !== String(unifiedStudent.classroomId) ? classroom : {
-              ...classroom,
-              students: (classroom.students || []).map((item) => String(item.id) !== String(unifiedStudent.rawId) ? item : {
-                ...item,
-                points: Number(item.points || 0) + deltaPoints,
-                lastActionAt: now.toISOString(),
-                lastActionType: actionType,
-              }),
-            }),
-          },
-        };
-      }));
-      const message = `تم تنفيذ ${actionType === 'reward' ? 'المكافأة' : 'الخصم'} على ${unifiedStudent.name} من الهيكل المدرسي.`;
-      pushNotification(actionType === "reward" ? "تنفيذ مكافأة" : "تنفيذ خصم", message);
-      return { ok: true, message };
+      // إرسال الإجراء للسيرفر باستخدام composite studentId
+      try {
+        const response = await apiRequest(`/api/schools/${selectedSchool.id}/actions/apply`, {
+          method: 'POST',
+          token: getSessionToken(),
+          body: { studentId: unifiedStudent.id, actionType, definitionId, specialDefinition, note, method: method || 'هيكل مدرسي' },
+        });
+        if (response?.state) applyServerStatePayload(response.state || {}, loadUiState());
+        const message = response?.message || `تم تنفيذ الإجراء على ${unifiedStudent.name}.`;
+        pushNotification(actionType === "reward" ? "تنفيذ مكافأة" : "تنفيذ خصم", message);
+        return { ok: true, message };
+      } catch (error) {
+        // فشل السيرفر: تحديث محلي فقط
+        const definitionPool = actionType === 'violation' ? (settings.actions?.violations || []) : (settings.actions?.rewards || []);
+        const definition = specialDefinition?.scope === 'special' ? specialDefinition : (definitionPool.find((item) => String(item.id) === String(definitionId)) || { title: 'إجراء', points: 0 });
+        const deltaPoints = Number(definition.points || 0);
+        const now = new Date();
+        setActionLog((prev) => [{ id: Date.now(), schoolId: selectedSchool.id, studentId: unifiedStudent.id, classroomId: unifiedStudent.classroomId || null, student: unifiedStudent.name, actionType, actionTitle: definition.title || 'إجراء', deltaPoints, points: deltaPoints, createdAt: now.toISOString(), note: String(note || '').trim(), actorName: currentUser?.name || 'مستخدم', method: method || 'هيكل مدرسي', date: toArabicDate(now), isoDate: getTodayIso(), time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}` }, ...prev]);
+        setSchools((prev) => prev.map((school) => {
+          if (school.id !== selectedSchool.id) return school;
+          return { ...school, structure: { ...(school.structure || {}), classrooms: (school.structure?.classrooms || []).map((classroom) => String(classroom.id) !== String(unifiedStudent.classroomId) ? classroom : { ...classroom, students: (classroom.students || []).map((item) => String(item.id) !== String(unifiedStudent.rawId) ? item : { ...item, points: Number(item.points || 0) + deltaPoints }) }) } };
+        }));
+        const message = `تم تنفيذ ${actionType === 'reward' ? 'المكافأة' : 'الخصم'} على ${unifiedStudent.name}.`;
+        pushNotification(actionType === "reward" ? "تنفيذ مكافأة" : "تنفيذ خصم", message);
+        return { ok: true, message };
+      }
     }
 
     const student = selectedSchool.students.find((item) => item.id === unifiedStudent.id || item.id === studentId);

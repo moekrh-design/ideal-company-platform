@@ -805,8 +805,15 @@ function getParentLinkedStudents(state, phone) {
     const students = getUnifiedSchoolStudentsForServer(school, { includeArchived: false, preferStructure: true });
     for (const student of students) {
       if (normalizePhoneNumber(student.guardianMobile || '') !== normalizedPhone) continue;
-      const studentActions = (state.actionLog || []).filter((item) => Number(item.schoolId) === Number(school.id) && String(item.studentId || '') === String(student.id)).slice(0, 12);
-      const studentScans = (state.scanLog || []).filter((item) => Number(item.schoolId) === Number(school.id) && String(item.studentId || '') === String(student.id)).slice(0, 20);
+      // مقارنة studentId مع دعم كلا الصيغتين: composite (structure-X-Y) والخام
+      const studentRawId = String(student.rawId || student.id || '');
+      const studentCompositeId = String(student.id || '');
+      const matchesStudent = (itemStudentId) => {
+        const sid = String(itemStudentId || '');
+        return sid === studentCompositeId || sid === studentRawId;
+      };
+      const studentActions = (state.actionLog || []).filter((item) => Number(item.schoolId) === Number(school.id) && matchesStudent(item.studentId)).slice(0, 12);
+      const studentScans = (state.scanLog || []).filter((item) => Number(item.schoolId) === Number(school.id) && matchesStudent(item.studentId)).slice(0, 20);
       const schoolLogs = Array.isArray(school.messaging?.logs) ? school.messaging.logs : [];
       const relatedLogs = schoolLogs.filter((item) => normalizePhoneNumber(item.recipient || '') === normalizedPhone && (!item.studentId || String(item.studentId) === String(student.id))).slice(0, 12);
       const lastScan = studentScans[0] || null;
@@ -3375,7 +3382,26 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
   const next = structuredClone(state);
   const school = next.schools.find((item) => Number(item.id) === Number(schoolId));
   if (!school) return { ok: false, message: 'المدرسة غير موجودة.' };
-  const student = school.students.find((item) => Number(item.id) === Number(payload.studentId));
+  // دعم structure students: إذا كان studentId بصيغة structure-CLASSID-RAWID
+  const rawStudentIdStr = String(payload.studentId || '');
+  let student = null;
+  let classroomRef = null;
+  let isStructureStudent = false;
+  let compositeStudentId = rawStudentIdStr;
+  if (rawStudentIdStr.startsWith('structure-')) {
+    const parts = rawStudentIdStr.split('-');
+    const classroomId = parts[1];
+    const studentRawId = parts.slice(2).join('-');
+    classroomRef = (school.structure?.classrooms || []).find((c) => String(c.id) === classroomId);
+    if (classroomRef) {
+      student = (classroomRef.students || []).find((s) => String(s.id) === studentRawId);
+      if (student) { isStructureStudent = true; compositeStudentId = rawStudentIdStr; }
+    }
+  }
+  if (!student) {
+    student = school.students.find((item) => Number(item.id) === Number(payload.studentId));
+    if (student) compositeStudentId = String(student.id);
+  }
   if (!student) return { ok: false, message: 'الطالب غير موجود.' };
   const actionType = payload.actionType === 'violation' ? 'violation' : 'reward';
   const catalog = actionType === 'violation' ? next.settings.actions?.violations || [] : next.settings.actions?.rewards || [];
@@ -3383,19 +3409,23 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
   const definition = specialDefinition || catalog.find((item) => String(item.id) === String(payload.definitionId));
   if (!definition) return { ok: false, message: 'البند المحدد غير موجود.' };
   const deltaPoints = Number(definition.points || 0);
-  const company = school.companies.find((item) => item.id === student.companyId);
+  // تحديث النقاط في الموضع الصحيح
   student.points = Number(student.points || 0) + deltaPoints;
-  if (company) {
-    company.points = Number(company.points || 0) + deltaPoints;
-    company.behavior = clamp(Number(company.behavior || 0) + (actionType === 'reward' ? 1 : -1), 0, 100);
+  if (!isStructureStudent) {
+    const company = school.companies.find((item) => item.id === student.companyId);
+    if (company) {
+      company.points = Number(company.points || 0) + deltaPoints;
+      company.behavior = clamp(Number(company.behavior || 0) + (actionType === 'reward' ? 1 : -1), 0, 100);
+    }
   }
   const now = new Date();
   const logEntry = {
     id: Date.now(),
     schoolId: school.id,
-    studentId: student.id,
-    companyId: student.companyId,
-    student: student.name,
+    studentId: compositeStudentId,
+    classroomId: isStructureStudent ? String(classroomRef?.id || '') : null,
+    companyId: isStructureStudent ? null : student.companyId,
+    student: student.fullName || student.name,
     actorId: actor?.id || null,
     actorUsername: actor?.username || '',
     actorName: actor?.name || actor?.username || 'مستخدم النظام',
@@ -3403,6 +3433,7 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
     method: payload.method || 'يدوي',
     actionType,
     actionTitle: definition.title,
+    definitionTitle: definition.title,
     specialDefinitionId: specialDefinition ? String(specialDefinition.id || payload.definitionId || '') : '',
     specialSubject: specialDefinition ? String(specialDefinition.subject || '') : '',
     specialTermId: specialDefinition ? `term-${String(next.settings?.academicYear || 'default').trim() || 'default'}` : '',
@@ -3411,10 +3442,12 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
     date: toArabicDate(now),
     isoDate: getTodayIso(),
     time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+    createdAt: now.toISOString(),
+    points: deltaPoints,
     deltaPoints,
   };
   next.actionLog = [logEntry, ...next.actionLog].slice(0, 1200);
-  return { ok: true, state: hydrateSharedState(next), logEntry, student, message: `تم تنفيذ ${actionType === 'reward' ? 'المكافأة' : 'الخصم'} على ${student.name}.` };
+  return { ok: true, state: hydrateSharedState(next), logEntry, student, message: `تم تنفيذ ${actionType === 'reward' ? 'المكافأة' : 'الخصم'} على ${student.fullName || student.name}.` };
 }
 
 async function applyProgramToState(state, schoolId, payload, actor) {
@@ -5055,6 +5088,8 @@ function renderProfile(profile) {
   $('loginScreen').classList.add('hidden');
   $('mainApp').classList.remove('hidden');
   $('mainApp').style.display = 'flex';
+  // تشغيل فحص التنبيهات الفورية
+  if (typeof startNotificationPolling === 'function') startNotificationPolling();
 }
 
 /* ===== BOOTSTRAP ===== */
@@ -5308,6 +5343,143 @@ $('submitRewardRedeemBtn').onclick = async function() {
 
 /* ===== INIT ===== */
 bootstrapParent();
+
+/* ===== نظام الإشعارات الفورية مع صوت منبه احترافي ===== */
+let _lastNotifTimestamp = null;
+let _notifPollingInterval = null;
+let _audioCtx = null;
+
+function getAudioContext() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
+  }
+  return _audioCtx;
+}
+
+// صوت منبه احترافي ناعم بدون ملف خارجي
+function playNotificationSound(type) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0, now);
+    master.gain.linearRampToValueAtTime(0.18, now + 0.01);
+    master.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+    master.connect(ctx.destination);
+    if (type === 'reward') {
+      // نغمتان متصاعدتان ناعمتان
+      [523.25, 659.25].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + i * 0.18);
+        g.gain.setValueAtTime(0.6, now + i * 0.18);
+        g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.18 + 0.5);
+        osc.connect(g);
+        g.connect(master);
+        osc.start(now + i * 0.18);
+        osc.stop(now + i * 0.18 + 0.5);
+      });
+    } else {
+      // نغمة واحدة هادئة
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(330, now + 0.4);
+      g.gain.setValueAtTime(0.5, now);
+      g.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+      osc.connect(g);
+      g.connect(master);
+      osc.start(now);
+      osc.stop(now + 0.8);
+    }
+  } catch(e) {}
+}
+
+// عرض بانر إشعار فوري
+function showInAppNotification(title, body, type) {
+  let banner = document.getElementById('inAppNotifBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'inAppNotifBanner';
+    banner.style.cssText = 'position:fixed;top:16px;right:16px;left:16px;z-index:9999;max-width:420px;margin:0 auto;background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff;border-radius:20px;padding:16px 18px;box-shadow:0 8px 32px rgba(15,118,110,0.35);font-family:Tajawal,sans-serif;direction:rtl;display:none;transition:all 0.3s ease;';
+    document.body.appendChild(banner);
+  }
+  const icon = type === 'reward' ? '⭐' : type === 'violation' ? '⚠️' : '🔔';
+  banner.innerHTML = '<div style="display:flex;align-items:flex-start;gap:12px"><div style="font-size:24px;flex-shrink:0">' + icon + '</div><div style="flex:1"><div style="font-weight:800;font-size:15px;margin-bottom:4px">' + (title || 'تنبيه جديد') + '</div><div style="font-size:13px;opacity:0.9;line-height:1.5">' + (body || '') + '</div></div><button onclick="this.parentElement.parentElement.style.display=\'none\'" style="background:rgba(255,255,255,0.2);border:0;color:#fff;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;flex-shrink:0">×</button></div>';
+  if (type === 'violation') banner.style.background = 'linear-gradient(135deg,#be123c,#e11d48)';
+  else banner.style.background = 'linear-gradient(135deg,#0f766e,#0d9488)';
+  banner.style.display = 'block';
+  banner.style.opacity = '0';
+  banner.style.transform = 'translateY(-20px)';
+  requestAnimationFrame(() => {
+    banner.style.transition = 'all 0.4s cubic-bezier(0.34,1.56,0.64,1)';
+    banner.style.opacity = '1';
+    banner.style.transform = 'translateY(0)';
+  });
+  clearTimeout(banner._hideTimeout);
+  banner._hideTimeout = setTimeout(() => {
+    banner.style.opacity = '0';
+    banner.style.transform = 'translateY(-20px)';
+    setTimeout(() => { banner.style.display = 'none'; }, 400);
+  }, 5000);
+}
+
+async function pollNewNotifications() {
+  const token = getToken();
+  if (!token || !profileData) return;
+  try {
+    const data = await api('/api/parent/bootstrap', { headers: { 'X-Session-Token': token } });
+    const profile = data.profile || {};
+    const history = profile.notificationHistory || [];
+    if (history.length && _lastNotifTimestamp !== null) {
+      const newest = history[0];
+      const newestTime = newest?.createdAt || newest?.sentAt || '';
+      if (newestTime && newestTime > _lastNotifTimestamp) {
+        // تنبيهات جديدة
+        const newOnes = history.filter(n => (n.createdAt || n.sentAt || '') > _lastNotifTimestamp);
+        newOnes.forEach((n, i) => {
+          setTimeout(() => {
+            const type = String(n.eventType || '').includes('violation') ? 'violation' : String(n.eventType || '').includes('reward') ? 'reward' : 'info';
+            playNotificationSound(type);
+            showInAppNotification(n.title, n.body, type);
+          }, i * 800);
+        });
+        // تحديث البيانات
+        profileData = profile;
+        renderNotifications();
+        const sp = $('statTotalPoints'); if (sp) sp.textContent = profile.totalPoints || 0;
+        renderPointsChart(profile);
+        // تحديث شارة التنبيهات
+        const notifBadge = $('notifBadge');
+        if (notifBadge) {
+          const unread = history.filter(item => String(item.status || '') !== 'نجاح').length;
+          if (unread > 0) { notifBadge.textContent = unread; notifBadge.classList.remove('hidden'); }
+          else notifBadge.classList.add('hidden');
+        }
+      }
+      _lastNotifTimestamp = newestTime || _lastNotifTimestamp;
+    } else if (history.length && _lastNotifTimestamp === null) {
+      _lastNotifTimestamp = history[0]?.createdAt || history[0]?.sentAt || new Date().toISOString();
+    }
+  } catch(e) {}
+}
+
+function startNotificationPolling() {
+  if (_notifPollingInterval) clearInterval(_notifPollingInterval);
+  _lastNotifTimestamp = null;
+  // تهيئة الطابع الزمني الأول
+  setTimeout(() => {
+    const history = profileData?.notificationHistory || [];
+    _lastNotifTimestamp = history[0]?.createdAt || history[0]?.sentAt || new Date().toISOString();
+  }, 500);
+  // فحص كل 30 ثانية
+  _notifPollingInterval = setInterval(pollNewNotifications, 30000);
+}
+
+// تشغيل الفحص بعد تحميل البيانات - يُستدعى من داخل renderProfile الأصلية
 
 /* ===== PWA: Service Worker Registration ===== */
 if ('serviceWorker' in navigator) {
@@ -6934,6 +7106,36 @@ log('User Agent: ' + navigator.userAgent, true);
         return sendJson(res, 400, { ...applied, live: liveOnFail });
       }
       let saved = await saveSharedState(applied.state, actor);
+      // إرسال تنبيه داخلي فوري لولي الأمر عند كل إجراء
+      try {
+        const logEntry = applied.logEntry;
+        const studentForNotif = applied.student;
+        const guardianPhone = studentForNotif?.guardianMobile || '';
+        if (guardianPhone && logEntry) {
+          const school = saved.schools.find((s) => Number(s.id) === schoolId);
+          const actionLabel = logEntry.actionType === 'violation' ? 'خصم نقاط' : 'مكافأة';
+          const pointsSign = Number(logEntry.deltaPoints || 0) > 0 ? `+${logEntry.deltaPoints}` : String(logEntry.deltaPoints || 0);
+          const notifTitle = `${actionLabel}: ${logEntry.actionTitle || 'إجراء'}`;
+          const notifBody = `تم تطبيق ${actionLabel} على ${studentForNotif.fullName || studentForNotif.name} (${pointsSign} نقطة)${logEntry.note ? ` - الملاحظة: ${logEntry.note}` : ''}`;
+          await appendParentNotificationHistory(guardianPhone, {
+            title: notifTitle,
+            body: notifBody,
+            studentId: logEntry.studentId,
+            studentName: studentForNotif.fullName || studentForNotif.name,
+            schoolId,
+            schoolName: school?.name || '',
+            channel: 'internal',
+            recipient: guardianPhone,
+            recipientType: 'primary',
+            status: 'نجاح',
+            eventType: logEntry.actionType === 'violation' ? 'behavior_violation' : 'behavior_reward',
+            sourceType: 'action',
+            createdAt: logEntry.createdAt || nowIso(),
+          });
+        }
+      } catch (notifErr) {
+        console.error('parent notif error:', notifErr.message);
+      }
       if (applied.logEntry?.actionType === 'violation') {
         const automated = await runAutomatedMessagingForSchool(saved, schoolId, {
           eventType: 'behavior',

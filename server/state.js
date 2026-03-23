@@ -322,7 +322,7 @@ export function hydrateSchools(schools) {
       attendanceRate: safeNumber(student.attendanceRate, 100),
       points: safeNumber(student.points),
     })),
-    // معالجة structure.classrooms.students لضمان حفظ facePhoto و faceReady
+    // معالجة structure.classrooms.students لضمان حفظ facePhoto و faceReady والنقاط
     structure: school.structure ? {
       ...school.structure,
       classrooms: Array.isArray(school.structure.classrooms) ? school.structure.classrooms.map((classroom) => ({
@@ -332,6 +332,9 @@ export function hydrateSchools(schools) {
           faceReady: Boolean(student.faceReady || student.facePhoto),
           facePhoto: student.facePhoto || "",
           faceSignature: Array.isArray(student.faceSignature) ? student.faceSignature : [],
+          points: safeNumber(student.points),
+          attendanceRate: safeNumber(student.attendanceRate, 100),
+          status: student.status || "في الوقت",
         })) : [],
       })) : [],
     } : school.structure,
