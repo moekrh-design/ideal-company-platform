@@ -1422,7 +1422,6 @@ async function getParentNotificationHistory(phone) {
 
 async function appendParentNotificationHistory(phone, entry = {}) {
   const normalizedPhone = normalizePhoneNumber(phone);
-  console.log('[NOTIF APPEND] phone:', phone, '| normalized:', normalizedPhone);
   if (!normalizedPhone) return;
   const existing = await getParentNotificationHistory(normalizedPhone);
   const nextEntry = {
@@ -1449,7 +1448,6 @@ async function appendParentNotificationHistory(phone, entry = {}) {
     updatedAt: nowIso(),
     entries: [nextEntry, ...existing].slice(0, 300),
   });
-  console.log('[NOTIF APPEND] saved ok for:', normalizedPhone, '| total entries:', existing.length + 1);
 }
 
 async function recordParentDeliveries(state, deliveries = [], context = {}) {
@@ -7193,9 +7191,6 @@ log('User Agent: ' + navigator.userAgent, true);
         const logEntry = applied.logEntry;
         const studentForNotif = applied.student;
         const guardianPhone = studentForNotif?.guardianMobile || '';
-        console.log('[NOTIF DEBUG] studentForNotif fields:', Object.keys(studentForNotif || {}));
-        console.log('[NOTIF DEBUG] guardianPhone:', guardianPhone);
-        console.log('[NOTIF DEBUG] logEntry ok:', !!logEntry);
         if (guardianPhone && logEntry) {
           const school = saved.schools.find((s) => Number(s.id) === schoolId);
           const actionLabel = logEntry.actionType === 'violation' ? 'خصم نقاط' : 'مكافأة';
