@@ -5733,6 +5733,25 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // endpoint تشخيصي لفحص إعدادات واتساب
+    if (reqUrl.pathname === '/api/parent/debug-whatsapp' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const mobile = normalizePhoneNumber(body.mobile || '');
+      const state = getSharedState();
+      const profile = await buildParentProfile(state, mobile);
+      if (!profile) return sendJson(res, 404, { ok: false, message: 'رقم غير مرتبط' });
+      const school = state.schools.find((item) => Number(item.id) === Number(profile.students?.[0]?.schoolId));
+      const messaging = hydrateMessagingSettings(school || {});
+      return sendJson(res, 200, {
+        ok: true,
+        schoolName: school?.name || 'غير معروف',
+        channels: messaging.channels,
+        hasWhatsappPhoneNumberId: Boolean(messaging.integration.whatsapp?.phoneNumberId),
+        hasWhatsappAccessToken: Boolean(messaging.integration.whatsapp?.accessToken),
+        phoneNumberIdPreview: messaging.integration.whatsapp?.phoneNumberId ? String(messaging.integration.whatsapp.phoneNumberId).slice(0, 6) + '...' : null,
+        willSendVia: (messaging.channels.whatsapp && messaging.integration.whatsapp?.phoneNumberId && messaging.integration.whatsapp?.accessToken) ? 'whatsapp' : (messaging.channels.sms && (messaging.integration.sms?.apiUrl || messaging.integration.sms?.provider)) ? 'sms' : 'preview_only',
+      });
+    }
     // endpoint تشخيصي مؤقت لمعرفة أرقام الجوال المحفوظة
     if (reqUrl.pathname === '/api/parent/debug-phones' && req.method === 'POST') {
       const body = await readJsonBody(req);
