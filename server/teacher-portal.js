@@ -781,7 +781,7 @@ function renderStudentList() {
   }
   container.innerHTML = filteredStudents.map((s) => {
     const isSelected = selectedStudent && selectedStudent.id === s.id;
-    return '<div class="student-item' + (isSelected ? ' selected' : '') + '" onclick="selectStudent(' + s.id + ')">' +
+    return '<div class="student-item' + (isSelected ? ' selected' : '') + '" onclick="selectStudent(&apos;' + s.id + '&apos;)">' +
       '<div class="student-avatar">' + getInitials(s.name) + '</div>' +
       '<div class="student-info">' +
         '<div class="student-name">' + (s.name || '—') + '</div>' +
