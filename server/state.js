@@ -480,6 +480,12 @@ export function hydrateActionLog(logs) {
     isoDate: item.isoDate || getTodayIso(),
     time: item.time || "00:00",
     deltaPoints: safeNumber(item.deltaPoints),
+    points: safeNumber(item.points ?? item.deltaPoints),
+    definitionTitle: item.definitionTitle || item.actionTitle || 'إجراء',
+    createdAt: item.createdAt || (item.isoDate ? `${item.isoDate}T${item.time || '00:00'}:00.000Z` : new Date().toISOString()),
+    actorId: item.actorId || null,
+    actorUsername: item.actorUsername || '',
+    classroomId: item.classroomId || null,
   }));
 }
 

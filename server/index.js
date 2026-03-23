@@ -5016,9 +5016,10 @@ function renderPointsChart(profile) {
     labels.push(dayLabel);
     let rewards = 0, deductions = 0;
     allActions.forEach(a => {
-      if (!a.createdAt) return;
-      if (a.createdAt.slice(0, 10) !== dayStr) return;
-      const pts = Number(a.points || 0);
+      // استخدام createdAt أو isoDate كبديل
+      const dateStr = (a.createdAt || a.isoDate || '').slice(0, 10);
+      if (!dateStr || dateStr !== dayStr) return;
+      const pts = Number(a.points || a.deltaPoints || 0);
       if (pts > 0) rewards += pts;
       else if (pts < 0) deductions += Math.abs(pts);
     });
@@ -5366,13 +5367,24 @@ bootstrapParent();
 let _lastNotifTimestamp = null;
 let _notifPollingInterval = null;
 let _audioCtx = null;
-
 function getAudioContext() {
   if (!_audioCtx) {
     try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
   }
+  if (_audioCtx && _audioCtx.state === 'suspended') {
+    _audioCtx.resume().catch(() => {});
+  }
   return _audioCtx;
 }
+// تفعيل AudioContext عند أول تفاعل مع الصفحة
+document.addEventListener('click', function initAudio() {
+  getAudioContext();
+  document.removeEventListener('click', initAudio);
+}, { once: true });
+document.addEventListener('touchstart', function initAudioTouch() {
+  getAudioContext();
+  document.removeEventListener('touchstart', initAudioTouch);
+}, { once: true });
 
 // صوت منبه احترافي ناعم بدون ملف خارجي
 function playNotificationSound(type) {
@@ -5495,8 +5507,8 @@ function startNotificationPolling() {
     const history = profileData?.notificationHistory || [];
     _lastNotifTimestamp = history[0]?.createdAt || history[0]?.sentAt || new Date().toISOString();
   }, 500);
-  // فحص كل 30 ثانية
-  _notifPollingInterval = setInterval(pollNewNotifications, 30000);
+  // فحص كل 10 ثوانٍ لتسريع التنبيهات
+  _notifPollingInterval = setInterval(pollNewNotifications, 10000);
 }
 
 // تشغيل الفحص بعد تحميل البيانات - يُستدعى من داخل renderProfile الأصلية
