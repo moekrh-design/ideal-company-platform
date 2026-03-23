@@ -1126,16 +1126,20 @@ async function getParentPortalSettings(schoolId) {
   return {
     schoolId: normalizedSchoolId,
     enabled: payload?.enabled !== false,
+    altLoginEnabled: payload?.altLoginEnabled !== false,
     updatedAt: String(payload?.updatedAt || '').trim(),
     updatedBy: payload?.updatedBy || null,
   };
 }
 
-async function saveParentPortalSettings(schoolId, enabled, actorUser = null) {
+async function saveParentPortalSettings(schoolId, enabled, actorUser = null, altLoginEnabled = null) {
   const normalizedSchoolId = Number(schoolId) || 0;
+  // قراءة الإعدادات الحالية للحفاظ على القيم غير المُعدَّلة
+  const existing = await appMetaGetJson(`parent_portal_settings_${normalizedSchoolId}`) || {};
   const record = {
     schoolId: normalizedSchoolId,
     enabled: enabled !== false,
+    altLoginEnabled: altLoginEnabled !== null ? altLoginEnabled !== false : (existing.altLoginEnabled !== false),
     updatedAt: nowIso(),
     updatedBy: actorUser ? { id: actorUser.id, username: actorUser.username, fullName: actorUser.fullName, role: actorUser.role } : null,
   };
@@ -5699,7 +5703,24 @@ function _pwaGateSkip() {
   document.getElementById('pwaGate').style.display = 'none';
 }
 
+/* ===== تحميل إعدادات البوابة لإخفاء/إظهار الدخول البديل ===== */
+async function loadPortalConfig() {
+  try {
+    const data = await fetch('/api/parent/portal-config').then((r) => r.json());
+    const altBtn = $('showAltLoginBtn');
+    const altSep = altBtn ? altBtn.parentElement : null;
+    if (altBtn && altSep) {
+      if (data.altLoginEnabled === false) {
+        altSep.style.display = 'none';
+      } else {
+        altSep.style.display = '';
+      }
+    }
+  } catch(e) { /* في حال فشل التحميل نترك الزر ظاهراً */ }
+}
+
 /* ===== INIT ===== */
+loadPortalConfig();
 bootstrapParent();
 
 /* ===== نظام الإشعارات الفورية مع صوت منبه احترافي ===== */
@@ -5960,7 +5981,7 @@ function renderParentRequestsAdminHtml() {
           <button class="btn alt" id="openMainBtn">فتح المنصة الرئيسية</button>
         </div>
       </div>
-      <div class="card" style="margin-top:14px"><div class="grid grid-2"><div><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:800;font-size:18px">سياسة تحديث الرقم الأساسي</div><div class="muted small" id="policyMeta">الوضع الافتراضي: تلقائي</div></div><div class="toolbar"><select id="policyMode" style="min-width:180px"><option value="auto">اعتماد تلقائي (افتراضي)</option><option value="manual">اعتماد يدوي</option></select><button class="btn" id="savePolicyBtn">حفظ السياسة</button></div></div></div><div><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:800;font-size:18px">بوابة ولي الأمر</div><div class="muted small" id="portalMeta">الحالة الحالية: مفعلة</div></div><div class="toolbar"><select id="portalEnabled" style="min-width:180px"><option value="enabled">مفعلة</option><option value="disabled">مقفلة</option></select><button class="btn" id="savePortalBtn">حفظ الحالة</button></div></div></div></div><div id="alertsBox" class="muted" style="margin-top:10px;line-height:1.9">لا توجد إشعارات حديثة.</div></div><div class="filters" style="margin-top:12px">
+      <div class="card" style="margin-top:14px"><div class="grid grid-2"><div><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:800;font-size:18px">سياسة تحديث الرقم الأساسي</div><div class="muted small" id="policyMeta">الوضع الافتراضي: تلقائي</div></div><div class="toolbar"><select id="policyMode" style="min-width:180px"><option value="auto">اعتماد تلقائي (افتراضي)</option><option value="manual">اعتماد يدوي</option></select><button class="btn" id="savePolicyBtn">حفظ السياسة</button></div></div></div><div><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:800;font-size:18px">بوابة ولي الأمر</div><div class="muted small" id="portalMeta">الحالة الحالية: مفعلة</div></div><div class="toolbar"><select id="portalEnabled" style="min-width:180px"><option value="enabled">مفعلة</option><option value="disabled">مقفلة</option></select><button class="btn" id="savePortalBtn">حفظ الحالة</button></div></div><div style="margin-top:10px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px"><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:700;font-size:14px">الدخول البديل برقم الهوية</div><div class="muted small" id="altLoginMeta">يسمح لولي الأمر بالدخول عبر رقم الجوال + رقم هوية الطالب</div></div><div class="toolbar"><select id="altLoginEnabled" style="min-width:160px"><option value="enabled">مفعّل</option><option value="disabled">معطّل</option></select><button class="btn" id="saveAltLoginBtn">حفظ</button></div></div></div></div></div><div id="alertsBox" class="muted" style="margin-top:10px;line-height:1.9">لا توجد إشعارات حديثة.</div></div><div class="filters" style="margin-top:12px">
         <div style="min-width:200px;flex:1"><select id="statusFilter"><option value="all">كل الحالات</option><option value="pending">بانتظار الاعتماد</option><option value="approved">المعتمدة</option><option value="rejected">المرفوضة</option></select></div>
         <div style="min-width:220px;flex:1"><input id="searchInput" placeholder="بحث باسم الطالب أو الرقم أو المدرسة" /></div>
       </div>
@@ -5998,7 +6019,7 @@ async function bootstrap(){
     $('actorMeta').textContent='الدور: '+((data.actor&&data.actor.role)||'—')+' • الطلبات: '+((data.requests&&data.requests.length)||0);
     window.__parentRequests=data.requests||[];
     var policy=(data.policy||{mode:'auto'}); $('policyMode').value=policy.mode||'auto'; $('policyMeta').textContent='الوضع الحالي: '+((policy.mode==='manual')?'يدوي':'تلقائي')+(policy.updatedAt?' • آخر تحديث: '+policy.updatedAt:'');
-    var portal=(data.portalSettings||{enabled:true}); $('portalEnabled').value=portal.enabled===false?'disabled':'enabled'; $('portalMeta').textContent='الحالة الحالية: '+(portal.enabled===false?'مقفلة':'مفعلة')+(portal.updatedAt?' • آخر تحديث: '+portal.updatedAt:'');
+    var portal=(data.portalSettings||{enabled:true,altLoginEnabled:true}); $('portalEnabled').value=portal.enabled===false?'disabled':'enabled'; $('portalMeta').textContent='الحالة الحالية: '+(portal.enabled===false?'مقفلة':'مفعلة')+(portal.updatedAt?' • آخر تحديث: '+portal.updatedAt:''); $('altLoginEnabled').value=portal.altLoginEnabled===false?'disabled':'enabled'; $('altLoginMeta').textContent='الدخول البديل: '+(portal.altLoginEnabled===false?'معطّل ← لن يظهر زر الدخول البديل في البوابة':'مفعّل ← يمكن لولي الأمر الدخول برقم الجوال + رقم هوية الطالب');
     var alerts=(data.alerts||[]); $('alertsBox').innerHTML=alerts.length?alerts.slice(0,5).map(function(a){return '<div style="padding:10px 12px;border:1px solid #e2e8f0;border-radius:14px;margin-top:8px;background:#f8fafc"><b>'+(a.guardianName||'ولي الأمر')+'</b> • '+(a.message||'')+'<div class="small muted">'+(a.createdAt||'')+'</div></div>';}).join(''):'لا توجد إشعارات حديثة.';
     render(window.__parentRequests);
   }catch(e){
@@ -6019,6 +6040,7 @@ $('searchInput').oninput=function(){render(window.__parentRequests||[])};
 $('refreshBtn').onclick=bootstrap;
 $('savePolicyBtn').onclick=async function(){ try{ var data=await api('/api/admin/parent-primary-requests/policy',{method:'POST',body:{mode:$('policyMode').value}}); setMessage('pageMsg',data.message||'تم تحديث السياسة.',false); await bootstrap(); }catch(e){ setMessage('pageMsg',e.message||'تعذر تحديث السياسة.',true); } };
 $('savePortalBtn').onclick=async function(){ try{ var data=await api('/api/admin/parent-primary-requests/portal-settings',{method:'POST',body:{enabled:$('portalEnabled').value!=='disabled'}}); setMessage('pageMsg',data.message||'تم تحديث حالة البوابة.',false); await bootstrap(); }catch(e){ setMessage('pageMsg',e.message||'تعذر تحديث حالة البوابة.',true); } };
+$('saveAltLoginBtn').onclick=async function(){ try{ var data=await api('/api/admin/parent-primary-requests/portal-settings',{method:'POST',body:{altLoginEnabled:$('altLoginEnabled').value!=='disabled'}}); setMessage('pageMsg',data.message||'تم تحديث إعداد الدخول البديل.',false); await bootstrap(); }catch(e){ setMessage('pageMsg',e.message||'تعذر تحديث إعداد الدخول البديل.',true); } };
 $('openMainBtn').onclick=function(){ location.href='/'; };
 bootstrap();
 </script>
@@ -6240,6 +6262,12 @@ const server = http.createServer(async (req, res) => {
       if (!profile) return sendJson(res, 404, { ok: false, message: 'لم يتطابق رقم الجوال مع رقم الهوية. تأكد من صحة البيانات.' });
       const portalEnabled = await isParentPortalEnabledForProfile(profile);
       if (!portalEnabled) return sendJson(res, 403, { ok: false, message: 'بوابة ولي الأمر غير مفعلة حاليًا لهذه المدرسة.' });
+      // التحقق من تفعيل الدخول البديل
+      const matchedSchoolId = profile.students?.[0]?.schoolId;
+      if (matchedSchoolId) {
+        const portalSettingsForAlt = await getParentPortalSettings(matchedSchoolId);
+        if (portalSettingsForAlt.altLoginEnabled === false) return sendJson(res, 403, { ok: false, message: 'الدخول البديل برقم الهوية غير مفعّل حاليًا في هذه المدرسة. تواصل مع إدارة المدرسة.' });
+      }
       // توليد رمز OTP وإرساله
       const school = state.schools.find((item) => Number(item.id) === Number(profile.students?.[0]?.schoolId));
       const messaging = hydrateMessagingSettings(school || {});
@@ -6479,6 +6507,16 @@ const server = http.createServer(async (req, res) => {
       const profile = await getParentProfileFromToken(token);
       if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
       return sendJson(res, 200, { ok: true, profile });
+    }
+
+    if (reqUrl.pathname === '/api/parent/portal-config' && req.method === 'GET') {
+      // إرجاع إعدادات البوابة العامة بدون الحاجة لتسجيل دخول
+      // نبحث عن أول مدرسة نشطة لإرجاع إعداداتها
+      const state = getSharedState();
+      const firstSchool = (state.schools || []).find((s) => s && s.id);
+      const schoolId = firstSchool ? Number(firstSchool.id) : 0;
+      const settings = schoolId ? await getParentPortalSettings(schoolId) : { enabled: true, altLoginEnabled: true };
+      return sendJson(res, 200, { ok: true, altLoginEnabled: settings.altLoginEnabled !== false });
     }
 
 
@@ -6772,7 +6810,16 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const schoolId = actor.role === 'superadmin' ? Number(body.schoolId || actor.schoolId || 0) : Number(actor.schoolId) || 0;
       if (!schoolId) return sendJson(res, 400, { ok: false, message: 'تعذر تحديد المدرسة المرتبطة بإعداد البوابة.' });
-      const portalSettings = await saveParentPortalSettings(schoolId, body.enabled !== false, actor);
+      const altLoginEnabled = body.altLoginEnabled !== undefined ? body.altLoginEnabled !== false : null;
+      // إذا لم يُرسل enabled في الطلب نحتفظ بالقيمة الحالية
+      let enabledValue;
+      if (body.enabled !== undefined) {
+        enabledValue = body.enabled !== false;
+      } else {
+        const currentSettings = await getParentPortalSettings(schoolId);
+        enabledValue = currentSettings.enabled !== false;
+      }
+      const portalSettings = await saveParentPortalSettings(schoolId, enabledValue, actor, altLoginEnabled);
       const school = (getSharedState().schools || []).find((item) => Number(item.id) === Number(schoolId));
       const schoolPhones = [...new Set((getSharedState().schools || []).flatMap((sch) => Number(sch.id) === Number(schoolId) ? getUnifiedSchoolStudentsForServer(sch, { includeArchived: false, preferStructure: true }).map((student) => normalizePhoneNumber(student.guardianMobile || '')).filter(Boolean) : []))];
       await appendParentAuditForPhones(schoolPhones, {
