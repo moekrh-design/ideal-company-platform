@@ -4965,9 +4965,15 @@ function renderNotifications() {
         // استخراج deltaPoints من body إذا لم يكن محفوظاً (للإشعارات القديمة)
         let effectiveDelta = item.deltaPoints;
         if ((effectiveDelta === null || effectiveDelta === undefined) && item.body) {
-          // استخراج الرقم من النمط (+5 نقطة) أو (-3 نقطة) - بدون كلمات عربية في الـ regex
-          const m = String(item.body).match(/\(([+-]?\d+)\s/);
-          if (m) effectiveDelta = Number(m[1]);
+          // استخراج الرقم من النمط (+5 نقطة) أو (-3 نقطة) باستخدام split بدلاً من regex
+          const _b = String(item.body);
+          const _si = _b.indexOf('(');
+          if (_si >= 0) {
+            const _ei = _b.indexOf(' ', _si + 1);
+            const _ns = _ei > _si ? _b.slice(_si + 1, _ei) : _b.slice(_si + 1, _si + 5);
+            const _nv = parseFloat(_ns);
+            if (!isNaN(_nv)) effectiveDelta = _nv;
+          }
         }
         const isReward = String(item.eventType || '').includes('reward') || (effectiveDelta !== null && effectiveDelta !== undefined && Number(effectiveDelta) > 0);
         const isViolation = String(item.eventType || '').includes('violation') || (effectiveDelta !== null && effectiveDelta !== undefined && Number(effectiveDelta) < 0);
