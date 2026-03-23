@@ -4306,9 +4306,15 @@ function renderParentPortalHtml() {
 
       <div id="otpStep" class="otp-step hidden">
         <div class="divider"></div>
+        <!-- مربع رمز التحقق التجريبي -->
+        <div id="previewCodeBox" style="display:none;background:linear-gradient(135deg,#0f766e,#0891b2);border-radius:16px;padding:18px 20px;margin-bottom:14px;text-align:center;">
+          <div style="color:rgba(255,255,255,0.8);font-size:12px;margin-bottom:6px;">رمز التحقق (وضع تجريبي)</div>
+          <div id="previewCodeDisplay" style="color:#fff;font-size:36px;font-weight:900;letter-spacing:10px;font-family:monospace;">------</div>
+          <div style="color:rgba(255,255,255,0.7);font-size:11px;margin-top:6px;">انسخ الرمز وأدخله في الحقل أدناه</div>
+        </div>
         <div class="form-group">
           <label class="form-label">رمز التحقق</label>
-          <input id="otpInput" class="form-input" placeholder="أدخل الرمز المرسل" maxlength="6" type="text" inputmode="numeric" />
+          <input id="otpInput" class="form-input" placeholder="أدخل الرمز" maxlength="6" type="text" inputmode="numeric" />
         </div>
         <div class="btn-row">
           <button class="btn btn-primary" style="flex:1" id="verifyOtpBtn">دخول</button>
@@ -5110,7 +5116,19 @@ $('requestOtpBtn').onclick = async function() {
   try {
     const data = await api('/api/parent/request-otp', { method: 'POST', body: JSON.stringify({ mobile }) });
     let msg = data.message || 'تم إرسال الرمز.';
-    if (data.previewCode) msg += ' (للاختبار: ' + data.previewCode + ')';
+    if (data.previewCode) {
+      // عرض الرمز في المربع الكبير الواضح
+      const box = $('previewCodeBox');
+      const display = $('previewCodeDisplay');
+      if (box && display) {
+        display.textContent = data.previewCode;
+        box.style.display = 'block';
+      }
+      // ملء حقل الإدخال تلقائياً
+      const otpInput = $('otpInput');
+      if (otpInput) otpInput.value = data.previewCode;
+      msg = 'وضع تجريبي: الرمز يظهر أدناه مباشرة.';
+    }
     showAlert('requestMsg', msg, 'success');
     $('otpStep').classList.remove('hidden');
   } catch(e) { showAlert('requestMsg', e.message || 'تعذر إرسال الرمز.', 'error'); }
