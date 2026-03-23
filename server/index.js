@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import pg from 'pg';
 const { Pool } = pg;
 import { createDefaultSharedState, hydrateSharedState, isRoleEnabledForSchool, defaultSettings, ensureDemoUsers } from './state.js';
+import { renderTeacherPortalHtml } from './teacher-portal.js';
 import nodemailer from 'nodemailer';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -6155,6 +6156,13 @@ const server = http.createServer(async (req, res) => {
     if ((reqUrl.pathname === '/parent' || reqUrl.pathname === '/parent/') && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
       res.end(renderParentPortalHtml());
+      return;
+    }
+
+    // ===== بوابة المعلم المستقلة =====
+    if ((reqUrl.pathname === '/teacher' || reqUrl.pathname === '/teacher/') && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
+      res.end(renderTeacherPortalHtml());
       return;
     }
 
