@@ -734,7 +734,8 @@ function getUnifiedStudents(school) {
       if (st.status === 'archived') continue;
       if (!seen.has(st.id)) {
         seen.add(st.id);
-        students.push({ ...st, name: st.fullName || st.name || '—', companyName: cls.companyName || cls.name || '—', className: cls.name || '—' });
+        const compositeId = 'structure-' + cls.id + '-' + st.id;
+        students.push({ ...st, id: compositeId, rawId: st.id, name: st.fullName || st.name || '—', companyName: cls.companyName || cls.name || '—', className: cls.name || '—' });
       }
     }
   }
