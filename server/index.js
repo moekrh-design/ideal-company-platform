@@ -7658,7 +7658,7 @@ log('User Agent: ' + navigator.userAgent, true);
       const applied = applyStudentActionToState(getSharedState(), schoolId, body, actor);
       if (!applied.ok) {
         // إرجاع live حتى عند الفشل لتحديث الإحصائيات في الـ frontend
-        const liveOnFail = summarizeSchoolLivePayload(state, match.school.id);
+        const liveOnFail = summarizeSchoolLivePayload(getSharedState(), schoolId);
         return sendJson(res, 400, { ...applied, live: liveOnFail });
       }
       let saved = await saveSharedState(applied.state, actor);
@@ -7718,7 +7718,7 @@ log('User Agent: ' + navigator.userAgent, true);
       const applied = await applyProgramToState(getSharedState(), schoolId, body, actor);
       if (!applied.ok) {
         // إرجاع live حتى عند الفشل لتحديث الإحصائيات في الـ frontend
-        const liveOnFail = summarizeSchoolLivePayload(state, match.school.id);
+        const liveOnFail = summarizeSchoolLivePayload(getSharedState(), schoolId);
         return sendJson(res, 400, { ...applied, live: liveOnFail });
       }
       const saved = await saveSharedState(applied.state, actor);
@@ -7780,7 +7780,7 @@ log('User Agent: ' + navigator.userAgent, true);
       });
       if (!applied.ok) {
         // إرجاع live حتى عند الفشل لتحديث الإحصائيات في الـ frontend
-        const liveOnFail = summarizeSchoolLivePayload(state, match.school.id);
+        const liveOnFail = summarizeSchoolLivePayload(getSharedState(), schoolId);
         return sendJson(res, 400, { ...applied, live: liveOnFail });
       }
       let finalState = applied.state;

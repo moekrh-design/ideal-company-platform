@@ -195,19 +195,28 @@ export function renderTeacherPortalHtml() {
     .change-btn { padding: 8px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.15); color: white; font-size: 12px; font-weight: 700; cursor: pointer; flex-shrink: 0; }
 
     .qr-scanner-wrap { background: #0f172a; border-radius: 20px; padding: 20px; margin-bottom: 12px; }
-    .qr-input-wrap { display: flex; gap: 8px; }
+    .qr-input-wrap { display: flex; gap: 8px; margin-top: 12px; }
     .qr-input { flex: 1; padding: 12px 14px; border-radius: 14px; border: 1.5px solid #334155; background: #1e293b; color: white; font-size: 14px; outline: none; }
     .qr-input::placeholder { color: #64748b; }
     .qr-input:focus { border-color: #38bdf8; }
     .qr-btn { padding: 12px 16px; border-radius: 14px; border: none; cursor: pointer; background: #0369a1; color: white; font-size: 13px; font-weight: 800; }
     .qr-hint { font-size: 12px; color: #64748b; margin-top: 10px; }
+    .camera-video-wrap { position: relative; width: 100%; border-radius: 16px; overflow: hidden; background: #000; aspect-ratio: 4/3; }
+    .camera-video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .camera-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .camera-frame { width: 65%; aspect-ratio: 1; border: 3px solid #38bdf8; border-radius: 16px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.45); }
+    .camera-scan-line { position: absolute; left: 17.5%; right: 17.5%; height: 2px; background: #38bdf8; opacity: 0.8; animation: scanLine 2s linear infinite; }
+    @keyframes scanLine { 0% { top: 17.5%; } 100% { top: 82.5%; } }
+    .camera-start-btn { width: 100%; padding: 14px; border-radius: 14px; border: none; cursor: pointer; background: #0369a1; color: white; font-size: 15px; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .camera-stop-btn { width: 100%; padding: 10px; border-radius: 14px; border: none; cursor: pointer; background: #dc2626; color: white; font-size: 13px; font-weight: 700; margin-top: 10px; }
 
     .face-wrap { background: #0f172a; border-radius: 20px; padding: 20px; margin-bottom: 12px; }
     .face-title { font-size: 14px; font-weight: 800; color: white; margin-bottom: 12px; }
-    .face-upload-label { display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; border-radius: 14px; background: #0369a1; color: white; font-size: 13px; font-weight: 800; cursor: pointer; }
-    .face-preview { width: 100%; border-radius: 14px; margin-top: 12px; max-height: 200px; object-fit: cover; }
+    .face-camera-btn { width: 100%; padding: 14px; border-radius: 14px; border: none; cursor: pointer; background: #059669; color: white; font-size: 15px; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .face-capture-btn { width: 100%; padding: 12px; border-radius: 14px; border: none; cursor: pointer; background: #0369a1; color: white; font-size: 14px; font-weight: 800; margin-top: 10px; }
     .face-verify-btn { width: 100%; margin-top: 12px; padding: 12px; border-radius: 14px; border: none; cursor: pointer; background: #059669; color: white; font-size: 14px; font-weight: 800; }
     .face-verify-btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+    .face-preview { width: 100%; border-radius: 14px; margin-top: 12px; max-height: 220px; object-fit: cover; }
 
     .action-items-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
     .action-item { border-radius: 20px; padding: 14px; cursor: pointer; border: 2px solid #e2e8f0; background: white; transition: all 0.15s; text-align: right; width: 100%; }
@@ -496,11 +505,28 @@ export function renderTeacherPortalHtml() {
           <div id="identifyBarcode" style="display:none">
             <div class="qr-scanner-wrap">
               <div style="color:white;font-size:13px;font-weight:700;margin-bottom:12px;">📷 مسح باركود الطالب</div>
+              <!-- Camera view -->
+              <div id="barcodeCameraWrap" style="display:none">
+                <div class="camera-video-wrap">
+                  <video id="barcodeVideo" autoplay playsinline muted></video>
+                  <canvas id="barcodeCanvas" style="display:none"></canvas>
+                  <div class="camera-overlay">
+                    <div class="camera-frame"></div>
+                    <div class="camera-scan-line"></div>
+                  </div>
+                </div>
+                <button class="camera-stop-btn" onclick="stopBarcodeCamera()">⏹ إيقاف الكاميرا</button>
+              </div>
+              <!-- Start camera button -->
+              <div id="barcodeCameraStart">
+                <button class="camera-start-btn" onclick="startBarcodeCamera()">📷 فتح الكاميرا لمسح الباركود</button>
+              </div>
+              <!-- Manual fallback -->
               <div class="qr-input-wrap">
-                <input class="qr-input" id="barcodeInput" placeholder="امسح الباركود أو أدخله يدوياً..." onkeydown="if(event.key==='Enter')resolveBarcode()" />
+                <input class="qr-input" id="barcodeInput" placeholder="أو أدخل الرقم يدوياً..." onkeydown="if(event.key==='Enter')resolveBarcode()" />
                 <button class="qr-btn" onclick="resolveBarcode()">بحث</button>
               </div>
-              <div class="qr-hint">وجّه الكاميرا نحو باركود الطالب أو اكتب الرقم يدوياً</div>
+              <div class="qr-hint">وجّه الكاميرا نحو باركود الطالب أو أدخل الرقم يدوياً</div>
             </div>
             <div id="barcodeStatus" style="display:none" class="status-box warn"></div>
           </div>
@@ -509,12 +535,21 @@ export function renderTeacherPortalHtml() {
           <div id="identifyFace" style="display:none">
             <div class="face-wrap">
               <div class="face-title">🤳 بصمة الوجه</div>
-              <label class="face-upload-label">
-                📸 رفع صورة الوجه
-                <input type="file" accept="image/*" capture="user" style="display:none" id="faceFileInput" onchange="handleFaceFile(this)" />
-              </label>
+              <!-- Camera view -->
+              <div id="faceCameraWrap" style="display:none">
+                <div class="camera-video-wrap">
+                  <video id="faceVideo" autoplay playsinline muted style="transform:scaleX(-1)"></video>
+                  <canvas id="faceCanvas" style="display:none"></canvas>
+                </div>
+                <button class="face-capture-btn" onclick="captureFaceFromCamera()">📸 التقاط الصورة</button>
+                <button class="camera-stop-btn" onclick="stopFaceCamera()">⏹ إيقاف الكاميرا</button>
+              </div>
+              <!-- Start camera button -->
+              <div id="faceCameraStart">
+                <button class="face-camera-btn" onclick="startFaceCamera()">📷 فتح الكاميرا الأمامية</button>
+              </div>
               <img id="facePreview" class="face-preview" style="display:none" alt="معاينة" />
-              <button class="face-verify-btn" id="faceVerifyBtn" onclick="verifyFace()" disabled>التحقق من الوجه</button>
+              <button class="face-verify-btn" id="faceVerifyBtn" onclick="verifyFace()" disabled style="display:none">التحقق من الوجه</button>
             </div>
             <div id="faceStatus" style="display:none" class="status-box warn"></div>
           </div>
@@ -924,6 +959,9 @@ function clearSelectedStudent() {
 
 // ===== ACTION FLOW =====
 function resetActionFlow() {
+  // إيقاف الكاميرات عند الإعادة
+  stopBarcodeCamera();
+  stopFaceCamera();
   selectedStudent = null;
   selectedActionItem = null;
   selectedClass = null;
@@ -960,6 +998,10 @@ function selectActionType(type) {
 }
 
 function selectIdentifyMethod(method) {
+  // إيقاف الكاميرات عند التبديل
+  if (identifyMethod === 'barcode' && method !== 'barcode') stopBarcodeCamera();
+  if (identifyMethod === 'face' && method !== 'face') stopFaceCamera();
+
   identifyMethod = method;
   ['manual', 'barcode', 'face'].forEach((m) => {
     const b = $('method' + m.charAt(0).toUpperCase() + m.slice(1));
@@ -976,7 +1018,13 @@ function selectIdentifyMethod(method) {
     buildClassGrid();
   }
   if (method === 'barcode') {
-    setTimeout(() => { const inp = $('barcodeInput'); if (inp) { inp.value = ''; inp.focus(); } }, 100);
+    setTimeout(() => { const inp = $('barcodeInput'); if (inp) { inp.value = ''; } }, 100);
+    // تحميل مكتبة jsQR إذا لم تكن محملة
+    if (!window.jsQR) {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+      document.head.appendChild(s);
+    }
   }
 }
 
@@ -996,6 +1044,9 @@ function updateStepIndicators(active) {
 }
 
 // ===== BARCODE =====
+let barcodeCameraStream = null;
+let barcodeAnimFrame = null;
+
 function resolveBarcode() {
   const input = $('barcodeInput');
   const barcode = (input?.value || '').trim();
@@ -1016,19 +1067,143 @@ function resolveBarcode() {
   }
 }
 
+async function startBarcodeCamera() {
+  const statusEl = $('barcodeStatus');
+  try {
+    // تحميل jsQR إذا لم تكن محملة
+    if (!window.jsQR) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js';
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    barcodeCameraStream = stream;
+    const video = $('barcodeVideo');
+    video.srcObject = stream;
+    await video.play();
+    $('barcodeCameraStart').style.display = 'none';
+    $('barcodeCameraWrap').style.display = 'block';
+    statusEl.style.display = 'none';
+    scanBarcodeFrame();
+  } catch(e) {
+    statusEl.style.display = 'block';
+    statusEl.className = 'status-box err';
+    statusEl.textContent = 'تعذّر فتح الكاميرا. تأكد من السماح بالوصول أو أدخل الرقم يدوياً.';
+  }
+}
+
+function scanBarcodeFrame() {
+  const video = $('barcodeVideo');
+  const canvas = $('barcodeCanvas');
+  if (!video || !canvas || !barcodeCameraStream) return;
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    if (window.jsQR) {
+      const code = window.jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) {
+        const barcode = code.data.trim();
+        const found = allStudents.find((s) =>
+          (s.barcode || '').toLowerCase() === barcode.toLowerCase() ||
+          (s.studentNumber || '').toLowerCase() === barcode.toLowerCase() ||
+          (s.nationalId || '').toLowerCase() === barcode.toLowerCase()
+        );
+        if (found) {
+          stopBarcodeCamera();
+          selectStudent(found.id);
+          return;
+        } else {
+          // محاولة بحث بالباركود المقروء
+          const inp = $('barcodeInput');
+          if (inp) inp.value = barcode;
+        }
+      }
+    }
+  }
+  barcodeAnimFrame = requestAnimationFrame(scanBarcodeFrame);
+}
+
+function stopBarcodeCamera() {
+  if (barcodeAnimFrame) { cancelAnimationFrame(barcodeAnimFrame); barcodeAnimFrame = null; }
+  if (barcodeCameraStream) {
+    barcodeCameraStream.getTracks().forEach(t => t.stop());
+    barcodeCameraStream = null;
+  }
+  const video = $('barcodeVideo');
+  if (video) { video.srcObject = null; }
+  if ($('barcodeCameraWrap')) $('barcodeCameraWrap').style.display = 'none';
+  if ($('barcodeCameraStart')) $('barcodeCameraStart').style.display = 'block';
+}
+
 // ===== FACE =====
-function handleFaceFile(input) {
-  const file = input.files?.[0];
-  if (!file) return;
-  faceFile = file;
-  const reader = new FileReader();
-  reader.onload = (e) => {
+let faceCameraStream = null;
+
+async function startFaceCamera() {
+  const statusEl = $('faceStatus');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    faceCameraStream = stream;
+    const video = $('faceVideo');
+    video.srcObject = stream;
+    await video.play();
+    $('faceCameraStart').style.display = 'none';
+    $('faceCameraWrap').style.display = 'block';
+    $('facePreview').style.display = 'none';
+    $('faceVerifyBtn').style.display = 'none';
+    statusEl.style.display = 'none';
+  } catch(e) {
+    statusEl.style.display = 'block';
+    statusEl.className = 'status-box err';
+    statusEl.textContent = 'تعذّر فتح الكاميرا الأمامية. تأكد من السماح بالوصول.';
+  }
+}
+
+function stopFaceCamera() {
+  if (faceCameraStream) {
+    faceCameraStream.getTracks().forEach(t => t.stop());
+    faceCameraStream = null;
+  }
+  const video = $('faceVideo');
+  if (video) { video.srcObject = null; }
+  if ($('faceCameraWrap')) $('faceCameraWrap').style.display = 'none';
+  if ($('faceCameraStart')) $('faceCameraStart').style.display = 'block';
+}
+
+function captureFaceFromCamera() {
+  const video = $('faceVideo');
+  const canvas = $('faceCanvas');
+  if (!video || !canvas) return;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  // مرآة عكسية لأن الفيديو معكوس
+  ctx.translate(canvas.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    faceFile = new File([blob], 'face.jpg', { type: 'image/jpeg' });
+    const url = URL.createObjectURL(blob);
     const preview = $('facePreview');
-    preview.src = e.target.result;
+    preview.src = url;
     preview.style.display = 'block';
-    $('faceVerifyBtn').disabled = false;
-  };
-  reader.readAsDataURL(file);
+    const verifyBtn = $('faceVerifyBtn');
+    verifyBtn.disabled = false;
+    verifyBtn.style.display = 'block';
+    stopFaceCamera();
+    $('faceCameraStart').style.display = 'block';
+  }, 'image/jpeg', 0.9);
 }
 
 async function verifyFace() {
