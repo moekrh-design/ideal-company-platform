@@ -3680,6 +3680,119 @@ function renderParentPortalHtml() {
     /* ===== LAYOUT ===== */
     #app { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
 
+    /* ===== PWA INSTALL GATE ===== */
+    #pwaGate {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: linear-gradient(160deg, #0f766e 0%, #1d4ed8 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px;
+      overflow-y: auto;
+    }
+    .pwa-gate-box {
+      width: 100%;
+      max-width: 400px;
+      background: #fff;
+      border-radius: 28px;
+      padding: 32px 24px;
+      box-shadow: 0 24px 64px rgba(0,0,0,.25);
+      text-align: center;
+    }
+    .pwa-gate-icon {
+      width: 80px;
+      height: 80px;
+      border-radius: 22px;
+      margin: 0 auto 16px;
+      box-shadow: 0 8px 24px rgba(15,118,110,.35);
+    }
+    .pwa-gate-title {
+      font-size: 22px;
+      font-weight: 900;
+      color: #0f172a;
+      margin-bottom: 6px;
+    }
+    .pwa-gate-subtitle {
+      font-size: 14px;
+      color: #64748b;
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+    .pwa-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-bottom: 24px;
+      text-align: right;
+    }
+    .pwa-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      background: #f8fafc;
+      border-radius: 14px;
+      padding: 14px 16px;
+      border: 1.5px solid #e2e8f0;
+    }
+    .pwa-step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0f766e, #1d4ed8);
+      color: #fff;
+      font-weight: 900;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .pwa-step-text {
+      flex: 1;
+    }
+    .pwa-step-text strong {
+      display: block;
+      font-size: 14px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 2px;
+    }
+    .pwa-step-text span {
+      font-size: 12px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+    .pwa-step-icon {
+      font-size: 22px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .pwa-gate-note {
+      background: #fef3c7;
+      border: 1.5px solid #f59e0b;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 12px;
+      color: #92400e;
+      line-height: 1.6;
+      margin-bottom: 20px;
+    }
+    .pwa-gate-skip {
+      font-size: 12px;
+      color: #94a3b8;
+      text-decoration: underline;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-family: inherit;
+      margin-top: 8px;
+    }
+    .pwa-gate-skip:hover { color: #64748b; }
+
     /* ===== LOGIN SCREEN ===== */
     #loginScreen {
       flex: 1;
@@ -4303,6 +4416,20 @@ function renderParentPortalHtml() {
   <button id="dismissInstallBtn" style="background:none;border:none;color:rgba(255,255,255,.7);font-size:20px;cursor:pointer;padding:4px;line-height:1;">×</button>
 </div>
 
+<!-- ===== PWA INSTALL GATE ===== -->
+<div id="pwaGate" style="display:none;">
+  <div class="pwa-gate-box">
+    <img src="/public/pwa-icon-128.png" class="pwa-gate-icon" alt="بوابة ولي الأمر" />
+    <div class="pwa-gate-title">ثبّت التطبيق أولاً</div>
+    <div class="pwa-gate-subtitle" id="pwaGateSubtitle">لاستخدام بوابة ولي الأمر يجب تثبيتها على شاشتك الرئيسية</div>
+    <div class="pwa-steps" id="pwaGateSteps">
+      <!-- تُملأ بـ JavaScript حسب نوع الجهاز -->
+    </div>
+    <div class="pwa-gate-note" id="pwaGateNote">بعد التثبيت، افتح التطبيق من الأيقونة الجديدة على شاشتك الرئيسية</div>
+    <button class="pwa-gate-skip" id="pwaGateSkipBtn" onclick="_pwaGateSkip()">تخطي مؤقتاً (مرة واحدة فقط)</button>
+  </div>
+</div>
+
 <div id="app">
   <!-- ===== LOGIN SCREEN ===== -->
   <div id="loginScreen">
@@ -4338,9 +4465,51 @@ function renderParentPortalHtml() {
         </div>
         <div id="verifyMsg" class="alert"></div>
       </div>
+      <!-- ===== خيار تسجيل الدخول البديل ===== -->
+      <div style="margin-top:20px;text-align:center;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+          <div style="flex:1;height:1px;background:#e2e8f0;"></div>
+          <span style="font-size:12px;color:#94a3b8;white-space:nowrap;">أو استخدم طريقة بديلة</span>
+          <div style="flex:1;height:1px;background:#e2e8f0;"></div>
+        </div>
+        <button id="showAltLoginBtn" style="background:none;border:1.5px solid #e2e8f0;border-radius:12px;padding:10px 16px;font-size:13px;color:#64748b;cursor:pointer;font-family:inherit;width:100%;font-weight:600;" onclick="toggleAltLogin()">
+          دخول برقم الجوال + رقم هوية الطالب
+        </button>
+        <div id="altLoginSection" style="display:none;margin-top:14px;text-align:right;">
+          <div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:14px;padding:14px 16px;margin-bottom:14px;font-size:12px;color:#166534;line-height:1.6;">
+            هذا الخيار للحالات الطارئة عند تعذر استلام رمز التحقق
+          </div>
+          <div class="form-group">
+            <label class="form-label">رقم الجوال المسجل</label>
+            <input id="altMobileInput" class="form-input" placeholder="05xxxxxxxx" type="tel" inputmode="numeric" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">رقم هوية أحد الأبناء المسجلين</label>
+            <input id="altNationalIdInput" class="form-input" placeholder="أدخل رقم الهوية الوطنية" type="text" inputmode="numeric" />
+          </div>
+          <button class="btn btn-primary btn-full" id="altLoginBtn" onclick="doAltLogin()">
+            تحقق والدخول
+          </button>
+          <div id="altLoginMsg" class="alert" style="margin-top:10px;"></div>
+          <div id="altPreviewCodeBox" style="display:none;background:linear-gradient(135deg,#0f766e,#0891b2);border-radius:16px;padding:18px 20px;margin-top:14px;text-align:center;">
+            <div style="color:rgba(255,255,255,0.8);font-size:12px;margin-bottom:6px;">رمز الدخول (وضع تجريبي)</div>
+            <div id="altPreviewCodeDisplay" style="color:#fff;font-size:36px;font-weight:900;letter-spacing:10px;font-family:monospace;">------</div>
+            <div style="color:rgba(255,255,255,0.7);font-size:11px;margin-top:6px;">انسخ الرمز وأدخله في الحقل أدناه</div>
+          </div>
+          <div id="altOtpStep" style="display:none;margin-top:14px;">
+            <div class="form-group">
+              <label class="form-label">رمز التحقق</label>
+              <input id="altOtpInput" class="form-input" placeholder="أدخل الرمز" maxlength="6" type="text" inputmode="numeric" />
+            </div>
+            <button class="btn btn-primary btn-full" id="altVerifyBtn" onclick="doAltVerify()">
+              دخول
+            </button>
+            <div id="altVerifyMsg" class="alert" style="margin-top:10px;"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
-
   <!-- ===== MAIN APP ===== -->
   <div id="mainApp" class="hidden" style="display:flex;flex-direction:column;flex:1;overflow:hidden">
 
@@ -5414,6 +5583,122 @@ $('submitRewardRedeemBtn').onclick = async function() {
   finally { this.disabled = false; }
 };
 
+/* ===== تسجيل الدخول البديل ===== */
+function toggleAltLogin() {
+  const sec = $('altLoginSection');
+  const btn = $('showAltLoginBtn');
+  if (sec.style.display === 'none') {
+    sec.style.display = 'block';
+    btn.textContent = 'إخفاء طريقة الدخول البديلة';
+    btn.style.color = '#0f766e';
+    btn.style.borderColor = '#0f766e';
+  } else {
+    sec.style.display = 'none';
+    btn.textContent = 'دخول برقم الجوال + رقم هوية الطالب';
+    btn.style.color = '#64748b';
+    btn.style.borderColor = '#e2e8f0';
+  }
+}
+
+async function doAltLogin() {
+  const mobile = norm($('altMobileInput').value);
+  const nationalId = String($('altNationalIdInput').value || '').trim();
+  const btn = $('altLoginBtn');
+  clearAlert('altLoginMsg');
+  if (!mobile) return showAlert('altLoginMsg', 'أدخل رقم الجوال أولاً.', 'error');
+  if (!nationalId) return showAlert('altLoginMsg', 'أدخل رقم هوية الطالب.', 'error');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/parent/alt-login/request', { method: 'POST', body: JSON.stringify({ mobile, nationalId }) });
+    showAlert('altLoginMsg', data.message || 'تم التحقق بنجاح.', 'success');
+    if (data.previewCode) {
+      const box = $('altPreviewCodeBox');
+      $('altPreviewCodeDisplay').textContent = data.previewCode.split('').join(' ');
+      box.style.display = 'block';
+      $('altOtpInput').value = data.previewCode;
+    }
+    $('altOtpStep').style.display = 'block';
+    $('altOtpInput').focus();
+  } catch(e) {
+    showAlert('altLoginMsg', e.message || 'تعذر التحقق. تأكد من صحة البيانات.', 'error');
+  } finally { btn.disabled = false; }
+}
+
+async function doAltVerify() {
+  const mobile = norm($('altMobileInput').value);
+  const code = String($('altOtpInput').value || '').trim();
+  const btn = $('altVerifyBtn');
+  clearAlert('altVerifyMsg');
+  if (!code) return showAlert('altVerifyMsg', 'أدخل رمز التحقق.', 'error');
+  btn.disabled = true;
+  try {
+    const data = await api('/api/parent/verify-otp', { method: 'POST', body: JSON.stringify({ mobile, code }) });
+    saveToken(data.token);
+    renderProfile(data.profile || {});
+  } catch(e) {
+    showAlert('altVerifyMsg', e.message || 'رمز غير صحيح أو منتهي الصلاحية.', 'error');
+  } finally { btn.disabled = false; }
+}
+
+/* ===== PWA INSTALL GATE ===== */
+(function() {
+  // كشف ما إذا كان التطبيق مفتوحاً كـ standalone (من الشاشة الرئيسية)
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true
+    || document.referrer.includes('android-app://');
+
+  // كشف نوع الجهاز والمتصفح
+  const ua = navigator.userAgent || '';
+  const isIOS = /iphone|ipad|ipod/i.test(ua);
+  const isAndroid = /android/i.test(ua);
+  const isMobile = isIOS || isAndroid;
+  const isSafari = /^((?!chrome|android).)*safari/i.test(ua);
+  const isChrome = /chrome/i.test(ua) && !/edge|opr/i.test(ua);
+
+  // إذا كان على سطح المكتب أو مفتوحاً كـ standalone، لا نُظهر الشاشة
+  if (isStandalone || !isMobile) return;
+
+  // التحقق من أن المستخدم لم يتخطَّ الشاشة مسبقاً (تخطي مؤقت)
+  const skipKey = 'pwa_gate_skipped';
+  const skipped = sessionStorage.getItem(skipKey);
+  if (skipped) return;
+
+  // بناء الخطوات حسب نوع الجهاز
+  const stepsContainer = document.getElementById('pwaGateSteps');
+  const gateEl = document.getElementById('pwaGate');
+  const noteEl = document.getElementById('pwaGateNote');
+
+  let stepsHtml = '';
+  if (isIOS) {
+    stepsHtml = [
+      { num: '1', icon: String.fromCodePoint(0x1F4E4), title: 'اضغط زر المشاركة', desc: 'الزر الموجود في شريط المتصفح أسفل الشاشة (مربع بسهم للأعلى)' },
+      { num: '2', icon: String.fromCodePoint(0x2795), title: 'اختر "إضافة إلى الشاشة الرئيسية"', desc: 'مرر للأسفل في قائمة المشاركة حتى تجد هذا الخيار' },
+      { num: '3', icon: String.fromCodePoint(0x1F3E0), title: 'افتح التطبيق من أيقونته', desc: 'ستجد أيقونة بوابة ولي الأمر على شاشتك الرئيسية' },
+    ].map(s => '<div class="pwa-step"><div class="pwa-step-num">' + s.num + '</div><div class="pwa-step-text"><strong>' + s.title + '</strong><span>' + s.desc + '</span></div><div class="pwa-step-icon">' + s.icon + '</div></div>').join('');
+    noteEl.textContent = 'يجب استخدام متصفح Safari لإضافة التطبيق للشاشة الرئيسية على iPhone/iPad';
+    if (!isSafari) {
+      noteEl.style.background = '#fff1f2';
+      noteEl.style.borderColor = '#be123c';
+      noteEl.style.color = '#9f1239';
+      noteEl.textContent = String.fromCodePoint(0x26A0) + ' يجب فتح هذا الرابط في متصفح Safari (وليس Chrome أو غيره) لتتمكن من تثبيت التطبيق على iPhone/iPad';
+    }
+  } else if (isAndroid) {
+    stepsHtml = [
+      { num: '1', icon: String.fromCodePoint(0x22EE), title: 'افتح قائمة المتصفح', desc: 'اضغط على النقاط الثلاث في أعلى يمين المتصفح' },
+      { num: '2', icon: String.fromCodePoint(0x2795), title: 'اختر "إضافة إلى الشاشة الرئيسية"', desc: 'أو "تثبيت التطبيق" إذا ظهر هذا الخيار' },
+      { num: '3', icon: String.fromCodePoint(0x1F3E0), title: 'افتح التطبيق من أيقونته', desc: 'ستجد أيقونة بوابة ولي الأمر على شاشتك الرئيسية' },
+    ].map(s => '<div class="pwa-step"><div class="pwa-step-num">' + s.num + '</div><div class="pwa-step-text"><strong>' + s.title + '</strong><span>' + s.desc + '</span></div><div class="pwa-step-icon">' + s.icon + '</div></div>').join('');
+  }
+
+  stepsContainer.innerHTML = stepsHtml;
+  gateEl.style.display = 'flex';
+})();
+
+function _pwaGateSkip() {
+  sessionStorage.setItem('pwa_gate_skipped', '1');
+  document.getElementById('pwaGate').style.display = 'none';
+}
+
 /* ===== INIT ===== */
 bootstrapParent();
 
@@ -5923,6 +6208,60 @@ const server = http.createServer(async (req, res) => {
       if (!portalEnabled) return sendJson(res, 403, { ok: false, message: 'بوابة ولي الأمر موقفة حاليًا لهذه المدرسة.' });
       const sessionToken = await createParentSession(mobile, profile);
       return sendJson(res, 200, { ok: true, token: sessionToken, profile });
+    }
+
+    if (reqUrl.pathname === '/api/parent/alt-login/request' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const mobile = normalizePhoneNumber(body.mobile || '');
+      const nationalId = String(body.nationalId || '').trim();
+      if (!mobile) return sendJson(res, 400, { ok: false, message: 'أدخل رقم الجوال أولاً.' });
+      if (!nationalId) return sendJson(res, 400, { ok: false, message: 'أدخل رقم هوية الطالب.' });
+      const state = getSharedState();
+      // البحث عن طالب برقم هويته ورقم جوال ولي الأمر معاً
+      let matchedPhone = null;
+      for (const school of (state.schools || [])) {
+        const classrooms = school?.structure?.classrooms || [];
+        for (const cls of classrooms) {
+          for (const student of (cls.students || [])) {
+            const sNationalId = String(student.nationalId || student.identityNumber || '').trim();
+            const sPhone = normalizePhoneNumber(student.guardianMobile || '');
+            if (sNationalId && sNationalId === nationalId && sPhone === mobile) {
+              matchedPhone = mobile;
+              break;
+            }
+          }
+          if (matchedPhone) break;
+        }
+        if (matchedPhone) break;
+      }
+      if (!matchedPhone) return sendJson(res, 404, { ok: false, message: 'لم يتطابق رقم الجوال مع رقم الهوية. تأكد من صحة البيانات.' });
+      // التحقق من تفعيل البوابة
+      const profile = await buildParentProfile(state, matchedPhone);
+      if (!profile) return sendJson(res, 404, { ok: false, message: 'لم يتطابق رقم الجوال مع رقم الهوية. تأكد من صحة البيانات.' });
+      const portalEnabled = await isParentPortalEnabledForProfile(profile);
+      if (!portalEnabled) return sendJson(res, 403, { ok: false, message: 'بوابة ولي الأمر غير مفعلة حاليًا لهذه المدرسة.' });
+      // توليد رمز OTP وإرساله
+      const school = state.schools.find((item) => Number(item.id) === Number(profile.students?.[0]?.schoolId));
+      const messaging = hydrateMessagingSettings(school || {});
+      const code = generateOtpCode(6);
+      await createParentOtpRequest(mobile, code);
+      let deliveryUsed = 'preview';
+      try {
+        if (messaging.channels.whatsapp && messaging.integration.whatsapp?.phoneNumberId && messaging.integration.whatsapp?.accessToken) {
+          await sendWhatsappCloudMessage(messaging.integration.whatsapp || {}, mobile, `\u0631مز دخول ولي الأمر: ${code}\nالصلاحية: 10 دقائق.`);
+          deliveryUsed = 'whatsapp';
+        } else if (messaging.channels.sms && (messaging.integration.sms?.apiUrl || messaging.integration.sms?.provider)) {
+          await sendSmsMessage(messaging.integration.sms || {}, mobile, `\u0631مز دخول ولي الأمر: ${code}. الصلاحية 10 دقائق.`);
+          deliveryUsed = 'sms';
+        }
+      } catch (err) { deliveryUsed = 'preview'; }
+      return sendJson(res, 200, {
+        ok: true,
+        message: deliveryUsed === 'preview'
+          ? 'تم التحقق بنجاح. قناة الإرسال غير مكتملة لذلك أظهرناه للاختبار.'
+          : `\u062aم إرسال رمز التحقق عبر ${deliveryUsed === 'whatsapp' ? '\u0648اتساب' : 'SMS'}.`,
+        previewCode: deliveryUsed === 'preview' ? code : ''
+      });
     }
 
     if (reqUrl.pathname === '/api/parent/add-contact/request-otp' && req.method === 'POST') {
