@@ -977,7 +977,7 @@ function renderActionItems() {
     const ptsStr = pts > 0 ? '+' + pts : String(pts);
     const isSelected = selectedActionItem && String(selectedActionItem.id) === String(item.id);
     const disabled = !selectedStudent ? 'disabled' : '';
-    return '<button class="action-item ' + actionType + (isSelected ? ' selected' : '') + '" onclick="selectActionItem(\'' + item.id + '\')" ' + disabled + '>' +
+    return '<button class="action-item ' + actionType + (isSelected ? ' selected' : '') + '" onclick="selectActionItem(&apos;' + item.id + '&apos;)" ' + disabled + '>' +
       '<div class="action-item-header">' +
         '<div class="action-item-title">' + (item.title || '—') + '</div>' +
         '<div class="action-item-pts ' + actionType + '">' + ptsStr + '</div>' +
@@ -1207,7 +1207,7 @@ function renderLeavePasses() {
       '</div>' +
       '<div class="leave-info">السبب: ' + (p.reason || '—') + '</div>' +
       '<div class="leave-info">الوقت: ' + (p.time || '—') + (p.date ? ' • ' + p.date : '') + '</div>' +
-      (canAct ? '<div class="leave-actions"><button class="leave-btn approve" onclick="handleLeavePass(\'' + p.id + '\', \'approved\')">✅ قبول</button><button class="leave-btn reject" onclick="handleLeavePass(\'' + p.id + '\', \'rejected\')">❌ رفض</button></div>' : '') +
+      (canAct ? '<div class="leave-actions"><button class="leave-btn approve" onclick="handleLeavePass(&apos;' + p.id + '&apos;, &apos;approved&apos;)">✅ قبول</button><button class="leave-btn reject" onclick="handleLeavePass(&apos;' + p.id + '&apos;, &apos;rejected&apos;)">❌ رفض</button></div>' : '') +
       '</div>';
   }).join('');
 }
@@ -1250,7 +1250,7 @@ function renderLessonAttendance() {
   }
   container.innerHTML = sessions.map((s) => {
     const submitted = Boolean((s.submissions || []).find((sub) => String(sub.teacherId) === String(currentUser?.id)));
-    return '<div class="session-item" onclick="' + (submitted ? '' : 'openSession(\'' + s.id + '\')') + '">' +
+    return '<div class="session-item" onclick="' + (submitted ? '' : 'openSession(&apos;' + s.id + '&apos;)') + '">' +
       '<div class="session-header">' +
         '<div><div class="session-title">' + (s.subject || s.title || 'حصة') + '</div><div class="session-info">' + (s.className || s.companyName || '—') + ' • ' + (s.date || '') + '</div></div>' +
         '<span class="badge ' + (submitted ? 'badge-green' : 'badge-amber') + '">' + (submitted ? 'مُسلَّمة' : 'بانتظار التسليم') + '</span>' +
@@ -1282,9 +1282,9 @@ function renderSessionAttendance() {
       '<div class="attendance-item">' +
         '<div class="attendance-student-name">' + (s.name || '—') + '</div>' +
         '<div class="attendance-toggle">' +
-          '<button class="att-btn present' + (sessionAttendance[s.id] === 'present' ? ' active' : '') + '" onclick="setAttendance(' + s.id + ',\'present\')">حاضر</button>' +
-          '<button class="att-btn absent' + (sessionAttendance[s.id] === 'absent' ? ' active' : '') + '" onclick="setAttendance(' + s.id + ',\'absent\')">غائب</button>' +
-          '<button class="att-btn late' + (sessionAttendance[s.id] === 'late' ? ' active' : '') + '" onclick="setAttendance(' + s.id + ',\'late\')">متأخر</button>' +
+          '<button class="att-btn present' + (sessionAttendance[s.id] === 'present' ? ' active' : '') + '" onclick="setAttendance(' + s.id + ',&apos;present&apos;)">حاضر</button>' +
+          '<button class="att-btn absent' + (sessionAttendance[s.id] === 'absent' ? ' active' : '') + '" onclick="setAttendance(' + s.id + ',&apos;absent&apos;)">غائب</button>' +
+          '<button class="att-btn late' + (sessionAttendance[s.id] === 'late' ? ' active' : '') + '" onclick="setAttendance(' + s.id + ',&apos;late&apos;)">متأخر</button>' +
         '</div>' +
       '</div>'
     ).join('') +
