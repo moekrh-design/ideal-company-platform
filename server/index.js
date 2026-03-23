@@ -3390,12 +3390,21 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
   let compositeStudentId = rawStudentIdStr;
   if (rawStudentIdStr.startsWith('structure-')) {
     const parts = rawStudentIdStr.split('-');
-    const classroomId = parts[1];
-    const studentRawId = parts.slice(2).join('-');
+    // البنية: structure-{classroomId}-{studentRawId}
+    // classroomId قد يحتوي على '-' (مثل "middle-m1-1") لذا نأخذ كل شيء بين structure- و آخر جزء
+    const studentRawId = parts[parts.length - 1];
+    const classroomId = parts.slice(1, -1).join('-');
     classroomRef = (school.structure?.classrooms || []).find((c) => String(c.id) === classroomId);
     if (classroomRef) {
       student = (classroomRef.students || []).find((s) => String(s.id) === studentRawId);
       if (student) { isStructureStudent = true; compositeStudentId = rawStudentIdStr; }
+    }
+    // إذا لم يُوجد classroom بالـ id الكامل، ابحث في كل classrooms
+    if (!student) {
+      for (const classroom of (school.structure?.classrooms || [])) {
+        const found = (classroom.students || []).find((s) => String(s.id) === studentRawId);
+        if (found) { student = found; classroomRef = classroom; isStructureStudent = true; compositeStudentId = rawStudentIdStr; break; }
+      }
     }
   }
   if (!student) {
@@ -6020,9 +6029,10 @@ const server = http.createServer(async (req, res) => {
       const request = { id: `redeem-${Date.now()}`, schoolId, studentId, studentName: student.name || 'طالب', itemId, itemTitle: item.title || 'جائزة', pointsCost, note, mobile: profile.mobile, guardianName: profile.guardianName, status: 'pending', createdAt: nowIso() };
       // خصم النقاط فوراً من الطالب الحقيقي في الـ state
       // استخراج rawId من studentId المركّب (مثل "structure-CLASSID-RAWID" أو "RAWID" مباشرة)
-      const rawStudentId = String(studentId).startsWith('structure-')
-        ? String(studentId).split('-').slice(2).join('-')
-        : String(studentId);
+      // البنية: structure-{classroomId}-{studentRawId} حيث classroomId قد يحتوي على '-' (مثل "middle-m1-1")
+      // لذا rawId هو آخر جزء فقط
+      const _redeemParts = String(studentId).startsWith('structure-') ? String(studentId).split('-') : null;
+      const rawStudentId = _redeemParts ? _redeemParts[_redeemParts.length - 1] : String(studentId);
       const nextState = structuredClone(state);
       const targetSchool = nextState.schools.find((s) => Number(s.id) === schoolId);
       if (targetSchool) {
