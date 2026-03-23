@@ -158,6 +158,19 @@ export function renderTeacherPortalHtml() {
     .identify-btn-icon { font-size: 22px; margin-bottom: 4px; }
     .identify-btn-label { font-size: 11px; font-weight: 800; color: #374151; }
 
+    /* Class selection grid */
+    .class-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 4px; }
+    .class-card { border-radius: 18px; padding: 16px 14px; cursor: pointer; border: 2px solid #e2e8f0; background: white; transition: all 0.15s; text-align: center; }
+    .class-card:hover { border-color: #7dd3fc; background: #f0f9ff; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(3,105,161,0.1); }
+    .class-card.selected { border-color: #0369a1; background: #e0f2fe; }
+    .class-card-name { font-size: 14px; font-weight: 900; color: #0f172a; margin-bottom: 4px; }
+    .class-card-count { font-size: 11px; color: #64748b; font-weight: 600; }
+    .class-card-icon { font-size: 22px; margin-bottom: 6px; }
+    .class-back-btn { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 12px; border: 1.5px solid #e2e8f0; background: #f8fafc; color: #374151; font-size: 13px; font-weight: 700; cursor: pointer; margin-bottom: 10px; transition: all 0.15s; width: fit-content; }
+    .class-back-btn:hover { border-color: #0369a1; color: #0369a1; background: #e0f2fe; }
+    .class-selected-label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .class-selected-name { font-size: 13px; font-weight: 800; color: #0369a1; background: #e0f2fe; padding: 6px 12px; border-radius: 10px; }
+
     .search-wrap { position: relative; margin-bottom: 10px; }
     .search-icon { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 16px; color: #94a3b8; }
     .search-input { width: 100%; padding: 11px 40px 11px 14px; border-radius: 14px; border: 1.5px solid #e2e8f0; background: #f8fafc; font-size: 14px; outline: none; transition: border-color 0.15s; }
@@ -458,12 +471,24 @@ export function renderTeacherPortalHtml() {
 
           <!-- Manual -->
           <div id="identifyManual">
-            <div class="search-wrap">
-              <span class="search-icon">🔍</span>
-              <input class="search-input" id="studentSearch" placeholder="ابحث باسم الطالب أو رقمه..." oninput="filterStudents()" />
+            <!-- Class selection grid -->
+            <div id="classSelectionView">
+              <div class="section-label" style="margin-bottom:10px;">اختر الصف أولاً</div>
+              <div class="class-grid" id="classGrid">
+                <div class="loading-wrap"><div class="loading-spinner"></div></div>
+              </div>
             </div>
-            <div class="student-list" id="studentList">
-              <div class="loading-wrap"><div class="loading-spinner"></div><div class="loading-text">جارٍ التحميل...</div></div>
+            <!-- Student list view (shown after class selected) -->
+            <div id="studentListView" style="display:none">
+              <div class="class-selected-label">
+                <button class="class-back-btn" onclick="backToClassSelection()">&#8594; تغيير الصف</button>
+                <div class="class-selected-name" id="selectedClassName">—</div>
+              </div>
+              <div class="search-wrap">
+                <span class="search-icon">🔍</span>
+                <input class="search-input" id="studentSearch" placeholder="ابحث باسم الطالب..." oninput="filterStudents()" />
+              </div>
+              <div class="student-list" id="studentList"></div>
             </div>
           </div>
 
@@ -599,6 +624,7 @@ let identifyMethod = 'manual';
 let allStudents = [];
 let filteredStudents = [];
 let selectedStudent = null;
+let selectedClass = null; // الصف المختار في الطريقة اليدوية
 let selectedActionItem = null;
 let faceFile = null;
 let activeSession = null;
@@ -756,19 +782,83 @@ function getUnifiedStudents(school) {
 function buildStudentList() {
   if (!selectedSchool) return;
   allStudents = getUnifiedStudents(selectedSchool);
+  // بناء شبكة الصفوف للطريقة اليدوية
+  buildClassGrid();
+}
+
+function buildClassGrid() {
+  const grid = $('classGrid');
+  if (!grid) return;
+  // جمع الصفوف الفريدة من الطلاب
+  const classMap = {};
+  for (const s of allStudents) {
+    const key = s.companyName || s.className || '—';
+    if (!classMap[key]) classMap[key] = { name: key, count: 0 };
+    classMap[key].count++;
+  }
+  const classes = Object.values(classMap).sort((a, b) =>
+    String(a.name).localeCompare(String(b.name), 'ar')
+  );
+  if (!classes.length) {
+    grid.innerHTML = '<div class="empty-state"><div class="empty-icon">🏫</div><div class="empty-text">لا توجد صفوف</div></div>';
+    return;
+  }
+  // ألوان مختلفة للصفوف
+  const colors = [
+    { bg: '#e0f2fe', border: '#0369a1', text: '#0c4a6e' },
+    { bg: '#d1fae5', border: '#059669', text: '#064e3b' },
+    { bg: '#fce7f3', border: '#db2777', text: '#831843' },
+    { bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },
+    { bg: '#fef3c7', border: '#d97706', text: '#78350f' },
+    { bg: '#fee2e2', border: '#dc2626', text: '#7f1d1d' },
+    { bg: '#f0fdf4', border: '#16a34a', text: '#14532d' },
+    { bg: '#fff7ed', border: '#ea580c', text: '#7c2d12' },
+  ];
+  grid.innerHTML = classes.map((cls, i) => {
+    const c = colors[i % colors.length];
+    const isSelected = selectedClass === cls.name;
+    return '<div class="class-card' + (isSelected ? ' selected' : '') + '" ' +
+      'style="background:' + c.bg + ';border-color:' + (isSelected ? c.border : '#e2e8f0') + ';" ' +
+      'onclick="selectClass(&apos;' + cls.name.replace(/'/g, '') + '&apos;)">' +
+      '<div class="class-card-icon">🏫</div>' +
+      '<div class="class-card-name" style="color:' + c.text + '">' + cls.name + '</div>' +
+      '<div class="class-card-count">' + cls.count + ' طالب</div>' +
+      '</div>';
+  }).join('');
+}
+
+function selectClass(className) {
+  selectedClass = className;
+  // إخفاء شبكة الصفوف وإظهار قائمة الطلاب
+  $('classSelectionView').style.display = 'none';
+  $('studentListView').style.display = 'block';
+  $('selectedClassName').textContent = className;
+  if ($('studentSearch')) $('studentSearch').value = '';
   filterStudents();
+}
+
+function backToClassSelection() {
+  selectedClass = null;
+  $('classSelectionView').style.display = 'block';
+  $('studentListView').style.display = 'none';
+  buildClassGrid();
 }
 
 function filterStudents() {
   const q = ($('studentSearch')?.value || '').trim().toLowerCase();
+  // تصفية حسب الصف المختار أولاً
+  let base = allStudents;
+  if (selectedClass) {
+    base = allStudents.filter((s) => (s.companyName || s.className || '—') === selectedClass);
+  }
   filteredStudents = q
-    ? allStudents.filter((s) =>
+    ? base.filter((s) =>
         (s.name || '').toLowerCase().includes(q) ||
         (s.studentNumber || '').toLowerCase().includes(q) ||
         (s.nationalId || '').toLowerCase().includes(q) ||
         (s.barcode || '').toLowerCase().includes(q)
       )
-    : allStudents;
+    : base;
   renderStudentList();
 }
 
@@ -820,13 +910,23 @@ function clearSelectedStudent() {
   $('actionMsg').className = 'msg-box';
   $('actionMsg').textContent = '';
   updateStepIndicators(2);
-  filterStudents();
+  // إذا كان الصف مختاراً نعود لقائمة الطلاب مباشرة، وإلا نعود لشبكة الصفوف
+  if (selectedClass && identifyMethod === 'manual') {
+    if ($('classSelectionView')) $('classSelectionView').style.display = 'none';
+    if ($('studentListView')) $('studentListView').style.display = 'block';
+    filterStudents();
+  } else if (identifyMethod === 'manual') {
+    if ($('classSelectionView')) $('classSelectionView').style.display = 'block';
+    if ($('studentListView')) $('studentListView').style.display = 'none';
+    buildClassGrid();
+  }
 }
 
 // ===== ACTION FLOW =====
 function resetActionFlow() {
   selectedStudent = null;
   selectedActionItem = null;
+  selectedClass = null;
   actionType = 'reward';
   identifyMethod = 'manual';
   $('actionStep1').style.display = 'block';
@@ -835,6 +935,9 @@ function resetActionFlow() {
   $('selectedStudentBanner').style.display = 'none';
   $('actionMsg').className = 'msg-box';
   $('actionMsg').textContent = '';
+  // إعادة عرض شبكة الصفوف
+  if ($('classSelectionView')) $('classSelectionView').style.display = 'block';
+  if ($('studentListView')) $('studentListView').style.display = 'none';
   ['Reward', 'Violation', 'Program'].forEach((t) => {
     const c = $('typeCard' + t);
     if (c) c.className = 'action-type-card';
@@ -865,6 +968,13 @@ function selectIdentifyMethod(method) {
   $('identifyManual').style.display = method === 'manual' ? 'block' : 'none';
   $('identifyBarcode').style.display = method === 'barcode' ? 'block' : 'none';
   $('identifyFace').style.display = method === 'face' ? 'block' : 'none';
+  // عند التبديل للطريقة اليدوية نعود لشبكة الصفوف
+  if (method === 'manual') {
+    selectedClass = null;
+    if ($('classSelectionView')) $('classSelectionView').style.display = 'block';
+    if ($('studentListView')) $('studentListView').style.display = 'none';
+    buildClassGrid();
+  }
   if (method === 'barcode') {
     setTimeout(() => { const inp = $('barcodeInput'); if (inp) { inp.value = ''; inp.focus(); } }, 100);
   }
