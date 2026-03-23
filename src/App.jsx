@@ -696,6 +696,7 @@ const defaultSettings = {
     duplicateScanBlocked: true,
   },
   exportPrefix: "ideal-company-platform",
+  weeklyTimetable: [],
   subjectBank: [
     "القرآن الكريم",
     "التوحيد",
@@ -1591,6 +1592,7 @@ function buildHydratedClientState(parsed = {}, uiState = {}) {
       devices: { ...defaultSettings.devices, ...(parsed.settings?.devices || {}) },
       actions: hydrateActionCatalog(parsed.settings?.actions || defaultSettings.actions),
       subjectBank: Array.isArray(parsed.settings?.subjectBank) ? parsed.settings.subjectBank : defaultSettings.subjectBank,
+      weeklyTimetable: Array.isArray(parsed.settings?.weeklyTimetable) ? parsed.settings.weeklyTimetable : defaultSettings.weeklyTimetable,
       auth: {
         ...defaultSettings.auth,
         ...(parsed.settings?.auth || {}),
@@ -12188,15 +12190,32 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
   );
 }
 
-function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, initialSessionId, onCreateSession, onCloseSession, onDeleteSession, onSubmitSession, onSendSessionInvites, onMarkSessionOpened }) {
+function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, settings, initialSessionId, onCreateSession, onCloseSession, onDeleteSession, onSubmitSession, onSendSessionInvites, onMarkSessionOpened }) {
   const isManager = ['superadmin', 'principal', 'supervisor'].includes(String(currentUser?.role || ''));
   const schoolUsers = useMemo(() => (users || []).filter((user) => Number(user.schoolId) === Number(selectedSchool?.id)), [users, selectedSchool?.id]);
   const todayIsoSession = getTodayIso();
+  const weeklyTimetable = useMemo(() => Array.isArray(settings?.weeklyTimetable) ? settings.weeklyTimetable : [], [settings?.weeklyTimetable]);
   const [showAllDays, setShowAllDays] = useState(false);
   const allSessions = useMemo(() => [...getLessonAttendanceSessions(selectedSchool)].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))), [selectedSchool]);
   const sessions = useMemo(() => showAllDays ? allSessions : allSessions.filter((session) => String(session.dateIso || '').startsWith(todayIsoSession) || String(session.createdAt || '').startsWith(todayIsoSession)), [allSessions, showAllDays, todayIsoSession]);
   const [selectedSessionId, setSelectedSessionId] = useState(initialSessionId || sessions[0]?.id || '');
-  const [createForm, setCreateForm] = useState(() => { const now = new Date(); const hh = String(now.getHours()).padStart(2, '0'); const mm = String(now.getMinutes()).padStart(2, '0'); const endDate = new Date(now.getTime() + 30 * 60000); const ehh = String(endDate.getHours()).padStart(2, '0'); const emm = String(endDate.getMinutes()).padStart(2, '0'); return { dateIso: getTodayIso(), slotLabel: 'الحصة الأولى', startTime: `${hh}:${mm}`, endTime: `${ehh}:${emm}`, note: '' }; });
+  const [createForm, setCreateForm] = useState(() => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const endDate = new Date(now.getTime() + 30 * 60000);
+    const ehh = String(endDate.getHours()).padStart(2, '0');
+    const emm = String(endDate.getMinutes()).padStart(2, '0');
+    const autoSlot = getCurrentSlotFromTimetable(Array.isArray(settings?.weeklyTimetable) ? settings.weeklyTimetable : [], now);
+    return {
+      dateIso: getTodayIso(),
+      slotLabel: autoSlot ? autoSlot.slotLabel : 'الحصة الأولى',
+      startTime: autoSlot ? (autoSlot.startTime || `${hh}:${mm}`) : `${hh}:${mm}`,
+      endTime: autoSlot ? (autoSlot.endTime || `${ehh}:${emm}`) : `${ehh}:${emm}`,
+      note: '',
+      _autoSlotId: autoSlot?.id || '',
+    };
+  });
   const [teacherClassKey, setTeacherClassKey] = useState('');
   const [teacherAbsentIds, setTeacherAbsentIds] = useState([]);
   const [teacherAcknowledgement, setTeacherAcknowledgement] = useState(false);
@@ -12259,11 +12278,24 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
 
   useEffect(() => {
     if (!selectedSession) return;
-    const preset = Array.isArray(selectedSession.targetTeacherIds) && selectedSession.targetTeacherIds.length
-      ? selectedSession.targetTeacherIds.map((id) => String(id))
-      : teacherOptions.map((teacher) => String(teacher.id));
-    setTargetTeacherIds(preset);
-  }, [selectedSession?.id, teacherOptions]);
+    if (Array.isArray(selectedSession.targetTeacherIds) && selectedSession.targetTeacherIds.length) {
+      setTargetTeacherIds(selectedSession.targetTeacherIds.map((id) => String(id)));
+      return;
+    }
+    // ابحث عن الحصة في الجدول لتفعيل المعلمين المناوبين تلقائيًا
+    const sessionSlotId = selectedSession?._autoSlotId || selectedSession?.slotId || '';
+    const sessionSlot = sessionSlotId ? weeklyTimetable.find((e) => e.id === sessionSlotId) : null;
+    const sessionDayKey = selectedSession?.dateIso ? getArabicDayKey(new Date(selectedSession.dateIso + 'T12:00:00')) : '';
+    const matchedSlot = sessionSlot || (sessionDayKey ? weeklyTimetable.find((e) => e.day === sessionDayKey && e.slotLabel === selectedSession?.slotLabel) : null);
+    const scheduledTeacherIds = (matchedSlot?.teacherIds || []).map(String);
+    if (scheduledTeacherIds.length > 0) {
+      // فعّل المعلمين المناوبين فقط
+      setTargetTeacherIds(scheduledTeacherIds.filter((id) => teacherOptions.some((t) => String(t.id) === id)));
+    } else {
+      // إذا لم يكن هناك جدول، فعّل جميع المعلمين
+      setTargetTeacherIds(teacherOptions.map((teacher) => String(teacher.id)));
+    }
+  }, [selectedSession?.id, teacherOptions, weeklyTimetable]);
 
   useEffect(() => {
     if (isManager || !selectedSession || !currentUser?.id) return;
@@ -12276,7 +12308,8 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
   };
 
   const handleCreate = () => {
-    const result = onCreateSession(createForm);
+    const formData = { ...createForm, slotId: createForm._autoSlotId || '' };
+    const result = onCreateSession(formData);
     if (result?.ok) {
       setSelectedSessionId(result.session.id);
       setTeacherStatus(`تم إنشاء الجلسة. الرابط: ${buildLessonSessionLink(result.session.id)}`);
@@ -12367,7 +12400,37 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
               <div className="space-y-3 rounded-[1.5rem] bg-white p-4 ring-1 ring-slate-200">
                 <div className="text-sm font-black text-slate-800">إنشاء جلسة جديدة</div>
                 <Input label="التاريخ" type="date" value={createForm.dateIso} onChange={(e) => setCreateForm((prev) => ({ ...prev, dateIso: e.target.value }))} />
-                <Input label="اسم الحصة" value={createForm.slotLabel} onChange={(e) => setCreateForm((prev) => ({ ...prev, slotLabel: e.target.value }))} />
+                {(() => {
+                  const selectedDate = createForm.dateIso ? new Date(createForm.dateIso + 'T12:00:00') : new Date();
+                  const dayKey = getArabicDayKey(selectedDate);
+                  const todaySlots = weeklyTimetable.filter((e) => e.day === dayKey).sort((a, b) => parseTimeToMinutes(a.startTime || '00:00') - parseTimeToMinutes(b.startTime || '00:00'));
+                  if (todaySlots.length > 0) {
+                    return (
+                      <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">الحصة</label>
+                        <select
+                          value={createForm._autoSlotId || ''}
+                          onChange={(e) => {
+                            const slot = todaySlots.find((s) => s.id === e.target.value);
+                            if (slot) {
+                              setCreateForm((prev) => ({ ...prev, slotLabel: slot.slotLabel, startTime: slot.startTime || prev.startTime, endTime: slot.endTime || prev.endTime, _autoSlotId: slot.id }));
+                            } else {
+                              setCreateForm((prev) => ({ ...prev, slotLabel: e.target.value, _autoSlotId: '' }));
+                            }
+                          }}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-100"
+                        >
+                          {todaySlots.map((s) => (
+                            <option key={s.id} value={s.id}>{s.slot ? `الحصة ${s.slot}: ` : ''}{s.slotLabel} ({s.startTime || '—'} – {s.endTime || '—'})</option>
+                          ))}
+                          <option value="">حصة مخصصة...</option>
+                        </select>
+                        {(!createForm._autoSlotId) && <Input label="اسم الحصة" value={createForm.slotLabel} onChange={(e) => setCreateForm((prev) => ({ ...prev, slotLabel: e.target.value }))} className="mt-2" />}
+                      </div>
+                    );
+                  }
+                  return <Input label="اسم الحصة" value={createForm.slotLabel} onChange={(e) => setCreateForm((prev) => ({ ...prev, slotLabel: e.target.value }))} placeholder="مثال: الحصة الأولى" />;
+                })()}
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                   <Input label="بداية التحضير" type="time" value={createForm.startTime} onChange={(e) => setCreateForm((prev) => ({ ...prev, startTime: e.target.value }))} />
                   <Input label="نهاية التحضير" type="time" value={createForm.endTime} onChange={(e) => setCreateForm((prev) => ({ ...prev, endTime: e.target.value }))} />
@@ -12463,17 +12526,37 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, init
                             </div>
                             <button onClick={() => setTargetTeacherIds(teacherOptions.map((teacher) => String(teacher.id)))} className="rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-700 ring-1 ring-slate-200">تحديد الكل</button>
                           </div>
-                          <div className="mt-3 grid gap-2 md:grid-cols-2">
-                            {teacherOptions.map((teacher) => {
-                              const active = targetTeacherIds.includes(String(teacher.id));
-                              return (
-                                <label key={teacher.id} className={cx('flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold ring-1', active ? 'bg-sky-50 text-sky-800 ring-sky-200' : 'bg-white text-slate-700 ring-slate-200')}>
-                                  <span>{teacher.name || teacher.username}</span>
-                                  <input type="checkbox" checked={active} onChange={(e) => setTargetTeacherIds((prev) => e.target.checked ? [...new Set([...prev, String(teacher.id)])] : prev.filter((id) => String(id) !== String(teacher.id)))} />
-                                </label>
-                              );
-                            })}
-                          </div>
+                          {(() => {
+                            // المعلمون المناوبون من الجدول لهذه الجلسة
+                            const sessionSlotId = selectedSession?._autoSlotId || selectedSession?.slotId || '';
+                            const sessionSlot = sessionSlotId ? weeklyTimetable.find((e) => e.id === sessionSlotId) : null;
+                            // إذا لم يكن هناك slotId، ابحث باسم الحصة واليوم
+                            const sessionDayKey = selectedSession?.dateIso ? getArabicDayKey(new Date(selectedSession.dateIso + 'T12:00:00')) : '';
+                            const matchedSlot = sessionSlot || (sessionDayKey ? weeklyTimetable.find((e) => e.day === sessionDayKey && e.slotLabel === selectedSession?.slotLabel) : null);
+                            const scheduledTeacherIds = new Set((matchedSlot?.teacherIds || []).map(String));
+                            const hasScheduled = scheduledTeacherIds.size > 0;
+                            return (
+                              <>
+                                {hasScheduled && <div className="mt-3 mb-1 text-xs font-bold text-emerald-700">✅ المعلمون المناوبون من الجدول مفعّلون تلقائيًا</div>}
+                                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                                  {teacherOptions.map((teacher) => {
+                                    const active = targetTeacherIds.includes(String(teacher.id));
+                                    const isScheduled = scheduledTeacherIds.has(String(teacher.id));
+                                    return (
+                                      <label key={teacher.id} className={cx('flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold ring-1', active && isScheduled ? 'bg-emerald-50 text-emerald-800 ring-emerald-200' : active ? 'bg-sky-50 text-sky-800 ring-sky-200' : 'bg-white text-slate-700 ring-slate-200')}>
+                                        <span className="flex items-center gap-2">
+                                          {isScheduled && <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" title="مناوب في الجدول" />}
+                                          {teacher.name || teacher.username}
+                                        </span>
+                                        <input type="checkbox" checked={active} onChange={(e) => setTargetTeacherIds((prev) => e.target.checked ? [...new Set([...prev, String(teacher.id)])] : prev.filter((id) => String(id) !== String(teacher.id)))} />
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            );
+                          })()}
+
                           {showMessageEditor && (
                             <div className="mt-3 space-y-2">
                               <div className="text-xs font-bold text-slate-700">نص الرسالة (يمكنك تعديلها)</div>
@@ -14110,6 +14193,7 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
     { key: "import", label: "الطلاب" },
     { key: "devices", label: "الأجهزة" },
     ...(canViewParentPortal ? [{ key: "parentPortal", label: "بوابة ولي الأمر" }] : []),
+    { key: "timetable", label: "جدول الحصص" },
     ...(currentUser?.role === 'superadmin' ? [{ key: "backup", label: "النسخ الاحتياطي" }] : []),
     { key: "diagnostics", label: "جاهزية المدرسة" },
   ];
@@ -14256,6 +14340,14 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
       tone: parentPortalConfig.enabled ? 'green' : 'slate',
       tab: 'parentPortal',
     }] : []),
+    {
+      key: 'timetable',
+      title: 'جدول الحصص',
+      value: `${(localSettings?.weeklyTimetable || []).length} خانة`,
+      detail: 'جدول الحصص الأسبوعي للمعلمين والاختيار التلقائي عند تحضير الحصص',
+      tone: 'violet',
+      tab: 'timetable',
+    },
   ]), [selectedSchool, localSettings, attendanceMethod, canViewParentPortal, parentPortalConfig]);
 
   const exportAuthLogs = (format = 'xlsx') => {
@@ -15051,6 +15143,14 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
         )}
 
 
+        {tab === "timetable" && (
+          <WeeklyTimetableEditor
+            timetable={localSettings?.weeklyTimetable || []}
+            teachers={(users || []).filter((u) => Number(u.schoolId) === Number(selectedSchool?.id) && u.role === 'teacher' && String(u.status || 'نشط') === 'نشط')}
+            onChange={(newTimetable) => setLocalSettings((prev) => ({ ...prev, weeklyTimetable: newTimetable }))}
+          />
+        )}
+
         <div className="mt-6 flex flex-wrap gap-3">
           <button onClick={save} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white"><Save className="h-4 w-4" /> حفظ الإعدادات</button>
           <button onClick={() => setLocalSettings(settings)} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-5 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> التراجع</button>
@@ -15162,6 +15262,224 @@ function SubjectBankEditor({ subjectBank = [], onChange }) {
           </div>
         ) : (
           <div className="rounded-3xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">بنك المواد فارغ. أضف مواد لتظهر عند إضافة المعلمين.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const WEEK_DAYS = [
+  { key: 'sunday', label: 'الأحد' },
+  { key: 'monday', label: 'الاثنين' },
+  { key: 'tuesday', label: 'الثلاثاء' },
+  { key: 'wednesday', label: 'الأربعاء' },
+  { key: 'thursday', label: 'الخميس' },
+];
+
+function getArabicDayKey(date = new Date()) {
+  const dayIndex = date.getDay(); // 0=Sunday
+  const map = [0, 1, 2, 3, 4, 5, 6];
+  const keys = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  return keys[dayIndex] || 'sunday';
+}
+
+function getCurrentSlotFromTimetable(timetable = [], date = new Date()) {
+  const dayKey = getArabicDayKey(date);
+  const nowMinutes = date.getHours() * 60 + date.getMinutes();
+  const daySlots = timetable.filter((entry) => entry.day === dayKey);
+  if (!daySlots.length) return null;
+  // ابحث عن الحصة التي وقتها الحالي ضمن نطاقها
+  const current = daySlots.find((entry) => {
+    const start = parseTimeToMinutes(entry.startTime || '00:00');
+    const end = parseTimeToMinutes(entry.endTime || '23:59');
+    return nowMinutes >= start && nowMinutes <= end;
+  });
+  if (current) return current;
+  // إذا لم يكن ضمن أي حصة، ارجع أقرب حصة قادمة
+  const upcoming = daySlots
+    .filter((entry) => parseTimeToMinutes(entry.startTime || '00:00') > nowMinutes)
+    .sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime));
+  return upcoming[0] || daySlots.sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime))[0] || null;
+}
+
+function WeeklyTimetableEditor({ timetable = [], teachers = [], onChange }) {
+  const [selectedDay, setSelectedDay] = useState('sunday');
+  const [editingEntry, setEditingEntry] = useState(null);
+  const [draftEntry, setDraftEntry] = useState({ day: 'sunday', slot: 1, slotLabel: '', startTime: '07:00', endTime: '07:45', teacherIds: [] });
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  const dayEntries = useMemo(() => timetable.filter((e) => e.day === selectedDay).sort((a, b) => parseTimeToMinutes(a.startTime || '00:00') - parseTimeToMinutes(b.startTime || '00:00')), [timetable, selectedDay]);
+
+  const addEntry = () => {
+    if (!draftEntry.slotLabel.trim()) { window.alert('أدخل اسم الحصة.'); return; }
+    const newEntry = { ...draftEntry, id: `slot-${Date.now()}-${Math.random().toString(36).slice(2)}`, day: selectedDay, slot: Number(draftEntry.slot) || 1, slotLabel: draftEntry.slotLabel.trim(), teacherIds: draftEntry.teacherIds || [] };
+    onChange([...timetable, newEntry]);
+    setDraftEntry({ day: selectedDay, slot: (Number(draftEntry.slot) || 1) + 1, slotLabel: '', startTime: draftEntry.endTime, endTime: '', teacherIds: [] });
+    setShowAddForm(false);
+  };
+
+  const removeEntry = (id) => {
+    onChange(timetable.filter((e) => e.id !== id));
+  };
+
+  const saveEdit = () => {
+    if (!editingEntry) return;
+    onChange(timetable.map((e) => e.id === editingEntry.id ? { ...editingEntry, slotLabel: editingEntry.slotLabel.trim() } : e));
+    setEditingEntry(null);
+  };
+
+  const toggleTeacherInEntry = (entry, teacherId) => {
+    const ids = (entry.teacherIds || []).map(String);
+    const key = String(teacherId);
+    const newIds = ids.includes(key) ? ids.filter((id) => id !== key) : [...ids, key];
+    onChange(timetable.map((e) => e.id === entry.id ? { ...e, teacherIds: newIds } : e));
+  };
+
+  const toggleTeacherInDraft = (teacherId) => {
+    const ids = (draftEntry.teacherIds || []).map(String);
+    const key = String(teacherId);
+    setDraftEntry((prev) => ({ ...prev, teacherIds: ids.includes(key) ? ids.filter((id) => id !== key) : [...ids, key] }));
+  };
+
+  const totalSlots = timetable.length;
+  const totalDaysWithSlots = new Set(timetable.map((e) => e.day)).size;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="rounded-3xl bg-violet-50 p-5 ring-1 ring-violet-100">
+          <div className="text-sm font-bold text-violet-800">إجمالي الخانات</div>
+          <div className="mt-3 text-3xl font-black text-slate-900">{totalSlots}</div>
+          <div className="mt-2 text-sm text-slate-600">خانة حصص مسجلة في الجدول</div>
+        </div>
+        <div className="rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-100">
+          <div className="text-sm font-bold text-sky-800">أيام مضبوطة</div>
+          <div className="mt-3 text-3xl font-black text-slate-900">{totalDaysWithSlots} / 5</div>
+          <div className="mt-2 text-sm text-slate-600">من أيام الأسبوع الدراسي</div>
+        </div>
+        <div className="rounded-3xl bg-emerald-50 p-5 ring-1 ring-emerald-100">
+          <div className="text-sm font-bold text-emerald-800">الاختيار التلقائي</div>
+          <div className="mt-3 text-2xl font-black text-slate-900">مفعّل</div>
+          <div className="mt-2 text-sm text-slate-600">عند إنشاء جلسة تحضير، تُختار الحصة المناسبة للوقت تلقائيًا</div>
+        </div>
+      </div>
+
+      <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="font-black text-slate-900">جدول الحصص الأسبوعي</div>
+            <div className="mt-1 text-sm leading-7 text-slate-500">حدد الحصص لكل يوم مع وقت البداية والنهاية، وحدد المعلمين المناوبين في كل حصة.</div>
+          </div>
+          <button type="button" onClick={() => { setShowAddForm(true); setDraftEntry((prev) => ({ ...prev, day: selectedDay })); }} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white hover:bg-sky-800">إضافة حصة</button>
+        </div>
+
+        <div className="mb-4 flex flex-wrap gap-2">
+          {WEEK_DAYS.map((d) => (
+            <button key={d.key} type="button" onClick={() => setSelectedDay(d.key)} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${selectedDay === d.key ? 'bg-sky-700 text-white shadow-sm' : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100'}`}>
+              {d.label}
+              {timetable.filter((e) => e.day === d.key).length > 0 && <span className="mr-2 rounded-full bg-white/20 px-1.5 text-xs">{timetable.filter((e) => e.day === d.key).length}</span>}
+            </button>
+          ))}
+        </div>
+
+        {showAddForm && (
+          <div className="mb-4 rounded-3xl bg-white p-5 ring-1 ring-sky-200">
+            <div className="mb-3 font-black text-slate-900">إضافة حصة جديدة — {WEEK_DAYS.find((d) => d.key === selectedDay)?.label}</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <Input label="رقم الحصة" type="number" min="1" max="12" value={draftEntry.slot} onChange={(e) => setDraftEntry((prev) => ({ ...prev, slot: e.target.value }))} />
+              <Input label="اسم الحصة (مادة)" value={draftEntry.slotLabel} onChange={(e) => setDraftEntry((prev) => ({ ...prev, slotLabel: e.target.value }))} placeholder="مثال: قرآن كريم" />
+              <Input label="وقت البداية" type="time" value={draftEntry.startTime} onChange={(e) => setDraftEntry((prev) => ({ ...prev, startTime: e.target.value }))} />
+              <Input label="وقت النهاية" type="time" value={draftEntry.endTime} onChange={(e) => setDraftEntry((prev) => ({ ...prev, endTime: e.target.value }))} />
+            </div>
+            <div className="mt-3">
+              <div className="mb-2 text-sm font-bold text-slate-700">المعلمون المناوبون في هذه الحصة</div>
+              {teachers.length === 0 ? <div className="text-sm text-slate-400">لا يوجد معلمون نشطون في هذه المدرسة.</div> : (
+                <div className="flex flex-wrap gap-2">
+                  {teachers.map((t) => {
+                    const isSelected = (draftEntry.teacherIds || []).map(String).includes(String(t.id));
+                    return (
+                      <button key={t.id} type="button" onClick={() => toggleTeacherInDraft(t.id)} className={`rounded-2xl px-3 py-1.5 text-xs font-bold transition ${isSelected ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                        {t.name || t.username}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button type="button" onClick={addEntry} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white">حفظ الحصة</button>
+              <button type="button" onClick={() => setShowAddForm(false)} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">إلغاء</button>
+            </div>
+          </div>
+        )}
+
+        {dayEntries.length === 0 && !showAddForm ? (
+          <div className="rounded-3xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">لا توجد حصص مسجلة ليوم {WEEK_DAYS.find((d) => d.key === selectedDay)?.label}. اضغط "إضافة حصة" للبدء.</div>
+        ) : (
+          <div className="space-y-3">
+            {dayEntries.map((entry) => (
+              <div key={entry.id} className="rounded-3xl bg-white p-4 ring-1 ring-slate-200">
+                {editingEntry?.id === entry.id ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <Input label="رقم الحصة" type="number" min="1" max="12" value={editingEntry.slot} onChange={(e) => setEditingEntry((prev) => ({ ...prev, slot: e.target.value }))} />
+                      <Input label="اسم الحصة" value={editingEntry.slotLabel} onChange={(e) => setEditingEntry((prev) => ({ ...prev, slotLabel: e.target.value }))} />
+                      <Input label="وقت البداية" type="time" value={editingEntry.startTime} onChange={(e) => setEditingEntry((prev) => ({ ...prev, startTime: e.target.value }))} />
+                      <Input label="وقت النهاية" type="time" value={editingEntry.endTime} onChange={(e) => setEditingEntry((prev) => ({ ...prev, endTime: e.target.value }))} />
+                    </div>
+                    <div>
+                      <div className="mb-2 text-sm font-bold text-slate-700">المعلمون المناوبون</div>
+                      <div className="flex flex-wrap gap-2">
+                        {teachers.map((t) => {
+                          const isSelected = (editingEntry.teacherIds || []).map(String).includes(String(t.id));
+                          return (
+                            <button key={t.id} type="button" onClick={() => setEditingEntry((prev) => { const ids = (prev.teacherIds || []).map(String); const key = String(t.id); return { ...prev, teacherIds: ids.includes(key) ? ids.filter((id) => id !== key) : [...ids, key] }; })} className={`rounded-2xl px-3 py-1.5 text-xs font-bold transition ${isSelected ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                              {t.name || t.username}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={saveEdit} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white">حفظ</button>
+                      <button type="button" onClick={() => setEditingEntry(null)} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">إلغاء</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-violet-100 text-sm font-black text-violet-700">{entry.slot}</div>
+                        <div>
+                          <div className="font-black text-slate-900">{entry.slotLabel}</div>
+                          <div className="mt-0.5 text-xs text-slate-500">{entry.startTime || '—'} – {entry.endTime || '—'}</div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => setEditingEntry({ ...entry })} className="rounded-2xl bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-200">تعديل</button>
+                        <button type="button" onClick={() => removeEntry(entry.id)} className="rounded-2xl bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-100">حذف</button>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <div className="mb-2 text-xs font-bold text-slate-500">المعلمون المناوبون:</div>
+                      {teachers.length === 0 ? <span className="text-xs text-slate-400">لا يوجد معلمون</span> : (
+                        <div className="flex flex-wrap gap-2">
+                          {teachers.map((t) => {
+                            const isSelected = (entry.teacherIds || []).map(String).includes(String(t.id));
+                            return (
+                              <button key={t.id} type="button" onClick={() => toggleTeacherInEntry(entry, t.id)} className={`rounded-2xl px-3 py-1.5 text-xs font-bold transition ${isSelected ? 'bg-emerald-600 text-white ring-1 ring-emerald-300' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                                {t.name || t.username}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -19580,7 +19898,7 @@ ${buildLessonSessionLink(sessionId)}
       case "points":
         return <PointsPage selectedSchool={selectedSchool} settings={settings} />;
       case "lessonAttendanceSessions":
-        return <LessonAttendanceSessionsPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialSessionId={lessonSessionIdFromUrl} onCreateSession={handleCreateLessonAttendanceSession} onCloseSession={handleUpdateLessonAttendanceSessionStatus} onDeleteSession={handleDeleteLessonAttendanceSession} onSubmitSession={handleSubmitLessonAttendanceSession} onSendSessionInvites={handleSendLessonAttendanceSessionInvites} onMarkSessionOpened={handleMarkLessonAttendanceSessionOpened} />;
+        return <LessonAttendanceSessionsPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} settings={selectedSchool?.settings} initialSessionId={lessonSessionIdFromUrl} onCreateSession={handleCreateLessonAttendanceSession} onCloseSession={handleUpdateLessonAttendanceSessionStatus} onDeleteSession={handleDeleteLessonAttendanceSession} onSubmitSession={handleSubmitLessonAttendanceSession} onSendSessionInvites={handleSendLessonAttendanceSessionInvites} onMarkSessionOpened={handleMarkLessonAttendanceSessionOpened} />;
       case "reports":
         return <ReportsPage schools={schools} scanLog={scanLog} actionLog={actionLog} gateSyncEvents={gateSyncEvents} selectedSchool={selectedSchool} settings={settings} executiveReport={executiveReport} onExportAttendance={exportAttendance} onExportStudents={exportStudents} onExportSchools={exportSchools} onExportBackup={exportBackup} />;
       case "deviceDisplays":
