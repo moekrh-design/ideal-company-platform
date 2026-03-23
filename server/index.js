@@ -3818,16 +3818,22 @@ function renderParentPortalHtml() {
     }
     .nav-badge {
       position: absolute;
-      top: 4px; left: calc(50% + 8px);
-      background: #ef4444;
+      top: 2px; left: calc(50% + 6px);
+      background: linear-gradient(135deg, #ef4444, #dc2626);
       color: #fff;
       font-size: 10px;
-      font-weight: 800;
+      font-weight: 900;
       min-width: 18px; height: 18px;
       border-radius: 999px;
       display: flex; align-items: center; justify-content: center;
-      padding: 0 4px;
-      box-shadow: 0 2px 8px rgba(239,68,68,.4);
+      padding: 0 5px;
+      box-shadow: 0 2px 8px rgba(239,68,68,.5), 0 0 0 2px #fff;
+      animation: badge-pulse 1.8s ease-in-out infinite;
+      letter-spacing: -0.5px;
+    }
+    @keyframes badge-pulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 2px 8px rgba(239,68,68,.5), 0 0 0 2px #fff; }
+      50% { transform: scale(1.15); box-shadow: 0 4px 14px rgba(239,68,68,.7), 0 0 0 2px #fff; }
     }
 
     /* ===== CARDS ===== */
@@ -4762,6 +4768,12 @@ function navigateTo(page) {
   if (pageEl) pageEl.classList.remove('hidden');
   const navEl = document.querySelector('[data-page="' + page + '"]');
   if (navEl) navEl.classList.add('active');
+  // عند فتح صفحة التنبيهات: تحديث وقت آخر قراءة وإخفاء الـ badge
+  if (page === 'notifications') {
+    try { localStorage.setItem('parent_notif_read_at', new Date().toISOString()); } catch(e) {}
+    const notifBadge = $('notifBadge');
+    if (notifBadge) notifBadge.classList.add('hidden');
+  }
 }
 
 /* ===== RENDER HELPERS ===== */
@@ -4935,9 +4947,14 @@ function renderNotifications() {
     return true;
   });
   const notifBadge = $('notifBadge');
-  const unread = history.filter(item => String(item.status || '') !== 'نجاح').length;
+  // حساب الإشعارات غير المقروءة بناءً على آخر وقت فتح صفحة التنبيهات
+  let lastReadAt = '';
+  try { lastReadAt = localStorage.getItem('parent_notif_read_at') || ''; } catch(e) {}
+  const unread = lastReadAt
+    ? history.filter(item => (item.createdAt || item.sentAt || '') > lastReadAt).length
+    : history.length;
   if (notifBadge) {
-    if (unread > 0) { notifBadge.textContent = unread; notifBadge.classList.remove('hidden'); }
+    if (unread > 0 && activeNavPage !== 'notifications') { notifBadge.textContent = unread > 99 ? '99+' : unread; notifBadge.classList.remove('hidden'); }
     else notifBadge.classList.add('hidden');
   }
   const container = $('notifList');
@@ -5385,22 +5402,42 @@ function getAudioContext() {
   }
   return _audioCtx;
 }
-// تفعيل AudioContext عند أول تفاعل مع الصفحة
-document.addEventListener('click', function initAudio() {
-  getAudioContext();
-  document.removeEventListener('click', initAudio);
-}, { once: true });
-document.addEventListener('touchstart', function initAudioTouch() {
-  getAudioContext();
-  document.removeEventListener('touchstart', initAudioTouch);
-}, { once: true });
+// تفعيل AudioContext عند أول تفاعل مع الصفحة مع تشغيل صوت صامت لفتح قناة الصوت
+function _unlockAudio() {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  // تشغيل نغمة صامتة جداً لـ "unlock" قناة الصوت في المتصفح
+  try {
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+  } catch(e) {}
+}
+document.addEventListener('click', function initAudio() { _unlockAudio(); }, { once: true });
+document.addEventListener('touchstart', function initAudioTouch() { _unlockAudio(); }, { once: true });
+document.addEventListener('touchend', function initAudioTouchEnd() { _unlockAudio(); }, { once: true });
 
 // صوت منبه احترافي ناعم بدون ملف خارجي
 function playNotificationSound(type) {
   const ctx = getAudioContext();
   if (!ctx) return;
+  // ضمان تشغيل الـ AudioContext إذا كان معلقاً
+  const doPlay = () => {
+    try {
+      const now = ctx.currentTime;
+      _playNotifSoundCore(ctx, type, now);
+    } catch(e) {}
+  };
+  if (ctx.state === 'suspended') {
+    ctx.resume().then(doPlay).catch(() => {});
+  } else {
+    doPlay();
+  }
+}
+function _playNotifSoundCore(ctx, type, now) {
   try {
-    const now = ctx.currentTime;
     const master = ctx.createGain();
     master.gain.setValueAtTime(0, now);
     master.gain.linearRampToValueAtTime(0.18, now + 0.01);
@@ -5493,11 +5530,15 @@ async function pollNewNotifications() {
         renderNotifications();
         const sp = $('statTotalPoints'); if (sp) sp.textContent = profile.totalPoints || 0;
         renderPointsChart(profile);
-        // تحديث شارة التنبيهات
+        // تحديث شارة التنبيهات بناءً على آخر وقت قراءة
         const notifBadge = $('notifBadge');
         if (notifBadge) {
-          const unread = history.filter(item => String(item.status || '') !== 'نجاح').length;
-          if (unread > 0) { notifBadge.textContent = unread; notifBadge.classList.remove('hidden'); }
+          let lastReadAt = '';
+          try { lastReadAt = localStorage.getItem('parent_notif_read_at') || ''; } catch(e) {}
+          const unread = lastReadAt
+            ? history.filter(item => (item.createdAt || item.sentAt || '') > lastReadAt).length
+            : history.length;
+          if (unread > 0 && activeNavPage !== 'notifications') { notifBadge.textContent = unread > 99 ? '99+' : unread; notifBadge.classList.remove('hidden'); }
           else notifBadge.classList.add('hidden');
         }
       }
