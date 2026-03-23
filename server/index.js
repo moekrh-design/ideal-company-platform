@@ -22,7 +22,8 @@ const GLOBAL_BACKUPS_DIR = path.join(BACKUPS_DIR, 'global');
 const SCHOOL_BACKUPS_DIR = path.join(BACKUPS_DIR, 'schools');
 const BACKUP_RETENTION_DAYS = Number(process.env.BACKUP_RETENTION_DAYS || 30);
 const PORT = Number(process.env.PORT || 4000);
-const SESSION_DAYS = Number(process.env.SESSION_DAYS || 7);
+const SESSION_DAYS = Number(process.env.SESSION_DAYS || 90);
+const PARENT_SESSION_DAYS = Number(process.env.PARENT_SESSION_DAYS || 90);
 const JSON_LIMIT_BYTES = 50 * 1024 * 1024;
 const SCREEN_TRANSITION_KEYS = ["fade","cut","slide-left","slide-right","slide-up","slide-down","zoom-in","zoom-out","flip-x","flip-y","rotate-soft","rotate-in","blur","bounce","scale-up","scale-down","swing","curtain","diagonal","pop","float","random"];
 const SCREEN_THEME_KEYS = ["emerald-night","blue-contrast","violet-stage","sunrise","graphite"];
@@ -1694,7 +1695,7 @@ async function verifyAndConsumeParentOtp(phone, code) {
 async function createParentSession(phone, profile) {
   await cleanupExpiredSessions();
   const token = crypto.randomBytes(32).toString('hex');
-  await dbRun('INSERT INTO sessions (token, user_id, username, role, school_id, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [token, 0, buildParentUsername(phone), 'parent', profile?.students?.[0]?.schoolId ?? null, nowIso(), daysFromNow(SESSION_DAYS)]);
+  await dbRun('INSERT INTO sessions (token, user_id, username, role, school_id, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [token, 0, buildParentUsername(phone), 'parent', profile?.students?.[0]?.schoolId ?? null, nowIso(), daysFromNow(PARENT_SESSION_DAYS)]);
   await audit({ username: buildParentUsername(phone), role: 'parent' }, 'parent_login', { mobile: normalizePhoneNumber(phone), studentsCount: profile?.studentsCount || 0 });
   return token;
 }
@@ -5333,7 +5334,14 @@ async function bootstrapParent() {
   try {
     const data = await api('/api/parent/bootstrap', { headers: { 'X-Session-Token': token } });
     renderProfile(data.profile || {});
-  } catch(e) { clearToken(); }
+  } catch(e) {
+    // لا نمسح التوكن إلا إذا كانت الجلسة منتهية فعلاً (401) وليس خطأ شبكة مؤقت
+    const isAuthError = e && (String(e.message || '').includes('غير صالحة') || String(e.message || '').includes('منتهية') || String(e.message || '').includes('401'));
+    if (isAuthError) {
+      clearToken();
+    }
+    // في حالة خطأ الشبكة: نبقي التوكن ونعرض رسالة خطأ مؤقتة
+  }
 }
 
 /* ===== LOGIN EVENTS ===== */
@@ -6506,6 +6514,11 @@ const server = http.createServer(async (req, res) => {
     if (reqUrl.pathname === '/api/parent/bootstrap' && req.method === 'GET') {
       const profile = await getParentProfileFromToken(token);
       if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
+      // تجديد تلقائي للجلسة (sliding session) — يمدد الجلسة عند كل bootstrap ناجح
+      try {
+        const newExpiry = daysFromNow(PARENT_SESSION_DAYS);
+        await dbRun('UPDATE sessions SET expires_at = $1 WHERE token = $2 AND role = $3', [newExpiry, token, 'parent']);
+      } catch(e) { /* لا نوقف الطلب إذا فشل التجديد */ }
       return sendJson(res, 200, { ok: true, profile });
     }
 

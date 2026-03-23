@@ -13999,6 +13999,7 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
     saving: false,
     mode: 'auto',
     enabled: true,
+    altLoginEnabled: true,
     alerts: [],
     totalRequests: 0,
     pendingRequests: 0,
@@ -14049,6 +14050,7 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
           loading: false,
           mode: response.policy?.mode || 'auto',
           enabled: response.portalSettings?.enabled !== false,
+          altLoginEnabled: response.portalSettings?.altLoginEnabled !== false,
           alerts,
           totalRequests: requests.length,
           pendingRequests: requests.filter((item) => item.status === 'pending').length,
@@ -14084,6 +14086,18 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
       window.alert(enabled ? 'تم تفعيل بوابة ولي الأمر.' : 'تم إيقاف بوابة ولي الأمر.');
     } catch (error) {
       setParentPortalConfig((current) => ({ ...current, saving: false, error: error.message || 'تعذر تحديث حالة البوابة.' }));
+    }
+  };
+
+  const saveParentPortalAltLogin = async (altLoginEnabled) => {
+    if (!canManageParentPortal) return;
+    setParentPortalConfig((current) => ({ ...current, saving: true, error: '' }));
+    try {
+      await apiRequest('/api/admin/parent-primary-requests/portal-settings', { method: 'POST', token: getSessionToken(), body: { altLoginEnabled } });
+      setParentPortalConfig((current) => ({ ...current, saving: false, altLoginEnabled, error: '' }));
+      window.alert(altLoginEnabled ? 'تم تفعيل الدخول البديل برقم الهوية.' : 'تم تعطيل الدخول البديل برقم الهوية.');
+    } catch (error) {
+      setParentPortalConfig((current) => ({ ...current, saving: false, error: error.message || 'تعذر تحديث إعداد الدخول البديل.' }));
     }
   };
 
@@ -14987,6 +15001,20 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'auto'} onClick={() => saveParentPortalMode('auto')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'auto') ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-sky-700 text-white hover:bg-sky-800'}`}>تلقائي (افتراضي)</button>
                     <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'manual'} onClick={() => saveParentPortalMode('manual')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.mode === 'manual') ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-amber-500 text-white hover:bg-amber-600'}`}>يدوي</button>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl bg-white p-4 ring-1 ring-slate-200 lg:col-span-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-black text-slate-900">طريقة الدخول البديل برقم الهوية</div>
+                      <div className="mt-1 text-sm text-slate-500">تتيح لولي الأمر الدخول عبر رقم الجوال المسجّل + رقم هوية أحد أبنائه بدلاً من رمز OTP — مفيد عند تعذّر استلام الرمز</div>
+                    </div>
+                    <Badge tone={parentPortalConfig.altLoginEnabled ? 'green' : 'slate'}>{parentPortalConfig.altLoginEnabled ? 'مفعّل' : 'معطّل'}</Badge>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.altLoginEnabled} onClick={() => saveParentPortalAltLogin(true)} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || parentPortalConfig.altLoginEnabled) ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-emerald-700 text-white hover:bg-emerald-800'}`}>تفعيل الدخول البديل</button>
+                    <button type="button" disabled={!canManageParentPortal || parentPortalConfig.saving || !parentPortalConfig.altLoginEnabled} onClick={() => saveParentPortalAltLogin(false)} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${(!canManageParentPortal || parentPortalConfig.saving || !parentPortalConfig.altLoginEnabled) ? 'cursor-not-allowed bg-slate-100 text-slate-400' : 'bg-rose-700 text-white hover:bg-rose-800'}`}>تعطيل الدخول البديل</button>
                   </div>
                 </div>
               </div>
