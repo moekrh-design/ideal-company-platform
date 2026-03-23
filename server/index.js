@@ -4965,7 +4965,7 @@ function renderNotifications() {
         // استخراج deltaPoints من body إذا لم يكن محفوظاً (للإشعارات القديمة)
         let effectiveDelta = item.deltaPoints;
         if ((effectiveDelta === null || effectiveDelta === undefined) && item.body) {
-          const m = String(item.body).match(/\(([+-]?\d+)\s*نقط/);
+          const m = String(item.body).match(new RegExp('\\(([+-]?\\d+)\\s*نقط'));
           if (m) effectiveDelta = Number(m[1]);
         }
         const isReward = String(item.eventType || '').includes('reward') || (effectiveDelta !== null && effectiveDelta !== undefined && Number(effectiveDelta) > 0);
