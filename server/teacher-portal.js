@@ -928,7 +928,7 @@ function startPolling() {
         if (activePage === 'dashboard') renderDashboard();
       }
     } catch(e) {}
-  }, 20000);
+  }, 120000);
 }
 
 // ===== PAGE NAVIGATION =====
@@ -1190,21 +1190,22 @@ async function submitAction() {
     }
     const data = await api('/api/schools/' + selectedSchool.id + '/actions/apply', { method: 'POST', body });
     if (data.ok) {
-      sharedState = data.state || sharedState;
-      selectedSchool = (sharedState.schools || []).find((s) => s.id === currentUser.schoolId) || selectedSchool;
-      buildStudentList();
+      // تحديث بيانات الطالب محلياً فقط (بدون تحميل state كامل)
+      const updatedStudent = allStudents.find((s) => String(s.id) === String(selectedStudent.id));
+      if (updatedStudent && data.student) {
+        updatedStudent.points = data.student.points !== undefined ? data.student.points : updatedStudent.points;
+        // تحديث عرض النقاط في شاشة الطالب المختار
+        if ($('selectedStudentInfo')) {
+          $('selectedStudentInfo').textContent = updatedStudent.className + ' • ' + (updatedStudent.points || 0) + ' نقطة';
+        }
+        // تحديث عرض النقاط في بطاقة الطالب في القائمة
+        const studentCard = document.querySelector('[data-student-id="' + selectedStudent.id + '"] .student-points');
+        if (studentCard) studentCard.textContent = (updatedStudent.points || 0);
+      }
       showMsg('actionMsg', '✅ ' + (data.message || 'تم تطبيق الإجراء بنجاح.'), 'success');
       if ($('actionNote')) $('actionNote').value = '';
       selectedActionItem = null;
       btn.disabled = true;
-      // تحديث نقاط الطالب
-      const updatedStudent = allStudents.find((s) => String(s.id) === String(selectedStudent.id));
-      if (updatedStudent && data.student) {
-        updatedStudent.points = data.student.points || updatedStudent.points;
-        if ($('selectedStudentInfo')) {
-          $('selectedStudentInfo').textContent = updatedStudent.className + ' • ' + (updatedStudent.points || 0) + ' نقطة';
-        }
-      }
       renderActionItems();
     } else {
       showMsg('actionMsg', '❌ ' + (data.message || 'فشل تطبيق الإجراء.'), 'error');
