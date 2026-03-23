@@ -305,10 +305,14 @@ export function renderTeacherPortalHtml() {
     .save-attendance-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(3,105,161,0.4); }
 
     /* ===== NOTIFICATIONS ===== */
-    .notif-item { background: white; border-radius: 22px; padding: 18px; margin-bottom: 12px; border-left: 5px solid #0369a1; box-shadow: 0 2px 8px rgba(0,0,0,0.06); transition: all 0.2s; }
-    .notif-item:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
-    .notif-title { font-size: 14px; font-weight: 800; color: #0f172a; }
-    .notif-body { font-size: 13px; color: #374151; margin-top: 8px; line-height: 1.6; }
+    .notif-item { background: white; border-radius: 22px; padding: 18px; margin-bottom: 12px; border-left: 5px solid #0369a1; box-shadow: 0 2px 8px rgba(0,0,0,0.06); transition: all 0.2s; position: relative; cursor: default; }
+    .notif-item.clickable { cursor: pointer; border-left-color: #0284c7; }
+    .notif-item.clickable:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-2px); border-left-color: #0369a1; }
+    .notif-item.clickable:active { transform: translateY(0); }
+    .notif-title { font-size: 14px; font-weight: 800; color: #0f172a; display: flex; align-items: center; justify-content: space-between; }
+    .notif-link-icon { font-size: 16px; color: #0369a1; opacity: 0.6; }
+    .notif-item.clickable:hover .notif-link-icon { opacity: 1; transform: translateX(-4px); transition: all 0.2s; }
+    .notif-body { font-size: 13px; color: #374151; margin-top: 8px; line-height: 1.6; word-break: break-word; }
     .notif-time { font-size: 12px; color: #94a3b8; margin-top: 8px; font-weight: 500; }
 
     /* ===== MISC ===== */
@@ -1620,12 +1624,43 @@ function renderNotifications() {
     return;
   }
   container.innerHTML = notifs.map((n) => {
-    return '<div class="notif-item">' +
-      '<div class="notif-title">' + (n.title || n.subject || '—') + '</div>' +
-      '<div class="notif-body">' + (n.body || n.message || n.content || '—') + '</div>' +
-      '<div class="notif-time">' + (n.time || '') + (n.date ? ' • ' + n.date : '') + '</div>' +
-      '</div>';
+    const body = n.body || n.message || n.content || '';
+    const linkMatch = body.match(/https?:\/\/[^\s]+/);
+    const link = linkMatch ? linkMatch[0] : null;
+    const isClickable = !!link;
+    
+    let clickHandler = '';
+    if (isClickable) {
+      try {
+        const url = new URL(link);
+        const leavePassId = url.searchParams.get('leavePass');
+        if (leavePassId) {
+          clickHandler = `onclick="handleNotifClick('${leavePassId}')"`;
+        } else {
+          clickHandler = `onclick="window.open('${link}', '_blank')"`;
+        }
+      } catch(e) {
+        clickHandler = `onclick="window.open('${link}', '_blank')"`;
+      }
+    }
+
+    return `<div class="notif-item ${isClickable ? 'clickable' : ''}" ${clickHandler}>
+      <div class="notif-title">
+        <span>${n.title || n.subject || '—'}</span>
+        ${isClickable ? '<span class="notif-link-icon">←</span>' : ''}
+      </div>
+      <div class="notif-body">${body}</div>
+      <div class="notif-time">${n.time || ''}${n.date ? ' • ' + n.date : ''}</div>
+    </div>`;
   }).join('');
+}
+
+function handleNotifClick(leavePassId) {
+  if (leavePassId) {
+    showPage('leavePasses');
+    // The leavePasses page will filter automatically if we set a global filter or just show the list
+    // For now, we'll just show the page, but we could add highlighting logic
+  }
 }
 
 // ===== INIT =====
