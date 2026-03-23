@@ -1216,6 +1216,7 @@ async function submitAction() {
     if (currentBtn) {
       currentBtn.className = 'submit-btn ' + actionType;
       currentBtn.textContent = actionType === 'reward' ? '✅ تطبيق المكافأة' : actionType === 'violation' ? '⚠️ تطبيق الخصم' : '🎯 اعتماد البرنامج';
+      currentBtn.disabled = !selectedActionItem;
     }
   }
 }
