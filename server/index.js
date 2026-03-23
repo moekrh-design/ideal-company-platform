@@ -5426,7 +5426,9 @@ function showInAppNotification(title, body, type) {
     document.body.appendChild(banner);
   }
   const icon = type === 'reward' ? '⭐' : type === 'violation' ? '⚠️' : '🔔';
-  banner.innerHTML = '<div style="display:flex;align-items:flex-start;gap:12px"><div style="font-size:24px;flex-shrink:0">' + icon + '</div><div style="flex:1"><div style="font-weight:800;font-size:15px;margin-bottom:4px">' + (title || 'تنبيه جديد') + '</div><div style="font-size:13px;opacity:0.9;line-height:1.5">' + (body || '') + '</div></div><button onclick="this.parentElement.parentElement.style.display=\'none\'" style="background:rgba(255,255,255,0.2);border:0;color:#fff;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;flex-shrink:0">×</button></div>';
+  banner.innerHTML = '<div style="display:flex;align-items:flex-start;gap:12px"><div style="font-size:24px;flex-shrink:0">' + icon + '</div><div style="flex:1"><div style="font-weight:800;font-size:15px;margin-bottom:4px">' + (title || 'تنبيه جديد') + '</div><div style="font-size:13px;opacity:0.9;line-height:1.5">' + (body || '') + '</div></div><button id="notifBannerClose" style="background:rgba(255,255,255,0.2);border:0;color:#fff;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;flex-shrink:0">×</button></div>';
+  const closeBtn = document.getElementById('notifBannerClose');
+  if (closeBtn) closeBtn.onclick = function() { banner.style.display = 'none'; };
   if (type === 'violation') banner.style.background = 'linear-gradient(135deg,#be123c,#e11d48)';
   else banner.style.background = 'linear-gradient(135deg,#0f766e,#0d9488)';
   banner.style.display = 'block';
