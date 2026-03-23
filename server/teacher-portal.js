@@ -284,7 +284,7 @@ export function renderTeacherPortalHtml() {
     .search-input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(79,70,229,.1); }
 
     /* ===== STUDENT LIST ===== */
-    .student-list { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; }
+    .student-list { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 260px); overflow-y: auto; }
     .student-item {
       display: flex; align-items: center; gap: 12px;
       padding: 13px 14px; background: #fafafa; border-radius: var(--radius-md);
