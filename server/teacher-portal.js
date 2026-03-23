@@ -734,7 +734,7 @@ function getUnifiedStudents(school) {
       if (st.status === 'archived') continue;
       if (!seen.has(st.id)) {
         seen.add(st.id);
-        students.push({ ...st, companyName: cls.companyName || cls.name || '—', className: cls.name || '—' });
+        students.push({ ...st, name: st.fullName || st.name || '—', companyName: cls.companyName || cls.name || '—', className: cls.name || '—' });
       }
     }
   }
@@ -743,7 +743,7 @@ function getUnifiedStudents(school) {
     if (!seen.has(st.id)) {
       seen.add(st.id);
       const co = (school.companies || []).find((c) => c.id === st.companyId);
-      students.push({ ...st, companyName: co?.name || '—', className: co?.className || '—' });
+      students.push({ ...st, name: st.fullName || st.name || '—', companyName: co?.name || '—', className: co?.className || '—' });
     }
   }
   return students.sort((a, b) =>
