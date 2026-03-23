@@ -7191,6 +7191,9 @@ log('User Agent: ' + navigator.userAgent, true);
         const logEntry = applied.logEntry;
         const studentForNotif = applied.student;
         const guardianPhone = studentForNotif?.guardianMobile || '';
+        console.log('[NOTIF DEBUG] studentForNotif fields:', Object.keys(studentForNotif || {}));
+        console.log('[NOTIF DEBUG] guardianPhone:', guardianPhone);
+        console.log('[NOTIF DEBUG] logEntry ok:', !!logEntry);
         if (guardianPhone && logEntry) {
           const school = saved.schools.find((s) => Number(s.id) === schoolId);
           const actionLabel = logEntry.actionType === 'violation' ? 'خصم نقاط' : 'مكافأة';
