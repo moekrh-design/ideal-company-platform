@@ -745,7 +745,16 @@ async function loadBootstrap() {
   $('topbarSchool').textContent = selectedSchool?.name || 'المدرسة';
   buildStudentList();
   renderDashboard();
-  showPage('dashboard');
+  // التحقق من query parameter leavePass للتوجيه المباشر لصفحة الاستئذانات
+  const urlParams = new URLSearchParams(window.location.search);
+  const leavePassParam = urlParams.get('leavePass');
+  if (leavePassParam) {
+    showPage('leavePasses');
+    // إزالة الـ query parameter من URL دون إعادة تحميل الصفحة
+    window.history.replaceState({}, '', window.location.pathname);
+  } else {
+    showPage('dashboard');
+  }
   startPolling();
 }
 
@@ -1482,8 +1491,8 @@ function renderLeavePasses() {
     container.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">لا توجد طلبات استئذان</div></div>';
     return;
   }
-  const statusLabel = { created: 'جديد', 'sent-system': 'أُرسل', 'sent-manual': 'أُرسل يدوياً', approved: 'مقبول', rejected: 'مرفوض', cancelled: 'ملغي' };
-  const statusColor = { created: 'badge-amber', 'sent-system': 'badge-sky', 'sent-manual': 'badge-sky', approved: 'badge-green', rejected: 'badge-rose', cancelled: 'badge-slate' };
+  const statusLabel = { created: 'جديد', 'sent-system': 'أُرسل بالنظام', 'sent-manual': 'أُرسل يدوياً', approved: 'مقبول', rejected: 'مرفوض', cancelled: 'ملغي', completed: 'تم التنفيذ', 'in-progress': 'قيد التنفيذ', pending: 'معلّق', closed: 'مغلق' };
+  const statusColor = { created: 'badge-amber', 'sent-system': 'badge-sky', 'sent-manual': 'badge-sky', approved: 'badge-green', rejected: 'badge-rose', cancelled: 'badge-slate', completed: 'badge-green', 'in-progress': 'badge-sky', pending: 'badge-amber', closed: 'badge-slate' };
   container.innerHTML = passes.map((p) => {
     const canAct = ['created','sent-system','sent-manual'].includes(p.status);
     return '<div class="leave-item">' +

@@ -2099,7 +2099,7 @@ function getLeavePassIdFromLocation() {
 
 function buildLeavePassLink(leavePassId) {
   if (typeof window === "undefined") return "";
-  const url = new URL(window.location.origin + window.location.pathname);
+  const url = new URL(window.location.origin + '/teacher');
   url.searchParams.set("leavePass", String(leavePassId || ""));
   return url.toString();
 }
