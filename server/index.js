@@ -5733,6 +5733,25 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // endpoint تشخيصي مؤقت لمعرفة أرقام الجوال المحفوظة
+    if (reqUrl.pathname === '/api/parent/debug-phones' && req.method === 'POST') {
+      const body = await readJsonBody(req);
+      const inputMobile = String(body.mobile || '').trim();
+      const normalizedInput = normalizePhoneNumber(inputMobile);
+      const state = getSharedState();
+      const allPhones = [];
+      for (const school of state.schools || []) {
+        const students = getUnifiedSchoolStudentsForServer(school, { includeArchived: false, preferStructure: true });
+        for (const student of students) {
+          const raw = String(student.guardianMobile || '').trim();
+          const normalized = normalizePhoneNumber(raw);
+          if (raw || normalized) {
+            allPhones.push({ schoolName: school.name, studentName: student.name || student.fullName, raw, normalized, match: normalized === normalizedInput });
+          }
+        }
+      }
+      return sendJson(res, 200, { ok: true, inputMobile, normalizedInput, allPhones: allPhones.slice(0, 50) });
+    }
     if (reqUrl.pathname === '/api/parent/request-otp' && req.method === 'POST') {
       const body = await readJsonBody(req);
       const mobile = normalizePhoneNumber(body.mobile || '');

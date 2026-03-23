@@ -3009,6 +3009,14 @@ function getUnifiedCompanyRows(school, { preferStructure = true } = {}) {
   return sortUnifiedCompanyRows(Array.isArray(school.companies) ? school.companies.map((company) => ({ ...company, source: 'school', rawId: company.id, studentsCount: getUnifiedSchoolStudents(school, { includeArchived: false, preferStructure: false }).filter((student) => String(student.companyId) === String(company.id)).length })) : []);
 }
 
+function normalizePhoneNumber(value) {
+  let digits = String(value || '').trim().replace(/[^\d+]/g, '');
+  if (!digits) return '';
+  if (digits.startsWith('+')) digits = digits.slice(1);
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = `966${digits.slice(1)}`;
+  return digits;
+}
 function normalizeSearchDigits(value) {
   return String(value || '').replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit))).replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)));
 }
@@ -17674,7 +17682,7 @@ export default function App() {
   const handleAddStudentToSchoolStructureClassroom = (classroomId, payload) => {
     if (!selectedSchool || !classroomId) return;
     const nextId = Date.now();
-    const normalizedMobile = String(payload.guardianMobile || "").replace(/\s+/g, "").trim();
+    const normalizedMobile = normalizePhoneNumber(String(payload.guardianMobile || "").trim());
     setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
       ...school,
       structure: {
@@ -17702,7 +17710,7 @@ export default function App() {
 
   const handleUpdateStudentInSchoolStructureClassroom = (classroomId, studentId, payload) => {
     if (!selectedSchool || !classroomId || !studentId) return;
-    const normalizedMobile = String(payload.guardianMobile || "").replace(/\s+/g, "").trim();
+    const normalizedMobile = normalizePhoneNumber(String(payload.guardianMobile || "").trim());
     setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : {
       ...school,
       structure: {
@@ -17816,7 +17824,7 @@ export default function App() {
             incomingRows.forEach((row, index) => {
               const fullName = String(row.fullName || "").trim();
               const identityNumber = String(row.identityNumber || "").trim();
-              const guardianMobile = String(row.guardianMobile || "").replace(/\s+/g, "").trim();
+              const guardianMobile = normalizePhoneNumber(String(row.guardianMobile || "").trim());
               if (!fullName) {
                 skippedCount += 1;
                 return;
