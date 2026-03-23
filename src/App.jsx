@@ -10340,6 +10340,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
   const [teacherFastMode, setTeacherFastMode] = useState(true);
   const [teacherView, setTeacherView] = useState("home");
   const [lastExecution, setLastExecution] = useState(null);
+  const [executionEffect, setExecutionEffect] = useState(null); // تأثير بصري عند التنفيذ
   const [scanSessionKey, setScanSessionKey] = useState(0);
   const [programTargetType, setProgramTargetType] = useState("school");
   const [programTargetLabel, setProgramTargetLabel] = useState("");
@@ -10744,6 +10745,9 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
         const delta = Number(definitionOverride?.points || 0);
         setIdentifiedStudent((prev) => prev ? { ...prev, points: Number(prev.points || 0) + delta } : prev);
         setNote("");
+        // تشغيل التأثير البصري
+        setExecutionEffect({ type: actionType, points: delta, title: definitionOverride?.title || '', at: Date.now() });
+        setTimeout(() => setExecutionEffect(null), 2800);
         setLastExecution({
           type: actionType,
           title: definitionOverride?.title || (actionType === 'reward' ? 'مكافأة' : 'خصم'),
@@ -10838,6 +10842,113 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
   const projectedStudentPoints = identifiedStudent && selectedDefinition
     ? Number(identifiedStudent.points || 0) + Number(selectedDefinition.points || 0)
     : null;
+
+  // مكوّن التأثير البصري الاحترافي عند تنفيذ المكافأة أو الخصم
+  const renderExecutionEffect = () => {
+    if (!executionEffect) return null;
+    const isReward = executionEffect.type === 'reward';
+    const isViolation = executionEffect.type === 'violation';
+    const bgColor = isReward ? '#10b981' : isViolation ? '#ef4444' : '#3b82f6';
+    const emoji = isReward ? '⭐' : isViolation ? '⚠️' : '🏆';
+    const pointsText = executionEffect.points > 0 ? `+${executionEffect.points}` : String(executionEffect.points);
+    const particles = Array.from({ length: isReward ? 12 : 6 }, (_, i) => ({
+      id: i,
+      x: (Math.random() - 0.5) * 300,
+      y: -(Math.random() * 200 + 80),
+      rotate: Math.random() * 720 - 360,
+      size: Math.random() * 10 + 6,
+      color: isReward
+        ? ['#fbbf24','#34d399','#60a5fa','#f472b6','#a78bfa'][i % 5]
+        : ['#f87171','#fb923c','#fbbf24'][i % 3],
+    }));
+    return (
+      <AnimatePresence>
+        {executionEffect && (
+          <motion.div
+            key={executionEffect.at}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{ position: 'fixed', inset: 0, zIndex: 9999, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            {/* خلفية شفافة */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: [0, 0.18, 0] }}
+              transition={{ duration: 0.6, times: [0, 0.2, 1] }}
+              style={{ position: 'absolute', inset: 0, background: bgColor }}
+            />
+            {/* جسيمات متطايرة */}
+            {particles.map((p) => (
+              <motion.div
+                key={p.id}
+                initial={{ x: 0, y: 0, opacity: 1, scale: 1, rotate: 0 }}
+                animate={{ x: p.x, y: p.y, opacity: 0, scale: 0.3, rotate: p.rotate }}
+                transition={{ duration: 1.2, ease: 'easeOut', delay: 0.1 }}
+                style={{
+                  position: 'absolute',
+                  width: p.size,
+                  height: p.size,
+                  borderRadius: '50%',
+                  background: p.color,
+                  boxShadow: `0 0 6px ${p.color}`,
+                }}
+              />
+            ))}
+            {/* بطاقة التأثير الرئيسية */}
+            <motion.div
+              initial={{ scale: 0.3, opacity: 0, y: 40 }}
+              animate={{ scale: [0.3, 1.15, 1], opacity: [0, 1, 1], y: [40, -10, 0] }}
+              exit={{ scale: 0.8, opacity: 0, y: -30 }}
+              transition={{ duration: 0.55, times: [0, 0.6, 1], ease: 'backOut' }}
+              style={{
+                background: `linear-gradient(135deg, ${bgColor}, ${isReward ? '#059669' : isViolation ? '#dc2626' : '#2563eb'})`,
+                borderRadius: 32,
+                padding: '28px 40px',
+                textAlign: 'center',
+                color: '#fff',
+                boxShadow: `0 24px 64px ${bgColor}88, 0 0 0 4px ${bgColor}44`,
+                minWidth: 220,
+                position: 'relative',
+              }}
+            >
+              <motion.div
+                animate={{ rotate: isReward ? [0, -15, 15, -10, 10, 0] : [0, 5, -5, 0] }}
+                transition={{ duration: 0.6, delay: 0.2 }}
+                style={{ fontSize: 52, lineHeight: 1 }}
+              >
+                {emoji}
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.25 }}
+                style={{ marginTop: 12, fontSize: 48, fontWeight: 900, lineHeight: 1, fontFamily: 'Tajawal, sans-serif', textShadow: '0 2px 8px rgba(0,0,0,0.2)' }}
+              >
+                {pointsText}
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.35 }}
+                style={{ marginTop: 6, fontSize: 15, fontWeight: 700, opacity: 0.9, fontFamily: 'Tajawal, sans-serif' }}
+              >
+                {executionEffect.title || (isReward ? 'مكافأة' : 'خصم')}
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.45 }}
+                style={{ marginTop: 4, fontSize: 12, opacity: 0.75, fontFamily: 'Tajawal, sans-serif' }}
+              >
+                تم التنفيذ بنجاح
+              </motion.div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  };
 
   const renderExecutionBanner = () => {
     if (!lastExecution) return null;
@@ -11594,6 +11705,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
 
   return (
     <div className="space-y-6">
+      {renderExecutionEffect()}
       <SectionCard title={compactMode ? 'مهام المعلم السريعة' : 'إجراءات الطلاب'} icon={ClipboardCheck} action={<Badge tone="blue">{getRoleLabel(currentUser.role)}</Badge>}>
         <div className={compactMode ? 'space-y-5' : 'grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_.9fr]'}>
           <div className="space-y-5">
@@ -11641,9 +11753,27 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
                     <textarea value={note} onChange={(e) => setNote(e.target.value)} className="min-h-[90px] w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none" placeholder="سبب الإجراء أو أي ملاحظة تحفظ في السجل" />
                   </label>
                 </div>
-                <button onClick={() => applyAction(selectedDefinition)} disabled={!identifiedStudent || !selectedDefinition} className={cx('mt-4 w-full rounded-2xl px-5 py-3 text-sm font-bold', !identifiedStudent || !selectedDefinition ? 'bg-slate-200 text-slate-500' : actionType === 'reward' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white')}>
-                  {actionType === 'reward' ? 'تنفيذ المكافأة' : 'تنفيذ الخصم'}
-                </button>
+                <motion.button
+                  onClick={() => applyAction(selectedDefinition)}
+                  disabled={!identifiedStudent || !selectedDefinition || busy}
+                  whileTap={identifiedStudent && selectedDefinition ? { scale: 0.95 } : {}}
+                  whileHover={identifiedStudent && selectedDefinition ? { scale: 1.02 } : {}}
+                  className={cx('mt-4 w-full rounded-2xl px-5 py-4 text-sm font-black transition-all', !identifiedStudent || !selectedDefinition ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : actionType === 'reward' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-200 hover:bg-emerald-700' : 'bg-rose-600 text-white shadow-lg shadow-rose-200 hover:bg-rose-700')}
+                  style={{ position: 'relative', overflow: 'hidden' }}
+                >
+                  {busy ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <motion.span animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }} style={{ display: 'inline-block', width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%' }} />
+                      جاري التنفيذ...
+                    </span>
+                  ) : (
+                    <span className="flex items-center justify-center gap-2">
+                      <span style={{ fontSize: 18 }}>{actionType === 'reward' ? '⭐' : '⚠️'}</span>
+                      {actionType === 'reward' ? 'تنفيذ المكافأة' : 'تنفيذ الخصم'}
+                      {selectedDefinition ? <span style={{ background: 'rgba(255,255,255,0.2)', borderRadius: 999, padding: '2px 10px', fontSize: 13 }}>{selectedDefinition.points > 0 ? `+${selectedDefinition.points}` : selectedDefinition.points} نقطة</span> : null}
+                    </span>
+                  )}
+                </motion.button>
               </div>
             )) : null}
           </div>
