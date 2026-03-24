@@ -1615,6 +1615,18 @@ function markNotifsRead() {
   updateBadges();
 }
 
+function handleNotifClick(leavePassId) {
+  if (!leavePassId) return;
+  // If it's a full URL, try to extract leavePass ID
+  if (leavePassId.includes('?')) {
+    try {
+      const url = new URL(leavePassId);
+      leavePassId = url.searchParams.get('leavePass') || leavePassId;
+    } catch(e) {}
+  }
+  showPage('leavePasses');
+}
+
 function renderNotifications() {
   const container = $('notificationsList');
   if (!container) return;
@@ -1625,30 +1637,25 @@ function renderNotifications() {
   }
   container.innerHTML = notifs.map((n) => {
     const body = n.body || n.message || n.content || '';
-    // Improved regex to handle trailing punctuation in URLs
-    const linkMatch = body.match(/https?:\/\/[^\s]+(?<![.,;!?])/);
-    const link = linkMatch ? linkMatch[0] : null;
+    // Improved regex to handle trailing punctuation in URLs and different formats
+    const linkMatch = body.match(/https?:\/\/[^\s\n\r<>"]+/);
+    const link = linkMatch ? linkMatch[0].replace(/[.,;!?]$/, '') : null;
     const isClickable = !!link;
     
     let clickHandler = '';
     if (isClickable) {
-      try {
-        const url = new URL(link);
-        const leavePassId = url.searchParams.get('leavePass');
-        if (leavePassId) {
-          clickHandler = `onclick="handleNotifClick('${leavePassId}')"`;
-        } else if (url.pathname.includes('/teacher')) {
-          // Internal link to teacher portal but different page
-          clickHandler = `onclick="window.location.href='${link}'"`;
-        } else {
-          clickHandler = `onclick="window.open('${link}', '_blank')"`;
-        }
-      } catch(e) {
+      if (link.includes('leavePass=')) {
+        const parts = link.split('leavePass=');
+        const id = parts[1] ? parts[1].split(/[&\s]/)[0] : '';
+        clickHandler = `onclick="handleNotifClick('${id}')"`;
+      } else if (link.includes('/teacher')) {
+        clickHandler = `onclick="window.location.href='${link}'"`;
+      } else {
         clickHandler = `onclick="window.open('${link}', '_blank')"`;
       }
     }
 
-    return `<div class="notif-item ${isClickable ? 'clickable' : ''}" ${clickHandler}>
+    return `<div class="notif-item ${isClickable ? 'clickable' : ''}" ${clickHandler} style="${isClickable ? 'cursor:pointer;' : ''}">
       <div class="notif-title">
         <span>${n.title || n.subject || '—'}</span>
         ${isClickable ? '<span class="notif-link-icon">←</span>' : ''}
@@ -1659,13 +1666,7 @@ function renderNotifications() {
   }).join('');
 }
 
-function handleNotifClick(leavePassId) {
-  if (leavePassId) {
-    showPage('leavePasses');
-    // The leavePasses page will filter automatically if we set a global filter or just show the list
-    // For now, we'll just show the page, but we could add highlighting logic
-  }
-}
+
 
 // ===== INIT =====
 window.addEventListener('load', async () => {
