@@ -9298,6 +9298,20 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, actionLog, s
   );
 }
 
+function Modal({ title, isOpen, onClose, children }) {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/45 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="w-full max-w-2xl rounded-[2rem] bg-white p-6 shadow-2xl ring-1 ring-slate-200 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-start justify-between gap-4 mb-5">
+          <h3 className="text-xl font-black text-slate-900">{title}</h3>
+          <button type="button" onClick={onClose} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">إغلاق</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 function AccountSecurityModal({ open, currentUser, onClose, onSubmit, loading }) {
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [error, setError] = useState('');
