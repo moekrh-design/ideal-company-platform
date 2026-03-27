@@ -84,6 +84,8 @@ const UI_STATE_KEY = "ideal-company-platform-ui-v8";
 const SERVER_CACHE_KEY = "ideal-company-platform-server-cache-v8";
 const SESSION_TOKEN_KEY = "ideal-company-platform-session-token-v8";
 const BACKUP_VERSION = 8;
+const APP_VERSION = "v1.8.0";
+const APP_VERSION_DATE = "2026-03-27";
 const GATE_OFFLINE_QUEUE_PREFIX = "ideal-company-platform-gate-offline-queue-v1";
 const GATE_SYNC_LOG_PREFIX = "ideal-company-platform-gate-sync-log-v1";
 
@@ -8405,6 +8407,9 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
             <Archive className="h-4 w-4" /> النسخ الاحتياطية
           </button>
           <Badge tone="blue">مركزية متعددة المدارس</Badge>
+          <span className="inline-flex items-center gap-1.5 rounded-xl bg-violet-50 px-2.5 py-1 font-mono text-xs font-bold text-violet-700 ring-1 ring-violet-200" title={`آخر تحديث: ${APP_VERSION_DATE}`}>
+            {APP_VERSION} · {APP_VERSION_DATE}
+          </span>
         </div>
       }>
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
