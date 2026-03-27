@@ -2550,6 +2550,23 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // استعادة نسخة من ملف JSON مرفوع من الكمبيوتر
+    if (reqUrl.pathname === '/api/backups/restore-from-upload' && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه استعادة النسخ الاحتياطية.' });
+      try {
+        const body = await readJsonBody(req);
+        const stateToRestore = body.state || body;
+        if (!stateToRestore || !Array.isArray(stateToRestore.schools)) {
+          return sendJson(res, 400, { ok: false, message: 'بنية الملف غير صالحة. تأكد أن الملف نسخة احتياطية صحيحة من المنصة.' });
+        }
+        const saved = saveSharedState(stateToRestore, actor);
+        return sendJson(res, 200, { ok: true, message: 'تمت استعادة النسخة من الملف بنجاح.', state: sanitizeStateForClient(saved), sessionUser: actor });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, message: 'تعذر قراءة أو تطبيق الملف: ' + (err?.message || '') });
+      }
+    }
+
     const schoolDeviceMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links$/);
     if (schoolDeviceMatch && req.method === 'POST') {
       const actor = getUserFromToken(token);

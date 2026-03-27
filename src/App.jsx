@@ -59,6 +59,7 @@ import {
   RefreshCcw,
   School2,
   Sparkles,
+  FolderOpen,
 } from "lucide-react";
 import {
   Bar,
@@ -7714,6 +7715,10 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
   const [downloading, setDownloading] = useState('');
   const [restoring, setRestoring] = useState('');
   const [confirmRestore, setConfirmRestore] = useState(null); // { type, name, label }
+  const [uploadRestoring, setUploadRestoring] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [confirmUploadRestore, setConfirmUploadRestore] = useState(null); // parsed state from file
+  const fileInputRef = React.useRef(null);
 
   const loadList = async () => {
     try {
@@ -7804,6 +7809,54 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
     return withoutDate || name;
   };
 
+  // استعادة من ملف محلي
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError('');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        const stateToRestore = parsed.state || parsed;
+        if (!stateToRestore || !Array.isArray(stateToRestore.schools)) {
+          setUploadError('الملف غير صالح. تأكد أنه نسخة احتياطية صحيحة من المنصة (يجب أن يحتوي على قائمة مدارس).');
+          return;
+        }
+        setConfirmUploadRestore({ state: stateToRestore, fileName: file.name });
+      } catch {
+        setUploadError('تعذر قراءة الملف. تأكد أنه ملف JSON صحيح.');
+      }
+    };
+    reader.readAsText(file);
+    // إعادة تعيين حقل الملف للسماح باختيار نفس الملف مرة أخرى
+    e.target.value = '';
+  };
+
+  const restoreFromUpload = async () => {
+    if (!confirmUploadRestore) return;
+    try {
+      setUploadRestoring(true);
+      const token = getSessionToken();
+      const res = await apiRequest('/api/backups/restore-from-upload', {
+        method: 'POST',
+        token,
+        body: confirmUploadRestore.state,
+      });
+      if (res?.ok) {
+        window.alert(`✅ ${res.message || 'تمت استعادة النسخة من الملف بنجاح. سيتم إعادة تحميل الصفحة.'}`);
+        if (onRestoreSuccess) onRestoreSuccess(res.state);
+        onClose();
+        window.location.reload();
+      }
+    } catch (err) {
+      window.alert('تعذر استعادة النسخة من الملف: ' + (err?.message || ''));
+    } finally {
+      setUploadRestoring(false);
+      setConfirmUploadRestore(null);
+    }
+  };
+
   const globalList = data?.global || [];
   const schoolList = data?.schools || [];
   const activeList = activeTab === 'global' ? globalList : schoolList;
@@ -7812,6 +7865,31 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
   return (
     <Modal title="النسخ الاحتياطية التلقائية" isOpen={true} onClose={onClose}>
       <div className="space-y-4">
+
+        {/* نافذة تأكيد استعادة من ملف */}
+        {confirmUploadRestore && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+              <div className="text-lg font-black text-slate-900">تأكيد استعادة من ملف</div>
+              <div className="mt-3 rounded-2xl bg-amber-50 p-4 text-sm leading-7 text-amber-800 ring-1 ring-amber-200">
+                <div className="font-bold">تحذير: سيتم استبدال جميع بيانات المنصة الحالية بمحتوى هذا الملف.</div>
+                <div className="mt-2">الملف: <span className="font-bold text-slate-800">{confirmUploadRestore.fileName}</span></div>
+                <div className="mt-1">عدد المدارس في النسخة: <span className="font-bold">{confirmUploadRestore.state?.schools?.length || 0}</span></div>
+                <div className="mt-1">هل أنت متأكد من المتابعة؟</div>
+              </div>
+              <div className="mt-4 flex gap-3">
+                <button
+                  onClick={restoreFromUpload}
+                  disabled={uploadRestoring}
+                  className="flex-1 rounded-2xl bg-emerald-700 px-4 py-3 font-bold text-white hover:bg-emerald-800 disabled:opacity-60"
+                >
+                  {uploadRestoring ? <><RefreshCw className="inline h-4 w-4 animate-spin ml-1" /> جارٍ الاستعادة...</> : 'نعم، استعادة من الملف'}
+                </button>
+                <button onClick={() => setConfirmUploadRestore(null)} className="flex-1 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700 hover:bg-slate-200">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* نافذة تأكيد الاستعادة */}
         {confirmRestore && (
@@ -7874,7 +7952,7 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
           </div>
         )}
         {!loading && !error && activeList.length > 0 && (
-          <div className="max-h-96 overflow-y-auto space-y-2 pl-1">
+          <div className="max-h-[32rem] overflow-y-auto space-y-2 pl-1">
             {activeList.map((item, index) => {
               const dateLabel = formatDateLabel(item.name, item.mtime);
               const timeLabel = formatTimeLabel(item.mtime);
@@ -7928,6 +8006,34 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
             })}
           </div>
         )}
+
+        {/* زر استعادة من ملف محلي */}
+        <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-bold text-slate-800 text-sm">استعادة من ملف على جهازك</div>
+              <div className="mt-0.5 text-xs text-slate-500">ارفع ملف JSON سبق تحميله من المنصة</div>
+            </div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadRestoring}
+              className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-sky-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-800 disabled:opacity-60"
+            >
+              <FolderOpen className="h-4 w-4" />
+              اختر ملف
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+          </div>
+          {uploadError && (
+            <div className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-rose-100">{uploadError}</div>
+          )}
+        </div>
 
         <div className="rounded-2xl bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-800 ring-1 ring-amber-100">
           <span className="font-bold">ملاحظة:</span> عند الاستعادة سيتم استبدال جميع بيانات المنصة الحالية بمحتوى النسخة المختارة. يُنصح بأخذ نسخة يدوية قبل أي استعادة.
