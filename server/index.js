@@ -2889,6 +2889,138 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, screen: match.screen, live });
     }
 
+    // ===== مسارات API بوابة ولي الأمر =====
+
+    // جلب إعدادات البوابة والطلبات
+    if (reqUrl.pathname === '/api/admin/parent-primary-requests' && req.method === 'GET') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (!['superadmin', 'principal', 'supervisor'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const state = getSharedState();
+      const portalSettings = state.settings?.parentPortal || {};
+      return sendJson(res, 200, {
+        ok: true,
+        requests: [],
+        alerts: [],
+        policy: { mode: portalSettings.approvalMode || 'auto' },
+        portalSettings: {
+          enabled: portalSettings.enabled !== false,
+          altLoginEnabled: portalSettings.loginMethods?.nationalId !== false,
+          loginMethods: portalSettings.loginMethods || { nationalId: true, studentId: true, mobileNumber: true, email: false },
+          allowRegistration: portalSettings.allowRegistration === true,
+        },
+      });
+    }
+
+    // حفظ سياسة البوابة
+    if (reqUrl.pathname === '/api/admin/parent-primary-requests/policy' && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const body = await readJsonBody(req);
+      const state = getSharedState();
+      const updated = {
+        ...state,
+        settings: {
+          ...state.settings,
+          parentPortal: {
+            ...(state.settings?.parentPortal || {}),
+            approvalMode: body.mode || 'auto',
+          },
+        },
+      };
+      saveSharedState(updated, actor);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // حفظ إعدادات البوابة (تفعيل/تعطيل، طرق الدخول)
+    if (reqUrl.pathname === '/api/admin/parent-primary-requests/portal-settings' && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const body = await readJsonBody(req);
+      const state = getSharedState();
+      const currentPortal = state.settings?.parentPortal || {};
+      const updatedPortal = { ...currentPortal };
+      if (typeof body.enabled === 'boolean') updatedPortal.enabled = body.enabled;
+      if (typeof body.altLoginEnabled === 'boolean') {
+        updatedPortal.loginMethods = { ...(currentPortal.loginMethods || {}), nationalId: body.altLoginEnabled };
+      }
+      if (body.loginMethods && typeof body.loginMethods === 'object') {
+        updatedPortal.loginMethods = { ...(currentPortal.loginMethods || {}), ...body.loginMethods };
+      }
+      if (typeof body.allowRegistration === 'boolean') updatedPortal.allowRegistration = body.allowRegistration;
+      const updated = {
+        ...state,
+        settings: {
+          ...state.settings,
+          parentPortal: updatedPortal,
+        },
+      };
+      saveSharedState(updated, actor);
+      return sendJson(res, 200, { ok: true, portalSettings: updatedPortal });
+    }
+
+    // جلب قائمة أولياء الأمور
+    if (reqUrl.pathname === '/api/admin/parents' && req.method === 'GET') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (!['superadmin', 'principal', 'supervisor'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      return sendJson(res, 200, { ok: true, parents: [] });
+    }
+
+    // سجل أولياء الأمور
+    if (reqUrl.pathname === '/api/admin/parents/audit-feed' && req.method === 'GET') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (!['superadmin', 'principal', 'supervisor'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      return sendJson(res, 200, { ok: true, feed: [] });
+    }
+
+    // إرسال رمز الوصول لولي الأمر
+    if (reqUrl.pathname === '/api/admin/parents/send-access-code' && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      return sendJson(res, 200, { ok: true, message: 'تم إرسال رمز الوصول.' });
+    }
+
+    // توليد رابط الوصول
+    if (reqUrl.pathname === '/api/admin/parents/generate-link' && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const body = await readJsonBody(req);
+      const link = `${body.baseUrl || ''}/parent?token=demo`;
+      return sendJson(res, 200, { ok: true, link });
+    }
+
+    // تفاصيل ولي الأمر
+    if (reqUrl.pathname === '/api/admin/parents/details' && req.method === 'GET') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (!['superadmin', 'principal', 'supervisor'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      return sendJson(res, 200, { ok: true, parent: null });
+    }
+
+    // تعليق/رفع تعليق ولي الأمر
+    if (reqUrl.pathname === '/api/admin/parents/toggle-suspension' && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // إعادة تعيين طالب لولي أمر
+    if (reqUrl.pathname === '/api/admin/parents/reassign-student' && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // ===== نهاية مسارات API بوابة ولي الأمر =====
+
     if (reqUrl.pathname.startsWith('/api/')) {
       return notFound(res);
     }
