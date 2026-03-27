@@ -812,14 +812,14 @@ const defaultPermissionsByRole = {
 };
 
 const navItems = [
-  { key: "dashboard", label: "الرئيسية", icon: LayoutDashboard, permission: "dashboard" },
+  { key: "dashboard", label: "الرئيسية", icon: LayoutDashboard, permission: "dashboard", excludeRoles: ["gate"] },
   { key: "schools", label: "المدارس", icon: Building2, permission: "schools" },
   { key: "companies", label: "الشركات والفصول", icon: Layers3, permission: "companies" },
   { key: "students", label: "البصمة والمعرفات", icon: GraduationCap, permission: "students" },
   { key: "attendance", label: "الحضور الذكي", icon: ScanLine, permission: "attendance" },
   { key: "lessonAttendanceSessions", label: "تحضير الحصص", icon: ClipboardList, permission: "actions", roles: ["superadmin", "principal", "supervisor", "teacher"] },
   { key: "actions", label: "إجراءات الطلاب", icon: ClipboardCheck, permission: "actions" },
-  { key: "points", label: "ترتيب الفصول", icon: Trophy, permission: "points" },
+  { key: "points", label: "ترتيب الفصول", icon: Trophy, permission: "points", excludeRoles: ["gate"] },
   { key: "reports", label: "مركز التقارير", icon: LineChart, permission: "reports" },
   { key: "deviceDisplays", label: "الشاشات والبوابات", icon: ExternalLink, permission: "deviceDisplays" },
   { key: "messages", label: "الرسائل والتنبيهات", icon: Bell, permission: "messages" },
@@ -19059,6 +19059,10 @@ export default function App() {
 
   const allowedNav = useMemo(() => navItems.filter((item) => {
     if (item.key === "schoolStructure") return currentUser?.role === "principal";
+    // استثناء الأدوار المحددة في excludeRoles
+    if (Array.isArray(item.excludeRoles) && item.excludeRoles.length) {
+      if (item.excludeRoles.includes(currentUser?.role)) return false;
+    }
     if (Array.isArray(item.roles) && item.roles.length) {
       if (!item.roles.includes(currentUser?.role)) return false;
       // إذا كان الدور ضمن roles المحددة، يُسمح بالوصول مباشرة
