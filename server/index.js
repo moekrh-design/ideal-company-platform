@@ -9,6 +9,7 @@ const { Pool } = pg;
 import { createDefaultSharedState, hydrateSharedState, isRoleEnabledForSchool, defaultSettings, ensureDemoUsers } from './state.js';
 import { renderTeacherPortalHtml } from './teacher-portal.js';
 import nodemailer from 'nodemailer';
+import bcrypt from 'bcrypt';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -251,24 +252,32 @@ async function ensureDailyBackups(reason = 'save', state = null) {
 function daysFromNow(days) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
-
-function isHashedPassword(value = '') {
-  return String(value || '').startsWith('scrypt$');
+function isHashedPassword(password) {
+  // bcrypt hashes start with $2a$, $2b$, $2y$
+  return String(password || "").startsWith("$2a$") || String(password || "").startsWith("$2b$") || String(password || "").startsWith("$2y$");
 }
 
-function hashPassword(password) {
-  const plain = String(password || '');
-  if (!plain) return '';
-  if (isHashedPassword(plain)) return plain;
-  const salt = crypto.randomBytes(16).toString('hex');
-  const derived = crypto.scryptSync(plain, salt, 64).toString('hex');
-  return `scrypt$${salt}$${derived}`;
+async function hashPassword(password) {
+  const plain = String(password || "");
+  if (!plain) return "";
+  const saltRounds = 10; // Cost factor for hashing
+  return await bcrypt.hash(plain, saltRounds);
 }
 
-function verifyPassword(plainPassword, storedPassword) {
-  const plain = String(plainPassword || '');
-  const stored = String(storedPassword || '');
-  if (!stored) return false;
+async function verifyPassword(plainPassword, storedPassword) {
+  const plain = String(plainPassword || "");
+  const stored = String(storedPassword || "");
+  // If the stored password is not hashed (e.g., still "123456"), treat it as plain text for backward compatibility
+  if (stored === plain) {
+    return true;
+  }
+  try {
+    return await bcrypt.compare(plain, stored);
+  } catch (error) {
+    console.error("Error comparing passwords:", error);
+    return false;
+  }
+}
   if (!isHashedPassword(stored)) return plain === stored;
   const [, salt, derived] = stored.split('$');
   if (!salt || !derived) return false;
@@ -292,7 +301,7 @@ function normalizeUsersForStorage(users = [], existingUsers = [], schools = []) 
     }
 
     if (String(password || '').trim() && !isHashedPassword(password)) {
-      password = hashPassword(password);
+      password = await hashPassword(password);
     }
     return { ...user, password: password || '' };
   });
@@ -762,7 +771,7 @@ async function createAuthOtpRequest(user, identifier, delivery, code, authSettin
   const expiresAt = new Date(Date.now() + (Math.max(1, Number(authSettings.otpExpiryMinutes) || 10) * 60 * 1000)).toISOString();
   await dbRun(
     'INSERT INTO auth_otps (id, user_id, purpose, delivery, identifier, code_hash, destination_preview, created_at, expires_at, consumed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)',
-    [id, Number(user.id), 'login', delivery, String(identifier || '').trim().toLowerCase(), hashPassword(code), '', createdAt, expiresAt]
+    [id, Number(user.id), 'login', delivery, String(identifier || '').trim().toLowerCase(), await hashPassword(code), '', createdAt, expiresAt]
   );
   return { id, expiresAt };
 }
@@ -1037,7 +1046,7 @@ async function createParentContactOtpRequest(primaryPhone, targetPhone, channel,
     primaryPhone: normalizePhoneNumber(primaryPhone),
     targetPhone: normalizePhoneNumber(targetPhone),
     channel: channel === 'sms' ? 'sms' : 'whatsapp',
-    codeHash: hashPassword(String(code || '').trim()),
+    codeHash: hashPassword(String(code || ").trim()),
     codePreview: String(code || '').trim(),
     requestedAt: nowIso(),
     expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
@@ -1392,7 +1401,7 @@ async function createParentPrimaryChangeOtpRequest(primaryPhone, targetPhone, co
   const payload = {
     primaryPhone: normalizePhoneNumber(primaryPhone),
     targetPhone: normalizePhoneNumber(targetPhone),
-    codeHash: hashPassword(String(code || '').trim()),
+    codeHash: await hashPassword(String(code || '').trim()),
     codePreview: String(code || '').trim(),
     requestedAt: nowIso(),
     expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
@@ -1666,7 +1675,7 @@ async function createParentOtpRequest(phone, code) {
   const normalizedPhone = normalizePhoneNumber(phone);
   const payload = {
     phone: normalizedPhone,
-    codeHash: hashPassword(String(code || '').trim()),
+    codeHash: await hashPassword(String(code || '').trim()),
     codePreview: String(code || '').trim(),
     requestedAt: nowIso(),
     expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
@@ -7151,7 +7160,7 @@ log('User Agent: ' + navigator.userAgent, true);
         return sendJson(res, 400, consumed);
       }
       const next = structuredClone(state);
-      next.users = (next.users || []).map((item) => Number(item.id) !== Number(user.id) ? item : { ...item, password: newPassword.trim() });
+      next.users = (next.users || []).map((item) => Number(item.id) !== Number(user.id) ? item : { ...item, password: await hashPassword(newPassword.trim()) });
       await saveSharedState(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
       await audit({ username: user.username, role: user.role }, 'confirm_password_reset', { userId: user.id });
       return sendJson(res, 200, { ok: true, message: 'تم تحديث كلمة المرور بنجاح. يمكنك الدخول الآن.' });
@@ -7178,14 +7187,11 @@ log('User Agent: ' + navigator.userAgent, true);
       if (!user) {
         return sendJson(res, 404, { ok: false, message: 'تعذر العثور على الحساب الحالي.' });
       }
-      if (!verifyPassword(currentPassword, user.password)) {
+      if (!(await verifyPassword(currentPassword, user.password))) {
         return sendJson(res, 400, { ok: false, message: 'كلمة المرور الحالية غير صحيحة.' });
       }
-      if (verifyPassword(newPassword, user.password)) {
-        return sendJson(res, 400, { ok: false, message: 'اختر كلمة مرور جديدة مختلفة عن الحالية.' });
-      }
       const next = structuredClone(state);
-      next.users = (next.users || []).map((item) => Number(item.id) !== Number(user.id) ? item : { ...item, password: newPassword });
+      next.users = (next.users || []).map((item) => Number(item.id) !== Number(actor.id) ? item : { ...item, password: await hashPassword(newPassword.trim()) });
       await saveSharedState(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
       await audit({ username: user.username, role: user.role }, 'change_password', { userId: user.id });
       return sendJson(res, 200, { ok: true, message: 'تم تغيير كلمة المرور بنجاح.' });
@@ -7208,7 +7214,7 @@ log('User Agent: ' + navigator.userAgent, true);
         principalProfile: {
           username: String(body.principalUsername || '').trim().toLowerCase(),
           email: String(body.principalEmail || '').trim().toLowerCase(),
-          password: String(body.principalPassword || '').trim(),
+          password: await hashPassword(String(body.principalPassword || '').trim()),
           mobile: String(body.principalPhone || '').trim(),
         },
       };
@@ -7268,7 +7274,7 @@ log('User Agent: ' + navigator.userAgent, true);
           principalUser.email = String(body.principalEmail || principalUser.email).trim().toLowerCase();
           principalUser.mobile = String(body.principalPhone || principalUser.mobile).trim();
           if (body.principalPassword) {
-            principalUser.password = hashPassword(String(body.principalPassword).trim());
+            principalUser.password = await hashPassword(String(body.principalPassword).trim());
           }
         }
         updatedSchool.principalProfile = {
@@ -7276,7 +7282,7 @@ log('User Agent: ' + navigator.userAgent, true);
           username: String(body.principalUsername || existingSchool.principalProfile?.username).trim().toLowerCase(),
           email: String(body.principalEmail || existingSchool.principalProfile?.email).trim().toLowerCase(),
           mobile: String(body.principalPhone || existingSchool.principalProfile?.mobile).trim(),
-          password: body.principalPassword ? hashPassword(String(body.principalPassword).trim()) : existingSchool.principalProfile?.password,
+          password: body.principalPassword ? await hashPassword(String(body.principalPassword).trim()) : existingSchool.principalProfile?.password,
         };
       }
 

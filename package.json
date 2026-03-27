@@ -11,6 +11,7 @@
     "start": "node server/index.js"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "framer-motion": "^12.23.24",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.542.0",
