@@ -7713,7 +7713,7 @@ function EditSchoolForm({ school, onSave, onCancel }) {
 }
 
 // ===== مكون نافذة النسخ الاحتياطية التلقائية =====
-function BackupsModal({ onClose, onRestoreSuccess }) {
+function BackupsModal({ onClose, onRestoreSuccess, schools = [] }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
@@ -7843,11 +7843,20 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
     try { return new Date(mtime).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
   };
 
-  // استخراج اسم المدرسة من اسم الملف
+  // استخراج رمز المدرسة من اسم الملف ثم البحث عن اسمها الحقيقي
   const parseSchoolLabel = (name) => {
-    // صيغة: 2026-03-27-school-name.json
-    const withoutDate = name.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.json$/, '');
-    return withoutDate || name;
+    // صيغة: 2026-03-27-school-code.json أو manual-XXXXXX-school-code.json
+    const withoutDate = name.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/^manual-\d+-/, '').replace(/\.json$/, '');
+    const code = withoutDate || name;
+    // البحث عن المدرسة بالرمز الوزاري أو اسم الدخول
+    if (schools.length > 0) {
+      const matched = schools.find(s =>
+        (s.code && s.code.toLowerCase() === code.toLowerCase()) ||
+        (s.principalUsername && s.principalUsername.toLowerCase() === code.toLowerCase())
+      );
+      if (matched) return matched.name;
+    }
+    return code;
   };
 
   // استعادة من ملف محلي
@@ -8346,7 +8355,7 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
         </div>
       )}
 
-      {backupsModalOpen && <BackupsModal onClose={() => setBackupsModalOpen(false)} />}
+      {backupsModalOpen && <BackupsModal onClose={() => setBackupsModalOpen(false)} schools={schools} />}
       <SectionCard title="إدارة المدارس" icon={Building2} action={
         <div className="flex items-center gap-2">
           <button onClick={() => setBackupsModalOpen(true)} className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 transition">
