@@ -18861,7 +18861,8 @@ export default function App() {
     if (!currentUser || !selectedSchool) return;
     const isTeacher = currentUser.role === 'teacher';
     const isManager = ['principal', 'supervisor', 'superadmin'].includes(currentUser.role);
-    if (!isTeacher && !isManager) return;
+    const isGate = currentUser.role === 'gate';
+    if (!isTeacher && !isManager && !isGate) return;
     const interval = setInterval(() => {
       const now = Date.now();
       // --- تنبيهات الاستئذان ---
@@ -18880,6 +18881,36 @@ export default function App() {
         const elapsedMin = (now - createdAt) / 60000;
         const key = `lp-${lp.id}`;
         const alerted = soundAlertsRef.current[key] || 0;
+
+        // === تنبيه مسؤول الأمن: فوري عند أي استئذان جديد (لم يُنبَّه بعد) ===
+        if (isGate) {
+          // استئذان معتمد (approved) ولم يُنبَّه بعد = تنبيه فوري
+          const isApproved = ['approved-agent', 'approved-counselor', 'released-guardian', 'viewed'].includes(lp.status);
+          if (isApproved && alerted === 0) {
+            playAlertBeep(2);
+            soundAlertsRef.current[key] = 1;
+            setNotifications((prev) => [
+              { id: Date.now(), title: '🚨 استئذان جديد عند البوابة', body: `الطالب ${lp.studentName || ''} من ${lp.className || lp.companyName || 'فصله'} — ${lp.destination === 'guardian' ? 'خروج مع ولي الأمر' : lp.destination === 'agent' ? 'وكيل المدرسة' : 'مرشد'} — يحتاج تأكيد خروج.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [] },
+              ...prev,
+            ].slice(0, 30));
+            return;
+          }
+          // تنبيه كل 5 دقائق إذا لم يُؤكَّد الخروج بعد الاعتماد
+          if (isApproved && alerted >= 1) {
+            const gateLevel = Math.min(Math.floor(elapsedMin / 5), 4);
+            if (gateLevel > 0 && gateLevel > alerted - 1) {
+              playAlertBeep(Math.min(gateLevel + 1, 4));
+              soundAlertsRef.current[key] = gateLevel + 1;
+              setNotifications((prev) => [
+                { id: Date.now(), title: `⚠️ لم يُؤكَّد خروج الطالب (${Math.floor(elapsedMin)} د)`, body: `الطالب ${lp.studentName || ''} استئذانه معتمد منذ ${Math.floor(elapsedMin)} دقيقة ولم يُؤكَّد خروجه من البوابة.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [] },
+                ...prev,
+              ].slice(0, 30));
+            }
+          }
+          return;
+        }
+
+        // === تنبيهات المعلم والمدير: عند 5، 10، 15، 20 دقيقة ===
         let level = 0;
         if (elapsedMin >= 20 && alerted < 4) level = 4;
         else if (elapsedMin >= 15 && alerted < 3) level = 3;
