@@ -7706,28 +7706,30 @@ function EditSchoolForm({ school, onSave, onCancel }) {
 }
 
 // ===== مكون نافذة النسخ الاحتياطية التلقائية =====
-function BackupsModal({ onClose }) {
+function BackupsModal({ onClose, onRestoreSuccess }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
   const [activeTab, setActiveTab] = useState('global');
   const [downloading, setDownloading] = useState('');
+  const [restoring, setRestoring] = useState('');
+  const [confirmRestore, setConfirmRestore] = useState(null); // { type, name, label }
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        const token = getSessionToken();
-        const res = await apiRequest('/api/backups/list', { token });
-        setData(res);
-      } catch (err) {
-        setError(err?.message || 'تعذر تحميل قائمة النسخ الاحتياطية.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, []);
+  const loadList = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const token = getSessionToken();
+      const res = await apiRequest('/api/backups/list', { token });
+      setData(res);
+    } catch (err) {
+      setError(err?.message || 'تعذر تحميل قائمة النسخ الاحتياطية.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadList(); }, []);
 
   const downloadBackup = async (type, name) => {
     try {
@@ -7753,26 +7755,89 @@ function BackupsModal({ onClose }) {
     }
   };
 
+  const restoreBackup = async (type, name) => {
+    try {
+      setRestoring(name);
+      const token = getSessionToken();
+      const res = await apiRequest(`/api/backups/restore/${type}/${encodeURIComponent(name)}`, { method: 'POST', token });
+      if (res?.ok) {
+        window.alert(`✅ ${res.message || 'تمت استعادة النسخة بنجاح. سيتم إعادة تحميل الصفحة.'}`);
+        if (onRestoreSuccess) onRestoreSuccess(res.state);
+        onClose();
+        window.location.reload();
+      }
+    } catch (err) {
+      window.alert('تعذر استعادة النسخة: ' + (err?.message || ''));
+    } finally {
+      setRestoring('');
+      setConfirmRestore(null);
+    }
+  };
+
   const formatSize = (bytes) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  const formatDate = (iso) => {
-    try {
-      return new Date(iso).toLocaleString('ar-SA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    } catch { return iso; }
+  // استخراج التاريخ من اسم الملف بشكل واضح
+  const parseDateFromName = (name) => {
+    // صيغة: platform-2026-03-27.json أو 2026-03-27-school-name.json
+    const match = name.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (!match) return null;
+    return new Date(`${match[1]}-${match[2]}-${match[3]}`);
+  };
+
+  const formatDateLabel = (name, mtime) => {
+    const d = parseDateFromName(name) || new Date(mtime);
+    return d.toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  };
+
+  const formatTimeLabel = (mtime) => {
+    try { return new Date(mtime).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
+  };
+
+  // استخراج اسم المدرسة من اسم الملف
+  const parseSchoolLabel = (name) => {
+    // صيغة: 2026-03-27-school-name.json
+    const withoutDate = name.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.json$/, '');
+    return withoutDate || name;
   };
 
   const globalList = data?.global || [];
   const schoolList = data?.schools || [];
   const activeList = activeTab === 'global' ? globalList : schoolList;
+  const activeType = activeTab === 'global' ? 'global' : 'school';
 
   return (
     <Modal title="النسخ الاحتياطية التلقائية" isOpen={true} onClose={onClose}>
       <div className="space-y-4">
-        {/* معلومات عامة */}
+
+        {/* نافذة تأكيد الاستعادة */}
+        {confirmRestore && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+              <div className="text-lg font-black text-slate-900">تأكيد استعادة النسخة</div>
+              <div className="mt-3 rounded-2xl bg-amber-50 p-4 text-sm leading-7 text-amber-800 ring-1 ring-amber-200">
+                <div className="font-bold">تحذير: سيتم استبدال جميع بيانات المنصة الحالية بمحتوى هذه النسخة.</div>
+                <div className="mt-2">النسخة: <span className="font-bold text-slate-800">{confirmRestore.label}</span></div>
+                <div className="mt-1">هل أنت متأكد من المتابعة؟</div>
+              </div>
+              <div className="mt-4 flex gap-3">
+                <button
+                  onClick={() => restoreBackup(confirmRestore.type, confirmRestore.name)}
+                  disabled={!!restoring}
+                  className="flex-1 rounded-2xl bg-emerald-700 px-4 py-3 font-bold text-white hover:bg-emerald-800 disabled:opacity-60"
+                >
+                  {restoring ? <><RefreshCw className="inline h-4 w-4 animate-spin ml-1" /> جارٍ الاستعادة...</> : 'نعم، استعادة النسخة'}
+                </button>
+                <button onClick={() => setConfirmRestore(null)} className="flex-1 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700 hover:bg-slate-200">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* إحصائيات سريعة */}
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-2xl bg-emerald-50 p-3 text-center ring-1 ring-emerald-100">
             <div className="text-xs text-emerald-700">نسخ المنصة الكاملة</div>
@@ -7809,31 +7874,63 @@ function BackupsModal({ onClose }) {
           </div>
         )}
         {!loading && !error && activeList.length > 0 && (
-          <div className="max-h-80 overflow-y-auto space-y-2 pl-1">
-            {activeList.map((item) => (
-              <div key={item.name} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-bold text-slate-800 text-sm">{item.name}</div>
-                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
-                    <span>{formatDate(item.mtime)}</span>
-                    <span className="rounded-lg bg-white px-2 py-0.5 ring-1 ring-slate-200">{formatSize(item.size)}</span>
+          <div className="max-h-96 overflow-y-auto space-y-2 pl-1">
+            {activeList.map((item, index) => {
+              const dateLabel = formatDateLabel(item.name, item.mtime);
+              const timeLabel = formatTimeLabel(item.mtime);
+              const schoolLabel = activeTab === 'school' ? parseSchoolLabel(item.name) : null;
+              const isLatest = index === 0;
+              const isBusy = downloading === item.name || restoring === item.name;
+              return (
+                <div key={item.name} className={`rounded-2xl p-4 ring-1 ${isLatest ? 'bg-sky-50 ring-sky-200' : 'bg-slate-50 ring-slate-200'}`}>
+                  {/* رأس البطاقة */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      {/* رقم النسخة */}
+                      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-black ${isLatest ? 'bg-sky-700 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                        {activeList.length - index}
+                      </div>
+                      <div>
+                        {/* التاريخ */}
+                        <div className="font-bold text-slate-900 text-sm">{dateLabel}</div>
+                        {schoolLabel && (
+                          <div className="mt-0.5 text-xs font-bold text-sky-700">مدرسة: {schoolLabel}</div>
+                        )}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          <span>الساعة {timeLabel}</span>
+                          <span className="rounded-lg bg-white px-2 py-0.5 ring-1 ring-slate-200">{formatSize(item.size)}</span>
+                          {isLatest && <span className="rounded-lg bg-sky-100 px-2 py-0.5 font-bold text-sky-700">الأحدث</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* أزرار الإجراء */}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => downloadBackup(activeType, item.name)}
+                      disabled={isBusy}
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200 disabled:opacity-60"
+                    >
+                      {downloading === item.name ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                      تحميل الملف
+                    </button>
+                    <button
+                      onClick={() => setConfirmRestore({ type: activeType, name: item.name, label: dateLabel + (schoolLabel ? ` - ${schoolLabel}` : '') })}
+                      disabled={isBusy}
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-60"
+                    >
+                      {restoring === item.name ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                      استعادة هذه النسخة
+                    </button>
                   </div>
                 </div>
-                <button
-                  onClick={() => downloadBackup(activeTab === 'global' ? 'global' : 'school', item.name)}
-                  disabled={downloading === item.name}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800 disabled:opacity-60"
-                >
-                  {downloading === item.name ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                  تحميل
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
         <div className="rounded-2xl bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-800 ring-1 ring-amber-100">
-          <span className="font-bold">ملاحظة:</span> يتم إنشاء نسخة احتياطية تلقائياً يومياً عند حفظ البيانات. نسخ المنصة الكاملة تشمل جميع المدارس والمستخدمين والسجلات.
+          <span className="font-bold">ملاحظة:</span> عند الاستعادة سيتم استبدال جميع بيانات المنصة الحالية بمحتوى النسخة المختارة. يُنصح بأخذ نسخة يدوية قبل أي استعادة.
         </div>
       </div>
     </Modal>

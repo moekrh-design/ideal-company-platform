@@ -2496,6 +2496,33 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // استيراد (استعادة) نسخة احتياطية محددة من الخادم
+    const backupRestoreMatch = reqUrl.pathname.match(/^\/api\/backups\/restore\/(global|school)\/(.+)$/);
+    if (backupRestoreMatch && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه استعادة النسخ الاحتياطية.' });
+      const backupType = backupRestoreMatch[1];
+      const fileName = backupRestoreMatch[2];
+      const safeName = path.basename(fileName);
+      if (!safeName.endsWith('.json')) return sendJson(res, 400, { ok: false, message: 'يمكن استعادة ملفات JSON فقط.' });
+      const dir = backupType === 'global' ? GLOBAL_BACKUPS_DIR : SCHOOL_BACKUPS_DIR;
+      const filePath = path.join(dir, safeName);
+      if (!existsSync(filePath)) return sendJson(res, 404, { ok: false, message: 'ملف النسخة الاحتياطية غير موجود.' });
+      try {
+        const raw = readFileSync(filePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        // النسخة الكاملة للمنصة تحتوي على .state
+        const stateToRestore = parsed.state || parsed;
+        if (!stateToRestore || !Array.isArray(stateToRestore.schools)) {
+          return sendJson(res, 400, { ok: false, message: 'بنية النسخة الاحتياطية غير صالحة أو لا تحتوي على بيانات مدارس.' });
+        }
+        const saved = saveSharedState(stateToRestore, actor);
+        return sendJson(res, 200, { ok: true, message: `تمت استعادة النسخة الاحتياطية "${safeName}" بنجاح.`, state: sanitizeStateForClient(saved), sessionUser: actor });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, message: 'تعذر قراءة أو تطبيق النسخة الاحتياطية: ' + (err?.message || '') });
+      }
+    }
+
     // تحميل نسخة احتياطية محددة
     const backupDownloadMatch = reqUrl.pathname.match(/^\/api\/backups\/download\/(global|school)\/(.+)$/);
     if (backupDownloadMatch && req.method === 'GET') {
