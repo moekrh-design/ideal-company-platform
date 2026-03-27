@@ -21796,6 +21796,12 @@ ${buildLessonSessionLink(sessionId)}
                 : settings.platformName
               }
             </div>
+            <div className="mt-1.5 flex items-center gap-2">
+              <span className="inline-flex items-center rounded-lg bg-white/15 px-2 py-0.5 font-mono text-[11px] font-bold text-white/90 ring-1 ring-white/20">
+                {APP_VERSION}
+              </span>
+              <span className="text-[11px] text-white/60">{APP_VERSION_DATE}</span>
+            </div>
             <div className="mt-2 text-sm leading-7 text-white/90">منصة متعددة المدارس: أدمن عام، مدراء مدارس، معلمون، بوابات حضور، وصلاحيات تفصيلية قابلة للتوسّع.</div>
           </div>
 
