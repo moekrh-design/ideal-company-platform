@@ -33,10 +33,7 @@ const SCREEN_TEMPLATE_KEYS = ["executive","reception","leaderboard","news"];
 const TICKER_BG_KEYS = ["amber","navy","emerald","rose","slate"];
 
 // State cache (must be declared before any top-level await calls)
-let _stateCache = null;
-
-// PostgreSQL pool
-const pool = new Pool({
+let _stateCache = null;const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
   max: 10,
@@ -44,8 +41,7 @@ const pool = new Pool({
   connectionTimeoutMillis: 10000,
 });
 
-// Helper: run a query and return rows
-async function dbQuery(text, params = []) {
+// Helper: run a queasync function dbQuery(text, params = []) {
   const client = await pool.connect();
   try {
     const res = await client.query(text, params);
@@ -53,41 +49,13 @@ async function dbQuery(text, params = []) {
   } finally {
     client.release();
   }
-}
-
-// Helper: run a query and return first row
-async function dbQueryOne(text, params = []) {
+}per: run a query and return firstasync function dbQueryOne(text, params = []) {
   const rows = await dbQuery(text, params);
   return rows[0] || null;
-}
-
-// Helper: run a query and return all rows (alias for dbQuery)
-async function dbQueryAll(text, params = []) {
+}lper: run a query and return all rows (alias for dbQueryasync function dbQueryAll(text, params = []) {
   return dbQuery(text, params);
-}
-
-// Helper: run a query with no return value
-async function dbRun(text, params = []) {
-  await dbQuery(text, params);
-}
-
-await mkdir(DATA_DIR, { recursive: true });
-await mkdir(UPLOADS_DIR, { recursive: true });
-await mkdir(FACE_UPLOADS_DIR, { recursive: true });
-await mkdir(EVIDENCE_UPLOADS_DIR, { recursive: true });
-await mkdir(GLOBAL_BACKUPS_DIR, { recursive: true });
-await mkdir(SCHOOL_BACKUPS_DIR, { recursive: true });
-await initializeDatabase();
-await ensureStateSeeded();
-await ensureStateMigrations();
-await cleanupExpiredSessions();
-await cleanupExpiredAuthOtps();
-await cleanupExpiredAuthLockouts();
-// تهيئة cache الـ state قبل أي شيء
-await refreshStateCache();
-await ensureDailyBackups('startup');
-
-async function initializeDatabase() {
+}lper: run a query with no returnasync function dbRun(text, params = []) {
+  await dbQuery(text, params);ion initializeDatabase() {
   await dbRun(`
     CREATE TABLE IF NOT EXISTS app_meta (
       key TEXT PRIMARY KEY,
@@ -267,24 +235,19 @@ async function hashPassword(password) {
 async function verifyPassword(plainPassword, storedPassword) {
   const plain = String(plainPassword || "");
   const stored = String(storedPassword || "");
-  // If the stored password is not hashed (e.g., still "123456"), treat it as plain text for backward compatibility
-  if (stored === plain) {
-    return true;
+
+  if (!stored) return false;
+
+  // If the stored password is not a bcrypt hash, compare as plain text (for legacy passwords)
+  if (!isHashedPassword(stored)) {
+    return plain === stored;
   }
+
+  // For bcrypt hashes, use bcrypt.compare
   try {
     return await bcrypt.compare(plain, stored);
   } catch (error) {
     console.error("Error comparing passwords:", error);
-    return false;
-  }
-}
-  if (!isHashedPassword(stored)) return plain === stored;
-  const [, salt, derived] = stored.split('$');
-  if (!salt || !derived) return false;
-  const calculated = crypto.scryptSync(plain, salt, 64).toString('hex');
-  try {
-    return crypto.timingSafeEqual(Buffer.from(calculated, 'hex'), Buffer.from(derived, 'hex'));
-  } catch {
     return false;
   }
 }
@@ -407,7 +370,7 @@ async function getSharedStateAsync() {
 
 function getSharedState() {
   if (!_stateCache) {
-    throw new Error('State cache not initialized. Call await refreshStateCache() first.');
+    throw new Error('State cache not initialized. Call await refreshStateCache();first.');
   }
   return _stateCache;
 }
@@ -473,8 +436,7 @@ async function getRecentAuthFailures(scope = 'password', identifier = '', userId
 }
 
 async function getActiveAuthLockout(identifier = '', userId = null, scope = 'any') {
-  await cleanupExpiredAuthLockouts();
-  const key = normalizeIdentifierKey(identifier);
+await cleanupExpiredAuthLockouts();  const key = normalizeIdentifierKey(identifier);
   const rows = await dbQuery(
     `SELECT *
      FROM auth_lockouts
@@ -781,8 +743,7 @@ async function finalizeAuthOtpDestination(id, destinationPreview = '') {
 }
 
 async function verifyAndConsumeAuthOtp(user, identifier, code) {
-  await cleanupExpiredAuthOtps();
-  const row = await dbQueryOne(
+await cleanupExpiredAuthOtps();  const row = await dbQueryOne(
     'SELECT * FROM auth_otps WHERE user_id = $1 AND purpose = $2 AND identifier = $3 ORDER BY created_at DESC LIMIT 1',
     [Number(user.id), 'login', String(identifier || '').trim().toLowerCase()]
   );
@@ -1702,8 +1663,7 @@ async function verifyAndConsumeParentOtp(phone, code) {
   return { ok: true, payload };
 }
 
-async function createParentSession(phone, profile) {
-  await cleanupExpiredSessions();
+async function createParentSession(phone, profile) {await cleanupExpiredSessions();
   const token = crypto.randomBytes(32).toString('hex');
   await dbRun('INSERT INTO sessions (token, user_id, username, role, school_id, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [token, 0, buildParentUsername(phone), 'parent', profile?.students?.[0]?.schoolId ?? null, nowIso(), daysFromNow(PARENT_SESSION_DAYS)]);
   await audit({ username: buildParentUsername(phone), role: 'parent' }, 'parent_login', { mobile: normalizePhoneNumber(phone), studentsCount: profile?.studentsCount || 0 });
@@ -6168,7 +6128,23 @@ function serveStatic(req, res) {
   }).catch(() => sendText(res, 404, 'File not found'));
 }
 
-const server = http.createServer(async (req, res) => {
+async function main() {
+  await mkdir(DATA_DIR, { recursive: true });
+  await mkdir(UPLOADS_DIR, { recursive: true });
+  await mkdir(FACE_UPLOADS_DIR, { recursive: true });
+  await mkdir(EVIDENCE_UPLOADS_DIR, { recursive: true });
+  await mkdir(GLOBAL_BACKUPS_DIR, { recursive: true });
+  await mkdir(SCHOOL_BACKUPS_DIR, { recursive: true });
+  await initializeDatabase();
+  await ensureStateSeeded();
+  await ensureStateMigrations();
+  await cleanupExpiredSessions();
+  await cleanupExpiredAuthOtps();
+  await cleanupExpiredAuthLockouts();
+  // تهيئة cache الـ state قبل أي شيء
+  await refreshStateCache();
+  await ensureDailyBackups('startup');
+  const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
@@ -8028,7 +8004,13 @@ server.on('upgrade', (req, socket) => {
   }
 })();
 
-server.listen(PORT, () => {
-  console.log(`ideal-company-platform server running on http://localhost:${PORT}`);
-  console.log(`database: PostgreSQL (Neon)`);  // PostgreSQL
+  server.listen(PORT, () => {
+    console.log(`ideal-company-platform server running on http://localhost:${PORT}`);
+    console.log(`database: PostgreSQL (Neon)`);  // PostgreSQL
+  });
+}
+
+main().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });
