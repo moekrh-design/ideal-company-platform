@@ -805,7 +805,7 @@ const defaultPermissionsByRole = {
   principal: { dashboard: true, schools: false, companies: true, students: true, attendance: true, actions: true, points: true, reports: true, deviceDisplays: true, messages: true, leavePass: true, settings: true, users: true },
   agent: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: false, points: false, reports: true, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
   counselor: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: false, points: false, reports: true, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
-  gate: { dashboard: true, schools: false, companies: false, students: false, attendance: true, actions: false, points: false, reports: false, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
+  gate: { dashboard: false, schools: false, companies: false, students: false, attendance: false, actions: false, points: false, reports: false, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
   supervisor: { dashboard: true, schools: false, companies: false, students: true, attendance: true, actions: true, points: true, reports: true, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
   teacher: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: true, points: true, reports: false, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
   student: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: false, points: true, reports: false, deviceDisplays: false, messages: false, settings: false, users: false },
@@ -18831,6 +18831,112 @@ export default function App() {
     return schools.find((school) => school.id === selectedSchoolId) || schools[0];
   }, [schools, selectedSchoolId, currentUser]);
 
+  // ===== نظام التنبيهات الصوتية التلقائية =====
+  const soundAlertsRef = useRef({});
+  const playAlertBeep = useCallback((level = 1) => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // level 1 = تنبيه خفيف (5 دقائق), 2 = متوسط (10 دقائق), 3 = قوي (15 دقائق), 4 = حرج (20 دقائق)
+      const freqs = [660, 880, 1100, 1320];
+      const freq = freqs[Math.min(level - 1, 3)];
+      const beepCount = Math.min(level, 4);
+      for (let i = 0; i < beepCount; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = level >= 3 ? 'square' : 'sine';
+        const startTime = ctx.currentTime + i * 0.35;
+        gain.gain.setValueAtTime(0.4, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.25);
+        osc.start(startTime);
+        osc.stop(startTime + 0.25);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // مراقبة الاستئذانات المفتوحة وإطلاق تنبيه صوتي عند 5، 10، 15، 20 دقيقة
+  useEffect(() => {
+    if (!currentUser || !selectedSchool) return;
+    const isTeacher = currentUser.role === 'teacher';
+    const isManager = ['principal', 'supervisor', 'superadmin'].includes(currentUser.role);
+    if (!isTeacher && !isManager) return;
+    const interval = setInterval(() => {
+      const now = Date.now();
+      // --- تنبيهات الاستئذان ---
+      const leavePasses = getLeavePasses(selectedSchool);
+      const openPasses = leavePasses.filter((lp) => {
+        if (['completed', 'cancelled', 'draft'].includes(lp.status)) return false;
+        if (isTeacher) {
+          // المعلم يرى فقط الاستئذانات الموجهة له
+          return String(lp.teacherUserId || lp.teacherId || '') === String(currentUser.id);
+        }
+        return true; // المدير يرى الكل
+      });
+      openPasses.forEach((lp) => {
+        const createdAt = lp.createdAt ? new Date(lp.createdAt).getTime() : null;
+        if (!createdAt) return;
+        const elapsedMin = (now - createdAt) / 60000;
+        const key = `lp-${lp.id}`;
+        const alerted = soundAlertsRef.current[key] || 0;
+        let level = 0;
+        if (elapsedMin >= 20 && alerted < 4) level = 4;
+        else if (elapsedMin >= 15 && alerted < 3) level = 3;
+        else if (elapsedMin >= 10 && alerted < 2) level = 2;
+        else if (elapsedMin >= 5 && alerted < 1) level = 1;
+        if (level > 0) {
+          playAlertBeep(level);
+          soundAlertsRef.current[key] = level;
+          setNotifications((prev) => [
+            { id: Date.now(), title: level >= 4 ? '⚠️ استئذان لم يُغلق (20 دقيقة)' : level === 3 ? '🔔 استئذان مفتوح (15 دقيقة)' : level === 2 ? '🔔 استئذان مفتوح (10 دقائق)' : '🔔 استئذان مفتوح (5 دقائق)', body: `الطالب ${lp.studentName || ''} لم يُغلق استئذانه منذ ${Math.floor(elapsedMin)} دقيقة.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: isTeacher ? [currentUser.id] : [] },
+            ...prev,
+          ].slice(0, 30));
+        }
+      });
+      // تنظيف مفاتيح الاستئذانات المغلقة
+      Object.keys(soundAlertsRef.current).forEach((key) => {
+        if (key.startsWith('lp-')) {
+          const lpId = key.replace('lp-', '');
+          const lp = leavePasses.find((item) => String(item.id) === lpId);
+          if (!lp || ['completed', 'cancelled'].includes(lp.status)) {
+            delete soundAlertsRef.current[key];
+          }
+        }
+      });
+      // --- تنبيهات تحضير الحصص (للمعلم فقط) ---
+      if (isTeacher) {
+        const lessonSessions = getLessonAttendanceSessions(selectedSchool);
+        const openSessions = lessonSessions.filter((session) => {
+          if (session.status === 'closed') return false;
+          const targets = session.targetTeacherIds || [];
+          if (targets.length && !targets.map(String).includes(String(currentUser.id))) return false;
+          const alreadySubmitted = (session.submissions || []).some((sub) => String(sub.teacherId) === String(currentUser.id));
+          return !alreadySubmitted;
+        });
+        openSessions.forEach((session) => {
+          const sentAt = (session.teacherInvites || []).find((inv) => String(inv.teacherId) === String(currentUser.id))?.sentAt;
+          if (!sentAt) return;
+          const elapsedMin = (now - new Date(sentAt).getTime()) / 60000;
+          const key = `ls-${session.id}`;
+          const alerted = soundAlertsRef.current[key] || 0;
+          // كل 5 دقائق يأتي تنبيه
+          const level = Math.min(Math.floor(elapsedMin / 5), 4);
+          if (level > 0 && level > alerted) {
+            playAlertBeep(Math.min(level, 4));
+            soundAlertsRef.current[key] = level;
+            setNotifications((prev) => [
+              { id: Date.now(), title: '📋 لم تُغلق تحضير الحصة', body: `مضى ${Math.floor(elapsedMin)} دقيقة على طلب تحضير ${buildLessonAttendanceSessionLabel(session)} ولم تعتمده بعد.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [currentUser.id] },
+              ...prev,
+            ].slice(0, 30));
+          }
+        });
+      }
+    }, 30000); // فحص كل 30 ثانية
+    return () => clearInterval(interval);
+  }, [currentUser, selectedSchool, playAlertBeep]);
+  // ===== نهاية نظام التنبيهات الصوتية =====
+
   const allowedNav = useMemo(() => navItems.filter((item) => {
     if (item.key === "schoolStructure") return currentUser?.role === "principal";
     if (Array.isArray(item.roles) && item.roles.length) {
@@ -20795,7 +20901,7 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
     pushNotification('الاستئذان', `تم إشعار ${targetLabel} بخصوص الطالب ${leavePass.studentName}.`);
     // إضافة تنبيه للمعلم عند إرسال الاستئذان له
     if (target === 'teacher') {
-      const teacherUser = (users || []).find((u) => Number(u.schoolId) === Number(selectedSchool.id) && String(u.role) === 'teacher' && (String(u.id) === String(leavePass.teacherId) || u.name === leavePass.teacherName));
+      const teacherUser = (users || []).find((u) => Number(u.schoolId) === Number(selectedSchool.id) && String(u.role) === 'teacher' && (String(u.id) === String(leavePass.teacherUserId || leavePass.teacherId || '') || u.name === leavePass.teacherName));
       if (teacherUser) {
         setNotifications((prev) => [
           { id: Date.now(), title: 'استئذان طالب', body: `طلب استئذان للطالب ${leavePass.studentName} من ${leavePass.className || leavePass.companyName || 'فصله'}. افتح صفحة الاستئذان للمراجعة.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [teacherUser.id] },
