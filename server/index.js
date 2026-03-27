@@ -3002,6 +3002,7 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
     structureSpotlight,
     gateStats,
     lessonAttendanceSummary: buildLessonAttendanceSummaryForServer(school),
+    notifications: (state.notifications || []).filter((item) => Number(item.schoolId) === Number(schoolId)),
   };
 }
 function buildLessonAttendanceSummaryForServer(school) {
