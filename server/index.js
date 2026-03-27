@@ -2567,6 +2567,45 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // استيراد بيانات مدرسة كاملة من ملف JSON
+    const schoolImportSnapshotMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/import-snapshot$/);
+    if (schoolImportSnapshotMatch && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه استيراد بيانات المدرسة.' });
+      const schoolId = Number(schoolImportSnapshotMatch[1]);
+      try {
+        const body = await readJsonBody(req);
+        // يقبل كائن المدرسة مباشرةً أو مغلفاً في school: {...}
+        const schoolData = body.school || body;
+        if (!schoolData || typeof schoolData !== 'object' || !schoolData.name) {
+          return sendJson(res, 400, { ok: false, message: 'بنية الملف غير صالحة. تأكد أنه ملف تصدير مدرسة صحيح.' });
+        }
+        const current = getSharedState();
+        const next = structuredClone(current);
+        const idx = next.schools.findIndex((item) => Number(item.id) === schoolId);
+        if (idx === -1) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+        // احتفظ بالمعرف الحالي للمدرسة (الرقم والروابط والإعدادات)
+        const existingId = next.schools[idx].id;
+        const existingSmartLinks = next.schools[idx].smartLinks;
+        const existingSettings = next.schools[idx].settings;
+        next.schools[idx] = {
+          ...schoolData,
+          id: existingId,
+          smartLinks: existingSmartLinks || schoolData.smartLinks,
+          settings: existingSettings || schoolData.settings,
+        };
+        const saved = saveSharedState(next, actor);
+        return sendJson(res, 200, {
+          ok: true,
+          message: `تم استيراد بيانات مدرسة "${schoolData.name}" بنجاح.`,
+          state: sanitizeStateForClient(saved),
+          sessionUser: actor,
+        });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, message: 'تعذر قراءة أو تطبيق الملف: ' + (err?.message || '') });
+      }
+    }
+
     const schoolDeviceMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links$/);
     if (schoolDeviceMatch && req.method === 'POST') {
       const actor = getUserFromToken(token);

@@ -8049,6 +8049,50 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
   const [editSchoolModalOpen, setEditSchoolModalOpen] = useState(false);
   const [editingSchool, setEditingSchool] = useState(null);
   const [backupsModalOpen, setBackupsModalOpen] = useState(false);
+  const [importingSchoolId, setImportingSchoolId] = useState(null); // id المدرسة الجاري استيرادها
+  const [confirmImportSchool, setConfirmImportSchool] = useState(null); // { schoolId, schoolData, fileName }
+  const importFileRef = React.useRef(null);
+
+  const handleImportSchoolFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !importingSchoolId) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        const schoolData = parsed.school || parsed;
+        if (!schoolData || typeof schoolData !== 'object' || !schoolData.name) {
+          window.alert('الملف غير صالح. تأكد أنه ملف تصدير مدرسة من هذه المنصة.');
+          return;
+        }
+        setConfirmImportSchool({ schoolId: importingSchoolId, schoolData, fileName: file.name });
+      } catch {
+        window.alert('تعذر قراءة الملف. تأكد أنه ملف JSON صحيح.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+    setImportingSchoolId(null);
+  };
+
+  const doImportSchool = async () => {
+    if (!confirmImportSchool) return;
+    try {
+      const token = getSessionToken();
+      const res = await apiRequest(`/api/schools/${confirmImportSchool.schoolId}/import-snapshot`, {
+        method: 'POST',
+        token,
+        body: confirmImportSchool.schoolData,
+      });
+      if (res?.ok) {
+        window.alert(`✅ ${res.message || 'تم استيراد بيانات المدرسة بنجاح. سيتم إعادة تحميل الصفحة.'}`);
+        setConfirmImportSchool(null);
+        window.location.reload();
+      }
+    } catch (err) {
+      window.alert('تعذر استيراد بيانات المدرسة: ' + (err?.message || ''));
+    }
+  };
 
   const columns = [
     { key: "name", label: "المدرسة" },
@@ -8066,6 +8110,10 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
           <button onClick={() => setSelectedSchoolId(row.id)} className="rounded-xl bg-sky-50 px-3 py-2 font-bold text-sky-700">فتح</button>
           <button onClick={() => { setEditingSchool(row); setEditSchoolModalOpen(true); }} className="rounded-xl bg-amber-50 px-3 py-2 font-bold text-amber-700">تعديل</button>
           <button onClick={() => onExportSchool(row.id)} className="rounded-xl bg-slate-100 px-3 py-2 font-bold text-slate-700">تصدير</button>
+          <button
+            onClick={() => { setImportingSchoolId(row.id); setTimeout(() => importFileRef.current?.click(), 50); }}
+            className="rounded-xl bg-violet-50 px-3 py-2 font-bold text-violet-700 hover:bg-violet-100"
+          >استيراد</button>
           <button onClick={() => onDeleteSchool(row.id)} className="rounded-xl bg-rose-50 px-3 py-2 font-bold text-rose-700">حذف</button>
         </div>
       ),
@@ -8095,6 +8143,41 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
 
   return (
     <div className="space-y-6">
+      {/* input مخفي لاستيراد ملف المدرسة */}
+      <input
+        ref={importFileRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={handleImportSchoolFile}
+      />
+
+      {/* نافذة تأكيد استيراد المدرسة */}
+      {confirmImportSchool && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">
+            <div className="text-lg font-black text-slate-900">تأكيد استيراد بيانات المدرسة</div>
+            <div className="mt-3 rounded-2xl bg-amber-50 p-4 text-sm leading-7 text-amber-800 ring-1 ring-amber-200">
+              <div className="font-bold">تحذير: سيتم استبدال جميع بيانات هذه المدرسة بمحتوى الملف.</div>
+              <div className="mt-2">الملف: <span className="font-bold text-slate-800">{confirmImportSchool.fileName}</span></div>
+              <div className="mt-1">المدرسة في الملف: <span className="font-bold text-violet-700">{confirmImportSchool.schoolData.name}</span></div>
+              <div className="mt-1">عدد الطلاب: <span className="font-bold">{confirmImportSchool.schoolData.students?.length || 0}</span></div>
+              <div className="mt-1">عدد الشركات: <span className="font-bold">{confirmImportSchool.schoolData.companies?.length || 0}</span></div>
+              <div className="mt-2 text-xs">سيتم الاحتفاظ برقم المدرسة وروابطها الحالية. هل أنت متأكد؟</div>
+            </div>
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={doImportSchool}
+                className="flex-1 rounded-2xl bg-violet-700 px-4 py-3 font-bold text-white hover:bg-violet-800"
+              >
+                نعم، استيراد بيانات المدرسة
+              </button>
+              <button onClick={() => setConfirmImportSchool(null)} className="flex-1 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700 hover:bg-slate-200">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {backupsModalOpen && <BackupsModal onClose={() => setBackupsModalOpen(false)} />}
       <SectionCard title="إدارة المدارس" icon={Building2} action={
         <div className="flex items-center gap-2">
