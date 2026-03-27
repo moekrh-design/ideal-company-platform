@@ -4,7 +4,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
-import { DatabaseSync } from 'node:sqlite';
+import Database from 'better-sqlite3';
 import { createDefaultSharedState, hydrateSharedState, isRoleEnabledForSchool, defaultSettings, ensureDemoUsers } from './state.js';
 import nodemailer from 'nodemailer';
 
@@ -109,7 +109,7 @@ await mkdir(FACE_UPLOADS_DIR, { recursive: true });
 await mkdir(EVIDENCE_UPLOADS_DIR, { recursive: true });
 await mkdir(GLOBAL_BACKUPS_DIR, { recursive: true });
 await mkdir(SCHOOL_BACKUPS_DIR, { recursive: true });
-const db = new DatabaseSync(DB_PATH);
+const db = new Database(DB_PATH);
 initializeDatabase();
 ensureStateSeeded();
 ensureStateMigrations();
