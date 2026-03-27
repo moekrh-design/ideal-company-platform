@@ -303,8 +303,7 @@ function sanitizeStateForClient(state) {
 
 async function getSharedStateAsync() {
   if (_stateCache) return _stateCache;
-  const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);
-  if (!row) {
+  const row = await dbQueryOne("SELECT value FROM app_meta WHERE key = $1", ["shared_state"]); if (!row) {
     console.log('No shared state in DB, creating default');
     return await createDefaultSharedState(dbQueryOne, dbRun);
   }
