@@ -33,7 +33,8 @@ const SCREEN_TEMPLATE_KEYS = ["executive","reception","leaderboard","news"];
 const TICKER_BG_KEYS = ["amber","navy","emerald","rose","slate"];
 
 // State cache (must be declared before any top-level await calls)
-let _stateCache = null;const pool = new Pool({
+let _stateCache = null;
+const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false,
   max: 10,
