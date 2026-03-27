@@ -8008,10 +8008,12 @@ server.on('upgrade', (req, socket) => {
 
   server.listen(PORT, () => {
     console.log(`ideal-company-platform server running on http://localhost:${PORT}`);
+    console.log('Server is ready to accept connections.');
     console.log(`database: PostgreSQL (Neon)`);  // PostgreSQL
   });
 }
 
+console.log('Server startup initiated.');
 main().catch(err => {
   console.error('Failed to start server:', err);
   process.exit(1);
