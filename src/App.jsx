@@ -7719,6 +7719,23 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
   const [uploadError, setUploadError] = useState('');
   const [confirmUploadRestore, setConfirmUploadRestore] = useState(null); // parsed state from file
   const fileInputRef = React.useRef(null);
+  const [creatingNow, setCreatingNow] = useState(false);
+
+  const createNowBackup = async () => {
+    try {
+      setCreatingNow(true);
+      const token = getSessionToken();
+      const res = await apiRequest('/api/backups/create-now', { method: 'POST', token });
+      if (res?.ok) {
+        window.alert(`✅ ${res.message}`);
+        await loadList(); // تحديث القائمة بعد الإنشاء
+      }
+    } catch (err) {
+      window.alert('تعذر إنشاء النسخة: ' + (err?.message || ''));
+    } finally {
+      setCreatingNow(false);
+    }
+  };
 
   const loadList = async () => {
     try {
@@ -7914,6 +7931,21 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
             </div>
           </div>
         )}
+
+        {/* زر أخذ نسخة الآن */}
+        <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50 p-3 ring-1 ring-emerald-200">
+          <div>
+            <div className="font-bold text-emerald-900 text-sm">أخذ نسخة احتياطية الآن</div>
+            <div className="mt-0.5 text-xs text-emerald-700">إنشاء نسخة يدوية فورية لجميع بيانات المنصة والمدارس</div>
+          </div>
+          <button
+            onClick={createNowBackup}
+            disabled={creatingNow || loading}
+            className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 disabled:opacity-60 transition"
+          >
+            {creatingNow ? <><RefreshCw className="h-4 w-4 animate-spin" /> جاري الإنشاء...</> : <><Archive className="h-4 w-4" /> أخذ نسخة الآن</>}
+          </button>
+        </div>
 
         {/* إحصائيات سريعة */}
         <div className="grid grid-cols-3 gap-3">

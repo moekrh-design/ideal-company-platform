@@ -2468,6 +2468,46 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, backupsDir: BACKUPS_DIR, retentionDays: BACKUP_RETENTION_DAYS, latest });
     }
 
+    // أخذ نسخة احتياطية فورية الآن
+    if (reqUrl.pathname === '/api/backups/create-now' && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه إنشاء نسخة احتياطية.' });
+      try {
+        const currentState = getSharedState();
+        const now = new Date();
+        // استخدام طابع زمني دقيق يشمل الساعة والدقيقة لتمييز النسخ اليدوية
+        const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+        const timeStamp = `${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
+        const uniqueStamp = `${stamp}-manual-${timeStamp}`;
+        const globalJsonPath = path.join(GLOBAL_BACKUPS_DIR, `platform-${uniqueStamp}.json`);
+        const globalPayload = {
+          exportedAt: now.toISOString(),
+          type: 'platform-manual-backup',
+          reason: 'manual',
+          createdBy: actor.username,
+          state: sanitizeStateForClient(currentState),
+        };
+        const { writeFile: wf } = await import('node:fs/promises');
+        await mkdir(GLOBAL_BACKUPS_DIR, { recursive: true });
+        await mkdir(SCHOOL_BACKUPS_DIR, { recursive: true });
+        await wf(globalJsonPath, JSON.stringify(globalPayload, null, 2), 'utf8');
+        // نسخ لكل مدرسة
+        for (const school of currentState.schools || []) {
+          const slug = safeBackupSlug(school.code || school.name || `school-${school.id}`);
+          const schoolFile = path.join(SCHOOL_BACKUPS_DIR, `${uniqueStamp}-${slug}.json`);
+          await wf(schoolFile, JSON.stringify(schoolBackupPayload(school, sanitizeStateForClient(currentState)), null, 2), 'utf8');
+        }
+        return sendJson(res, 200, {
+          ok: true,
+          message: `تم إنشاء نسخة احتياطية يدوية بنجاح (${uniqueStamp}).`,
+          stamp: uniqueStamp,
+          schoolsCount: currentState.schools?.length || 0,
+        });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, message: 'تعذر إنشاء النسخة الاحتياطية: ' + (err?.message || '') });
+      }
+    }
+
     // قائمة النسخ الاحتياطية التلقائية
     if (reqUrl.pathname === '/api/backups/list' && req.method === 'GET') {
       const actor = getUserFromToken(token);
