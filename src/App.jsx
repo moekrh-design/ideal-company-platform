@@ -18724,7 +18724,10 @@ export default function App() {
       const result = await response.json();
       if (result.ok) {
         // بعد إضافة المدرسة بنجاح، نحتاج إلى تحديث الحالة بالكامل من الخادم
-        fetchState();
+        try {
+          const stateResp = await apiRequest('/api/state', { method: 'GET', token: getSessionToken() });
+          if (stateResp?.state) applyServerStatePayload(stateResp.state, loadUiState());
+        } catch (_) {}
       } else {
         window.alert(result.message || "فشل إضافة المدرسة.");
       }
@@ -20306,7 +20309,7 @@ ${buildLessonSessionLink(sessionId)}
     if (currentUser.role === "student") return <StudentRolePage selectedSchool={selectedSchool} currentUser={currentUser} onCreateRewardRedemptionRequest={handleCreateRewardRedemptionRequest} />;
     switch (activePage) {
       case "schools":
-        return <SchoolsPage schools={schools} selectedSchoolId={selectedSchoolId} setSelectedSchoolId={setSelectedSchoolId} onAddSchool={handleAddSchool} onDeleteSchool={handleDeleteSchool} onExportSchool={exportSchoolSnapshot} onUpdateSchoolBranding={handleUpdateSchoolBranding} onEditSchool={handleEditSchool} fetchState={fetchState} />;
+        return <SchoolsPage schools={schools} selectedSchoolId={selectedSchoolId} setSelectedSchoolId={setSelectedSchoolId} onAddSchool={handleAddSchool} onDeleteSchool={handleDeleteSchool} onExportSchool={exportSchoolSnapshot} onUpdateSchoolBranding={handleUpdateSchoolBranding} onEditSchool={handleEditSchool} />;
       case "companies":
         return <CompaniesPage selectedSchool={selectedSchool} onAddCompany={handleAddCompany} onDeleteCompany={handleDeleteCompany} onAwardInitiative={handleAwardInitiative} />;
       case "students":
