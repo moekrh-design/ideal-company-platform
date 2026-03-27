@@ -1,4 +1,4 @@
-'''
+
 import http from 'node:http';
 import { readFileSync, existsSync, createReadStream, mkdirSync, writeFileSync } from 'node:fs';
 import { writeFile, mkdir } from 'node:fs/promises';
@@ -539,4 +539,4 @@ async function startServer() {
 }
 
 startServer();
-'''
+
