@@ -41,7 +41,8 @@ let _stateCache = null;const pool = new Pool({
   connectionTimeoutMillis: 10000,
 });
 
-// Helper: run a queasync function dbQuery(text, params = []) {
+// Helper: run a query
+async function dbQuery(text, params = []) {
   const client = await pool.connect();
   try {
     const res = await client.query(text, params);
@@ -49,13 +50,25 @@ let _stateCache = null;const pool = new Pool({
   } finally {
     client.release();
   }
-}per: run a query and return firstasync function dbQueryOne(text, params = []) {
+}
+
+// Helper: run a query and return first row
+async function dbQueryOne(text, params = []) {
   const rows = await dbQuery(text, params);
   return rows[0] || null;
-}lper: run a query and return all rows (alias for dbQueryasync function dbQueryAll(text, params = []) {
+}
+
+// Helper: run a query and return all rows (alias for dbQuery)
+async function dbQueryAll(text, params = []) {
   return dbQuery(text, params);
-}lper: run a query with no returnasync function dbRun(text, params = []) {
-  await dbQuery(text, params);ion initializeDatabase() {
+}
+
+// Helper: run a query with no return value
+async function dbRun(text, params = []) {
+  await dbQuery(text, params);
+}
+
+async function initializeDatabase() {
   await dbRun(`
     CREATE TABLE IF NOT EXISTS app_meta (
       key TEXT PRIMARY KEY,
@@ -264,9 +277,6 @@ async function normalizeUsersForStorage(users = [], existingUsers = [], schools 
     }
 
     if (String(password || '').trim() && !isHashedPassword(password)) {
-      // This will be handled by the calling function (normalizeStateForStorage)
-      // or should be awaited if this function becomes async.
-      // For now, we'll assume it's handled by the caller or will be fixed.
       password = await hashPassword(password);
     }
     return { ...user, password: password || '' };
@@ -7172,14 +7182,87 @@ log('User Agent: ' + navigator.userAgent, true);
       next.users = (next.users || []).map((item) => Number(item.id) !== Number(actor.id) ? item : { ...item, password: await hashPassword(newPassword.trim()) });
       await saveSharedState(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
       await audit({ username: user.username, role: user.role }, 'change_password', { userId: user.id });
-      return sendJson(res, 200, { ok: true, message: 'تم تغيير كلمة المرور بنجاح.' });
+       return sendJson(res, 200, { ok: true, message: 'تم إضافة المدرسة بنجاح.' });
+    }
+  });
+
+  // Update school API endpoint
+  server.post('/api/schools/update', async (req, res) => {
+    const { token, schoolId, name, city, code, principalUsername, principalEmail, principalPassword, principalPhone } = req.body;
+    const auth = await verifyAuth(token);
+    if (!auth.ok || auth.user.role !== 'superadmin') {
+      return sendJson(res, 401, { ok: false, message: 'غير مصرح لك بتعديل المدارس.' });
     }
 
-    if (reqUrl.pathname === '/api/schools' && req.method === 'POST') {
-      const actor = await getUserFromToken(token);
-      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'هذه الصلاحية للأدمن الرئيسي فقط.' });
-      const body = await readJsonBody(req);
-      const state = getSharedState();
+    const schoolIndex = state.schools.findIndex((s) => Number(s.id) === Number(schoolId));
+    if (schoolIndex === -1) {
+      return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+    }
+
+    const existingSchool = state.schools[schoolIndex];
+    const existingPrincipalUser = state.users.find((u) => u.id === existingSchool.principalProfile.id);
+
+    const updatedSchool = {
+      ...existingSchool,
+      name: String(name || '').trim(),
+      city: String(city || '').trim(),
+      code: String(code || '').trim(),
+      principalProfile: {
+        ...existingSchool.principalProfile,
+        username: String(principalUsername || '').trim().toLowerCase(),
+        email: String(principalEmail || '').trim().toLowerCase(),
+        mobile: String(principalPhone || '').trim(),
+      },
+    };
+
+    // Validate updated school data
+    if (!updatedSchool.name || !updatedSchool.city || !updatedSchool.code || !updatedSchool.principalProfile.username || !updatedSchool.principalProfile.email || !updatedSchool.principalProfile.mobile) {
+      return sendJson(res, 400, { ok: false, message: 'يرجى إكمال جميع حقول المدرسة ومديرها.' });
+    }
+
+    // Check for duplicate school code (excluding current school)
+    if (state.schools.some((s) => s.code === updatedSchool.code && Number(s.id) !== Number(schoolId))) {
+      return sendJson(res, 400, { ok: false, message: 'الرقم الوزاري مستخدم بالفعل لمدرسة أخرى.' });
+    }
+
+    // Check for duplicate principal username (excluding current principal)
+    if (state.users.some((u) => u.username === updatedSchool.principalProfile.username && Number(u.id) !== Number(existingPrincipalUser?.id))) {
+      return sendJson(res, 400, { ok: false, message: 'اسم دخول المدير مستخدم بالفعل لمستخدم آخر.' });
+    }
+
+    // Check for duplicate principal email (excluding current principal)
+    if (state.users.some((u) => u.email === updatedSchool.principalProfile.email && Number(u.id) !== Number(existingPrincipalUser?.id))) {
+      return sendJson(res, 400, { ok: false, message: 'البريد الإلكتروني للمدير مستخدم بالفعل لمستخدم آخر.' });
+    }
+
+    // Update principal user password if provided
+    if (principalPassword) {
+      updatedSchool.principalProfile.password = await hashPassword(String(principalPassword).trim());
+    } else if (existingPrincipalUser?.password) {
+      updatedSchool.principalProfile.password = existingPrincipalUser.password;
+    }
+
+    const nextState = structuredClone(state);
+    nextState.schools[schoolIndex] = updatedSchool;
+
+    // Update principal user in nextState.users
+    if (existingPrincipalUser) {
+      const principalUserIndex = nextState.users.findIndex((u) => u.id === existingPrincipalUser.id);
+      if (principalUserIndex !== -1) {
+        nextState.users[principalUserIndex] = {
+          ...existingPrincipalUser,
+          username: updatedSchool.principalProfile.username,
+          email: updatedSchool.principalProfile.email,
+          password: updatedSchool.principalProfile.password,
+          mobile: updatedSchool.principalProfile.mobile,
+        };
+      }
+    }
+
+    await saveSharedState(nextState, auth.user);
+    await audit(auth.user, 'update_school', { schoolId: schoolId, name: updatedSchool.name });
+    return sendJson(res, 200, { ok: true, message: 'تم تحديث بيانات المدرسة بنجاح.' });
+  });
       const newSchool = {
         id: Math.max(0, ...state.schools.map((s) => s.id)) + 1,
         name: String(body.name || '').trim(),
