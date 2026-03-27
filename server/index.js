@@ -252,10 +252,10 @@ async function verifyPassword(plainPassword, storedPassword) {
   }
 }
 
-function normalizeUsersForStorage(users = [], existingUsers = [], schools = []) {
+async function normalizeUsersForStorage(users = [], existingUsers = [], schools = []) {
   const preparedUsers = ensureDemoUsers(users || [], schools || []);
   const existingMap = new Map((existingUsers || []).map((user) => [user.id, user]));
-  return preparedUsers.map((user) => {
+  return await Promise.all(preparedUsers.map(async (user) => {
     const previous = existingMap.get(user.id);
     const incomingPassword = user.password;
     let password = incomingPassword;
@@ -264,17 +264,20 @@ function normalizeUsersForStorage(users = [], existingUsers = [], schools = []) 
     }
 
     if (String(password || '').trim() && !isHashedPassword(password)) {
+      // This will be handled by the calling function (normalizeStateForStorage)
+      // or should be awaited if this function becomes async.
+      // For now, we'll assume it's handled by the caller or will be fixed.
       password = await hashPassword(password);
     }
     return { ...user, password: password || '' };
-  });
+  }));
 }
 
-function normalizeStateForStorage(state, existingState = null) {
+async function normalizeStateForStorage(state, existingState = null) {
   const hydrated = hydrateSharedState(state);
   return {
     ...hydrated,
-    users: normalizeUsersForStorage(hydrated.users, existingState?.users || hydrated.users, hydrated.schools),
+    users: await normalizeUsersForStorage(hydrated.users, existingState?.users || hydrated.users, hydrated.schools),
   };
 }
 
@@ -336,7 +339,7 @@ async function readAuthLogs(limit = 200) {
 async function ensureStateSeeded() {
   const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);
   if (!row) {
-    const state = normalizeStateForStorage(createDefaultSharedState());
+    const state = await normalizeStateForStorage(createDefaultSharedState());
     await writeStateRow(state);
     await audit(null, 'seed_state', { schools: state.schools.length, users: state.users.length });
   }
@@ -347,24 +350,23 @@ async function ensureStateMigrations() {
   if (!row?.value) return;
   try {
     const parsed = JSON.parse(row.value);
-    const normalized = normalizeStateForStorage(parsed, parsed);
+    const normalized = await normalizeStateForStorage(parsed, parsed);
     if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
       await writeStateRow(normalized);
       await audit(null, 'migrate_state', { users: normalized.users.length });
     }
   } catch {
-    const state = normalizeStateForStorage(createDefaultSharedState());
+    const state = await normalizeStateForStorage(createDefaultSharedState());
     await writeStateRow(state);
   }
 }
 
 async function getSharedStateAsync() {
-  const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);
-  if (!row) return normalizeStateForStorage(createDefaultSharedState());
+  const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);  if (!row) return await normalizeStateForStorage(createDefaultSharedState()););
   try {
-    return normalizeStateForStorage(JSON.parse(row.value), JSON.parse(row.value));
+    return await normalizeStateForStorage(JSON.parse(row.value), JSON.parse(row.value));
   } catch {
-    return normalizeStateForStorage(createDefaultSharedState());
+    return await normalizeStateForStorage(createDefaultSharedState());
   }
 }
 
@@ -382,7 +384,7 @@ async function refreshStateCache() {
 
 async function saveSharedState(state, actor = null) {
   const current = getSharedState();
-  const hydrated = normalizeStateForStorage(state, current);
+  const hydrated = await normalizeStateForStorage(state, current);
   await writeStateRow(hydrated, actor);
   _stateCache = hydrated;
   void ensureDailyBackups('save', hydrated);
@@ -1007,7 +1009,7 @@ async function createParentContactOtpRequest(primaryPhone, targetPhone, channel,
     primaryPhone: normalizePhoneNumber(primaryPhone),
     targetPhone: normalizePhoneNumber(targetPhone),
     channel: channel === 'sms' ? 'sms' : 'whatsapp',
-    codeHash: hashPassword(String(code || ").trim()),
+    codeHash: await hashPassword(String(code || ").trim()),
     codePreview: String(code || '').trim(),
     requestedAt: nowIso(),
     expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
