@@ -1647,22 +1647,22 @@ function renderNotifications() {
       if (link.includes('leavePass=')) {
         const parts = link.split('leavePass=');
         const id = parts[1] ? parts[1].split(/[&\s]/)[0] : '';
-        clickHandler = `onclick="handleNotifClick('${id}')"`;
+        clickHandler = 'onclick="handleNotifClick(\'' + id + '\')"';
       } else if (link.includes('/teacher')) {
-        clickHandler = `onclick="window.location.href='${link}'"`;
+        clickHandler = 'onclick="window.location.href=\'' + link + '\'"';
       } else {
-        clickHandler = `onclick="window.open('${link}', '_blank')"`;
+        clickHandler = 'onclick="window.open(\'' + link + '\', \'_blank\')"';
       }
     }
 
-    return `<div class="notif-item ${isClickable ? 'clickable' : ''}" ${clickHandler} style="${isClickable ? 'cursor:pointer;' : ''}">
-      <div class="notif-title">
-        <span>${n.title || n.subject || '—'}</span>
-        ${isClickable ? '<span class="notif-link-icon">←</span>' : ''}
-      </div>
-      <div class="notif-body">${body}</div>
-      <div class="notif-time">${n.time || ''}${n.date ? ' • ' + n.date : ''}</div>
-    </div>`;
+    return '<div class="notif-item ' + (isClickable ? 'clickable' : '') + '" ' + clickHandler + ' style="' + (isClickable ? 'cursor:pointer;' : '') + '">' +
+      '<div class="notif-title">' +
+        '<span>' + (n.title || n.subject || '—') + '</span>' +
+        (isClickable ? '<span class="notif-link-icon">←</span>' : '') +
+      '</div>' +
+      '<div class="notif-body">' + body + '</div>' +
+      '<div class="notif-time">' + (n.time || '') + (n.date ? ' • ' + n.date : '') + '</div>' +
+    '</div>';
   }).join('');
 }
 

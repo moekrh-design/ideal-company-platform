@@ -138,6 +138,16 @@ export const defaultSettings = {
       notificationChannels: { internal: true, email: false, sms: false, whatsapp: false },
     },
   },
+  parentPortal: {
+    enabled: true,
+    loginMethods: {
+      nationalId: true,
+      studentId: true,
+      mobileNumber: true,
+      email: false
+    },
+    allowRegistration: false,
+  },
 };
 
 export const roles = [
@@ -553,6 +563,10 @@ export function createDefaultSharedState() {
         targeting: { ...defaultSettings.auth.targeting },
         email: { ...defaultSettings.auth.email },
       },
+      parentPortal: {
+        ...defaultSettings.parentPortal,
+        loginMethods: { ...defaultSettings.parentPortal.loginMethods },
+      },
     },
     notifications: [
       { id: 1, title: "جاهزية النظام", body: "تم تأسيس المنصة على خادم مركزي مع جلسات دخول وصلاحيات متعددة المدارس.", time: "الآن" },
@@ -583,6 +597,11 @@ export function hydrateSharedState(parsed = {}) {
         delivery: { ...defaultSettings.auth.delivery, ...(parsed.settings?.auth?.delivery || {}) },
         targeting: { ...defaultSettings.auth.targeting, ...(parsed.settings?.auth?.targeting || {}) },
         email: { ...defaultSettings.auth.email, ...(parsed.settings?.auth?.email || {}) },
+      },
+      parentPortal: {
+        ...defaultSettings.parentPortal,
+        ...(parsed.settings?.parentPortal || {}),
+        loginMethods: { ...defaultSettings.parentPortal.loginMethods, ...(parsed.settings?.parentPortal?.loginMethods || {}) },
       },
     },
     notifications: Array.isArray(parsed.notifications) ? parsed.notifications : defaults.notifications,

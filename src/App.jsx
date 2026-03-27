@@ -15134,6 +15134,136 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
 
         {tab === "parentPortal" && canViewParentPortal && (
           <div className="space-y-5">
+
+            {currentUser?.role === 'superadmin' && (
+              <div className="rounded-3xl bg-slate-900 p-5 ring-1 ring-slate-700">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Shield className="h-5 w-5 text-sky-400" />
+                      <div className="text-lg font-black text-white">إعدادات عامة لبوابة ولي الأمر — جميع المدارس</div>
+                    </div>
+                    <div className="mt-2 text-sm leading-7 text-slate-400">هذه الإعدادات تنطبق على جميع المدارس في المنصة. يمكنك تفعيل أو تعطيل طرق الدخول المتاحة لأولياء الأمور بشكل مركزي.</div>
+                  </div>
+                  <Badge tone="violet">أدمن عام</Badge>
+                </div>
+
+                <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="rounded-3xl bg-slate-800 p-5 ring-1 ring-slate-700">
+                    <div className="font-black text-white">حالة بوابة ولي الأمر</div>
+                    <div className="mt-1 text-sm text-slate-400">تفعيل أو تعطيل بوابة ولي الأمر لجميع المدارس</div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = { ...localSettings, parentPortal: { ...(localSettings.parentPortal || {}), enabled: true } };
+                          setLocalSettings(updated);
+                        }}
+                        className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${
+                          localSettings.parentPortal?.enabled !== false ? 'bg-emerald-600 text-white ring-2 ring-emerald-400' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        }`}
+                      >
+                        مفعّلة للجميع
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = { ...localSettings, parentPortal: { ...(localSettings.parentPortal || {}), enabled: false } };
+                          setLocalSettings(updated);
+                        }}
+                        className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${
+                          localSettings.parentPortal?.enabled === false ? 'bg-rose-600 text-white ring-2 ring-rose-400' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        }`}
+                      >
+                        معطّلة للجميع
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl bg-slate-800 p-5 ring-1 ring-slate-700">
+                    <div className="font-black text-white">السماح بتسجيل حسابات جديدة</div>
+                    <div className="mt-1 text-sm text-slate-400">هل يمكن لأولياء الأمور الجدد إنشاء حسابات؟</div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = { ...localSettings, parentPortal: { ...(localSettings.parentPortal || {}), allowRegistration: true } };
+                          setLocalSettings(updated);
+                        }}
+                        className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${
+                          localSettings.parentPortal?.allowRegistration === true ? 'bg-emerald-600 text-white ring-2 ring-emerald-400' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        }`}
+                      >
+                        مسموح
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = { ...localSettings, parentPortal: { ...(localSettings.parentPortal || {}), allowRegistration: false } };
+                          setLocalSettings(updated);
+                        }}
+                        className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${
+                          localSettings.parentPortal?.allowRegistration !== true ? 'bg-rose-600 text-white ring-2 ring-rose-400' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        }`}
+                      >
+                        ممنوع
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 rounded-3xl bg-slate-800 p-5 ring-1 ring-slate-700">
+                  <div className="font-black text-white">طرق الدخول المتاحة لأولياء الأمور</div>
+                  <div className="mt-1 text-sm text-slate-400">اختر الطرق المسموح بها للدخول إلى بوابة ولي الأمر — تنطبق على جميع المدارس</div>
+                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    {[
+                      { key: 'nationalId', label: 'رقم الهوية الوطنية / الإقامة', desc: 'الدخول باستخدام رقم هوية الطالب' },
+                      { key: 'studentId', label: 'رقم الطالب في المنصة', desc: 'الدخول باستخدام معرّف الطالب الداخلي' },
+                      { key: 'mobileNumber', label: 'رقم الجوال', desc: 'الدخول عبر رقم جوال ولي الأمر المسجّل' },
+                      { key: 'email', label: 'البريد الإلكتروني', desc: 'الدخول عبر البريد الإلكتروني لولي الأمر' },
+                    ].map((method) => {
+                      const isEnabled = localSettings.parentPortal?.loginMethods?.[method.key] !== false;
+                      return (
+                        <div key={method.key} className="flex items-start justify-between gap-3 rounded-2xl bg-slate-700 p-4 ring-1 ring-slate-600">
+                          <div>
+                            <div className="font-bold text-white">{method.label}</div>
+                            <div className="mt-1 text-xs text-slate-400">{method.desc}</div>
+                          </div>
+                          <div className="flex shrink-0 flex-col gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = {
+                                  ...localSettings,
+                                  parentPortal: {
+                                    ...(localSettings.parentPortal || {}),
+                                    loginMethods: {
+                                      ...(localSettings.parentPortal?.loginMethods || {}),
+                                      [method.key]: !isEnabled,
+                                    },
+                                  },
+                                };
+                                setLocalSettings(updated);
+                              }}
+                              className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${
+                                isEnabled ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-slate-600 text-slate-300 hover:bg-slate-500'
+                              }`}
+                            >
+                              {isEnabled ? 'مفعّل' : 'معطّل'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-2xl bg-amber-900/40 px-4 py-3 text-sm font-bold text-amber-300 ring-1 ring-amber-700">
+                  تذكّر الضغط على «حفظ الإعدادات» في الأسفل لتطبيق التغييرات على جميع المدارس.
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
               <div className="rounded-3xl bg-emerald-50 p-5 ring-1 ring-emerald-100">
                 <div className="text-sm font-bold text-emerald-800">حالة البوابة</div>
