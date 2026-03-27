@@ -1,3 +1,4 @@
+'''
 import http from 'node:http';
 import { readFileSync, existsSync, createReadStream, mkdirSync, writeFileSync } from 'node:fs';
 import { writeFile, mkdir } from 'node:fs/promises';
@@ -27,12 +28,13 @@ const PORT = Number(process.env.PORT || 4000);
 const SESSION_DAYS = Number(process.env.SESSION_DAYS || 90);
 const PARENT_SESSION_DAYS = Number(process.env.PARENT_SESSION_DAYS || 90);
 const JSON_LIMIT_BYTES = 50 * 1024 * 1024;
-const SCREEN_TRANSITION_KEYS = ["fade","cut","slide-left","slide-right","slide-up","slide-down","zoom-in","zoom-out","flip-x","flip-y","rotate-soft","rotate-in","blur","bounce","scale-up","scale-down","swing","curtain","diagonal","pop","float","random"];
-const SCREEN_THEME_KEYS = ["emerald-night","blue-contrast","violet-stage","sunrise","graphite"];
-const SCREEN_TEMPLATE_KEYS = ["executive","reception","leaderboard","news"];
-const TICKER_BG_KEYS = ["amber","navy","emerald","rose","slate"];
+const SCREEN_TRANSITION_KEYS = ['fade','cut','slide-left','slide-right','slide-up','slide-down','zoom-in','zoom-out','flip-x','flip-y','rotate-soft','rotate-in','blur','bounce','scale-up','scale-down','swing','curtain','diagonal','pop','float','random'];
+const SCREEN_THEME_KEYS = ['emerald-night','blue-contrast','violet-stage','sunrise','graphite'];
+const SCREEN_TEMPLATE_KEYS = ['executive','reception','leaderboard','news'];
+const TICKER_BG_KEYS = ['amber','navy','emerald','rose','slate'];
 
 // State cache (must be declared before any top-level await calls)
+let _stateCache = null;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -299,23 +301,23 @@ function sanitizeStateForClient(state) {
   };
 }
 
-
-
 async function getSharedStateAsync() {
+  if (_stateCache) return _stateCache;
   const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);
-  if (!row) return await normalizeStateForStorage(createDefaultSharedState());
+  if (!row) {
+    console.log('No shared state in DB, creating default');
+    return await createDefaultSharedState(dbQueryOne, dbRun);
+  }
   try {
-    return await normalizeStateForStorage(JSON.parse(row.value));
+    const state = JSON.parse(row.value);
+    return hydrateSharedState(state, dbQueryOne, dbRun);
   } catch (error) {
-    console.error("Error parsing shared state:", error);
-    return await normalizeStateForStorage(createDefaultSharedState());
+    console.error('Error parsing shared state from DB', error);
+    return await createDefaultSharedState(dbQueryOne, dbRun);
   }
 }
 
 function getSharedState() {
-  if (!_stateCache) {
-    throw new Error('State cache not initialized. Call await refreshStateCache();first.');
-  }
   return _stateCache;
 }
 
@@ -324,731 +326,218 @@ async function refreshStateCache() {
   return _stateCache;
 }
 
-async function saveSharedState(state, actor = null) {
-  const now = nowIso();
-  const nextState = await normalizeStateForStorage(state, _stateCache);
-  const sanitizedState = sanitizeStateForClient(nextState);
-  await dbRun(
-    'INSERT INTO app_meta (key, value, updated_at) VALUES ($1, $2, $3) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = $3',
-    ['shared_state', JSON.stringify(sanitizedState), now]
-  );
-  _stateCache = nextState;
-  await ensureDailyBackups('save', nextState);
+async function updateSharedState(newState, actor) {
+  const current = await getSharedStateAsync(); // Ensure we have the latest state
+  const updated = { ...current, ...newState };
+  const normalized = await normalizeStateForStorage(updated, current);
+  await dbRun('UPDATE app_meta SET value = $1, updated_at = $2 WHERE key = $3', [JSON.stringify(normalized), nowIso(), 'shared_state']);
+  _stateCache = normalized;
+  if (actor) {
+    await logAuditEvent(actor, 'update_shared_state', { keys: Object.keys(newState) });
+  }
+  return _stateCache;
 }
 
-async function audit(actor, action, details = {}) {
-  const now = nowIso();
-  await dbRun(
-    'INSERT INTO audit_log (actor_username, actor_role, action, created_at, details) VALUES ($1, $2, $3, $4, $5)',
-    [actor?.username || null, actor?.role || null, action, now, JSON.stringify(details)]
-  );
+async function ensureStateSeeded() {
+  const row = await dbQueryOne('SELECT key FROM app_meta WHERE key = $1', ['shared_state']);
+  if (row) return;
+  console.log('Seeding database with default state');
+  const defaultState = await createDefaultSharedState(dbQueryOne, dbRun);
+  const normalized = await normalizeStateForStorage(defaultState);
+  await dbRun('INSERT INTO app_meta (key, value, updated_at) VALUES ($1, $2, $3)', ['shared_state', JSON.stringify(normalized), nowIso()]);
+  _stateCache = normalized;
 }
 
-async function createSession(userId, username, role, schoolId = null) {
-  const now = nowIso();
-  const expires = daysFromNow(SESSION_DAYS);
+async function ensureStateMigrations() {
+  // Placeholder for future database schema migrations
+}
+
+async function cleanupExpiredSessions() {
+  await dbRun('DELETE FROM sessions WHERE expires_at < $1', [nowIso()]);
+}
+
+async function cleanupExpiredAuthOtps() {
+  await dbRun('DELETE FROM auth_otps WHERE expires_at < $1', [nowIso()]);
+}
+
+async function cleanupExpiredAuthLockouts() {
+  await dbRun('DELETE FROM auth_lockouts WHERE expires_at < $1', [nowIso()]);
+}
+
+async function createSession(user) {
   const token = crypto.randomBytes(32).toString('hex');
-  await dbRun(
-    'INSERT INTO sessions (token, user_id, username, role, school_id, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-    [token, userId, username, role, schoolId, now, expires]
-  );
-  return token;
+  const createdAt = nowIso();
+  const expiresAt = daysFromNow(SESSION_DAYS);
+  await dbRun('INSERT INTO sessions (token, user_id, username, role, school_id, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [token, user.id, user.username, user.role, user.schoolId, createdAt, expiresAt]);
+  return { token, user, expiresAt };
 }
 
-async function verifyAuth(token) {
-  if (!token) return { ok: false };
-  const now = nowIso();
-  const session = await dbQueryOne('SELECT * FROM sessions WHERE token = $1 AND expires_at > $2', [token, now]);
-  if (!session) return { ok: false };
-  return { ok: true, user: { id: session.user_id, username: session.username, role: session.role, schoolId: session.school_id } };
+async function getSession(token) {
+  if (!token) return null;
+  const row = await dbQueryOne('SELECT * FROM sessions WHERE token = $1 AND expires_at >= $2', [token, nowIso()]);
+  if (!row) return null;
+  const state = getSharedState();
+  const user = state.users.find((u) => u.id === row.user_id);
+  if (!user) return null;
+  return { token: row.token, user, expiresAt: row.expires_at };
 }
 
 async function deleteSession(token) {
   await dbRun('DELETE FROM sessions WHERE token = $1', [token]);
 }
 
-async function createOtp(userId, purpose, delivery, identifier, code, destinationPreview) {
-  const now = nowIso();
-  const expires = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
-  const id = crypto.randomBytes(16).toString('hex');
-  const codeHash = await bcrypt.hash(String(code), 10); // Hash the OTP code
-  await dbRun(
-    'INSERT INTO auth_otps (id, user_id, purpose, delivery, identifier, code_hash, destination_preview, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-    [id, userId, purpose, delivery, identifier, codeHash, destinationPreview, now, expires]
-  );
-  return id;
+async function logAuditEvent(actor, action, details) {
+  const { username, role } = actor || {};
+  await dbRun('INSERT INTO audit_log (actor_username, actor_role, action, created_at, details) VALUES ($1, $2, $3, $4, $5)', [username, role, action, nowIso(), JSON.stringify(details)]);
 }
 
-async function verifyOtp(id, code) {
-  const now = nowIso();
-  const otp = await dbQueryOne('SELECT * FROM auth_otps WHERE id = $1 AND expires_at > $2 AND consumed_at IS NULL', [id, now]);
-  if (!otp) return { ok: false, message: 'رمز التحقق غير صالح أو انتهت صلاحيته.' };
+async function handleApiRequest(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const session = await getSession(req.headers.authorization?.split(' ')[1]);
+  const user = session?.user;
 
-  const isMatch = await bcrypt.compare(String(code), otp.code_hash);
-  if (!isMatch) return { ok: false, message: 'رمز التحقق غير صحيح.' };
-
-  await dbRun('UPDATE auth_otps SET consumed_at = $1 WHERE id = $2', [now, id]);
-  return { ok: true, userId: otp.user_id, identifier: otp.identifier };
-}
-
-async function createLockout(identifierKey, userId, scope, reason) {
-  const now = nowIso();
-  const expires = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes
-  await dbRun(
-    'INSERT INTO auth_lockouts (identifier_key, user_id, scope, reason, failure_count, created_at, updated_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-    [identifierKey, userId, scope, reason, 1, now, now, expires]
-  );
-}
-
-async function recordFailedAttempt(identifierKey, scope) {
-  const now = nowIso();
-  const lockout = await dbQueryOne('SELECT * FROM auth_lockouts WHERE identifier_key = $1 AND scope = $2 AND expires_at > $3 AND lifted_at IS NULL', [identifierKey, scope, now]);
-
-  if (lockout) {
-    const newFailureCount = lockout.failure_count + 1;
-    const newExpires = new Date(Date.now() + (15 * newFailureCount) * 60 * 1000).toISOString(); // Increase lockout time
-    await dbRun('UPDATE auth_lockouts SET failure_count = $1, updated_at = $2, expires_at = $3 WHERE id = $4', [newFailureCount, now, newExpires, lockout.id]);
-    return newFailureCount;
-  } else {
-    await createLockout(identifierKey, null, scope, 'failed_attempts');
-    return 1;
+  if (url.pathname === '/api/v1/health') {
+    return sendJson(res, { status: 'ok' });
   }
+
+  if (url.pathname === '/api/v1/state') {
+    if (!user) return sendUnauthorized(res);
+    const state = getSharedState();
+    return sendJson(res, sanitizeStateForClient(state));
+  }
+
+  if (url.pathname === '/api/v1/login' && req.method === 'POST') {
+    const { username, password } = await readJsonBody(req);
+    const state = getSharedState();
+    const user = state.users.find((u) => u.username === username);
+    if (!user || !await verifyPassword(password, user.password)) {
+      return sendUnauthorized(res, 'Invalid credentials');
+    }
+    const newSession = await createSession(user);
+    await logAuditEvent(user, 'login_success');
+    return sendJson(res, newSession);
+  }
+
+  if (url.pathname === '/api/v1/logout' && req.method === 'POST') {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (token) await deleteSession(token);
+    if (user) await logAuditEvent(user, 'logout');
+    return sendJson(res, { success: true });
+  }
+
+  if (url.pathname === '/api/v1/save' && req.method === 'POST') {
+    if (!user) return sendUnauthorized(res);
+    const body = await readJsonBody(req);
+    const updatedState = await updateSharedState(body, user);
+    await ensureDailyBackups('save', updatedState);
+    return sendJson(res, sanitizeStateForClient(updatedState));
+  }
+
+  return sendNotFound(res);
 }
 
-async function checkLockout(identifierKey, scope) {
-  const now = nowIso();
-  const lockout = await dbQueryOne('SELECT * FROM auth_lockouts WHERE identifier_key = $1 AND scope = $2 AND expires_at > $3 AND lifted_at IS NULL', [identifierKey, scope, now]);
-  return lockout !== null;
+function sendJson(res, data, statusCode = 200) {
+  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(data));
 }
 
-async function liftLockout(identifierKey, scope) {
-  const now = nowIso();
-  await dbRun('UPDATE auth_lockouts SET lifted_at = $1 WHERE identifier_key = $2 AND scope = $3', [now, identifierKey, scope]);
+function sendUnauthorized(res, message = 'Unauthorized') {
+  sendJson(res, { error: message }, 401);
 }
 
-async function sendEmail(to, subject, text, html) {
-  const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: process.env.EMAIL_PORT,
-    secure: process.env.EMAIL_SECURE === 'true',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
+function sendNotFound(res, message = 'Not Found') {
+  sendJson(res, { error: message }, 404);
+}
+
+async function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk.toString();
+      if (body.length > JSON_LIMIT_BYTES) {
+        req.connection.destroy();
+        reject(new Error('Request body too large'));
+      }
+    });
+    req.on('end', () => {
+      try {
+        resolve(JSON.parse(body));
+      } catch (e) {
+        reject(e);
+      }
+    });
+    req.on('error', reject);
   });
-
-  await transporter.sendMail({
-    from: process.env.EMAIL_FROM,
-    to,
-    subject,
-    text,
-    html,
-  });
 }
-
-// Ensure directories exist
-mkdirSync(DATA_DIR, { recursive: true });
-mkdirSync(UPLOADS_DIR, { recursive: true });
-mkdirSync(FACE_UPLOADS_DIR, { recursive: true });
-mkdirSync(EVIDENCE_UPLOADS_DIR, { recursive: true });
-mkdirSync(BACKUPS_DIR, { recursive: true });
-mkdirSync(GLOBAL_BACKUPS_DIR, { recursive: true });
-mkdirSync(SCHOOL_BACKUPS_DIR, { recursive: true });
-
-// Initialize database and state cache
-await initializeDatabase();
-await refreshStateCache();
 
 const server = http.createServer(async (req, res) => {
-  const reqUrl = new URL(req.url, `http://${req.headers.host}`);
+    const url = new URL(req.url, `http://${req.headers.host}`);
 
-  const sendJson = (res, status, data) => {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(data));
-  };
+    if (url.pathname.startsWith('/api/')) {
+        return handleApiRequest(req, res);
+    }
 
-  const readJsonBody = (req) => {
-    return new Promise((resolve, reject) => {
-      let body = '';
-      req.on('data', (chunk) => {
-        body += chunk.toString();
-        if (body.length > JSON_LIMIT_BYTES) {
-          res.writeHead(413, { 'Content-Type': 'text/plain' });
-          res.end('Payload too large');
-          req.destroy();
-          return reject(new Error('Payload too large'));
-        }
-      });
-      req.on('end', () => {
-        try {
-          resolve(body ? JSON.parse(body) : {});
-        } catch (error) {
-          reject(error);
-        }
-      });
-      req.on('error', (error) => reject(error));
-    });
-  };
+    if (url.pathname.startsWith('/teacher')) {
+        const state = getSharedState();
+        const html = renderTeacherPortalHtml(state);
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        return res.end(html);
+    }
 
-  // Serve static files
-  if (reqUrl.pathname.startsWith('/assets/') || reqUrl.pathname === '/favicon.ico') {
-    const filePath = path.join(DIST_DIR, reqUrl.pathname);
+    let filePath = path.join(DIST_DIR, url.pathname);
+    if (url.pathname.endsWith('/')) {
+        filePath = path.join(filePath, 'index.html');
+    }
+
+    const extname = path.extname(filePath);
+    let contentType = 'text/html';
+    switch (extname) {
+        case '.js':
+            contentType = 'text/javascript';
+            break;
+        case '.css':
+            contentType = 'text/css';
+            break;
+        case '.json':
+            contentType = 'application/json';
+            break;
+        case '.png':
+            contentType = 'image/png';
+            break;
+        case '.jpg':
+            contentType = 'image/jpg';
+            break;
+    }
+
     if (existsSync(filePath)) {
-      const ext = path.extname(filePath);
-      let contentType = 'application/octet-stream';
-      if (ext === '.js') contentType = 'text/javascript';
-      else if (ext === '.css') contentType = 'text/css';
-      else if (ext === '.html') contentType = 'text/html';
-      else if (ext === '.png') contentType = 'image/png';
-      else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
-      else if (ext === '.gif') contentType = 'image/gif';
-      else if (ext === '.svg') contentType = 'image/svg+xml';
-      else if (ext === '.json') contentType = 'application/json';
-      else if (ext === '.woff') contentType = 'font/woff';
-      else if (ext === '.woff2') contentType = 'font/woff2';
-      else if (ext === '.ttf') contentType = 'font/ttf';
-      else if (ext === '.ico') contentType = 'image/x-icon';
-
-      res.writeHead(200, { 'Content-Type': contentType });
-      createReadStream(filePath).pipe(res);
-      return;
+        res.writeHead(200, { 'Content-Type': contentType });
+        createReadStream(filePath).pipe(res);
+    } else {
+        sendNotFound(res);
     }
-  }
-
-  // API Endpoints
-  if (reqUrl.pathname === '/api/login' && req.method === 'POST') {
-    const { username, password } = await readJsonBody(req);
-    const user = getSharedState().users.find((u) => u.username === username);
-
-    if (!user) {
-      return sendJson(res, 401, { ok: false, message: 'اسم المستخدم أو كلمة المرور غير صحيحة.' });
-    }
-
-    const isLockedOut = await checkLockout(username, 'login');
-    if (isLockedOut) {
-      return sendJson(res, 401, { ok: false, message: 'تم قفل حسابك مؤقتًا بسبب محاولات تسجيل دخول فاشلة متعددة. يرجى المحاولة لاحقًا.' });
-    }
-
-    const passwordMatch = await verifyPassword(password, user.password);
-
-    if (!passwordMatch) {
-      await recordFailedAttempt(username, 'login');
-      return sendJson(res, 401, { ok: false, message: 'اسم المستخدم أو كلمة المرور غير صحيحة.' });
-    }
-
-    await liftLockout(username, 'login');
-    const token = await createSession(user.id, user.username, user.role, user.schoolId);
-    await audit({ username: user.username, role: user.role }, 'login', { userId: user.id });
-    return sendJson(res, 200, { ok: true, token, user: sanitizeStateForClient({ users: [user] }).users[0] });
-  }
-
-  if (reqUrl.pathname === '/api/logout' && req.method === 'POST') {
-    const { token } = await readJsonBody(req);
-    await deleteSession(token);
-    return sendJson(res, 200, { ok: true });
-  }
-
-  if (reqUrl.pathname === '/api/state' && req.method === 'GET') {
-    const token = reqUrl.searchParams.get('token');
-    const auth = await verifyAuth(token);
-    if (!auth.ok) {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
-    }
-    const state = getSharedState();
-    return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(state) });
-  }
-
-  if (reqUrl.pathname === '/api/schools' && req.method === 'GET') {
-    const token = reqUrl.searchParams.get('token');
-    const auth = await verifyAuth(token);
-    if (!auth.ok) {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
-    }
-    const state = getSharedState();
-    return sendJson(res, 200, { ok: true, schools: state.schools });
-  }
-
-  if (reqUrl.pathname === '/api/schools/add' && req.method === 'POST') {
-    const body = await readJsonBody(req);
-    const { token, name, city, code, principalUsername, principalEmail, principalPassword, principalPhone } = body;
-    const auth = await verifyAuth(token);
-    if (!auth.ok || auth.user.role !== 'superadmin') {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح لك بإضافة مدارس.' });
-    }
-
-    const state = getSharedState();
-
-    // Validate new school data
-    if (!name || !city || !code || !principalUsername || !principalEmail || !principalPassword || !principalPhone) {
-      return sendJson(res, 400, { ok: false, message: 'يرجى إكمال جميع حقول المدرسة ومديرها.' });
-    }
-
-    // Check for duplicate school code
-    if (state.schools.some((s) => s.code === code)) {
-      return sendJson(res, 400, { ok: false, message: 'الرقم الوزاري مستخدم بالفعل.' });
-    }
-
-    // Check for duplicate principal username
-    if (state.users.some((u) => u.username === principalUsername)) {
-      return sendJson(res, 400, { ok: false, message: 'اسم دخول المدير مستخدم بالفعل.' });
-    }
-
-    // Check for duplicate principal email
-    if (state.users.some((u) => u.email === principalEmail)) {
-      return sendJson(res, 400, { ok: false, message: 'البريد الإلكتروني للمدير مستخدم بالفعل.' });
-    }
-
-    const hashedPassword = await hashPassword(principalPassword);
-
-    const newPrincipalId = Math.max(0, ...state.users.map((u) => u.id)) + 1;
-    const newSchoolId = Math.max(0, ...state.schools.map((s) => s.id)) + 1;
-
-    const newPrincipal = {
-      id: newPrincipalId,
-      username: principalUsername,
-      email: principalEmail,
-      password: hashedPassword,
-      role: 'principal',
-      schoolId: newSchoolId,
-      mobile: principalPhone,
-    };
-
-    const newSchool = {
-      id: newSchoolId,
-      name,
-      city,
-      code,
-      principalProfile: {
-        id: newPrincipalId,
-        username: principalUsername,
-        email: principalEmail,
-        mobile: principalPhone,
-        password: hashedPassword, // Store hashed password in school profile for consistency
-      },
-      teachers: [],
-      students: [],
-      classes: [],
-      screens: [],
-      settings: defaultSettings(),
-    };
-
-    const nextState = structuredClone(state);
-    nextState.schools.push(newSchool);
-    nextState.users.push(newPrincipal);
-
-    await saveSharedState(nextState, auth.user);
-    await audit(auth.user, 'add_school', { schoolId: newSchool.id, name: newSchool.name });
-    return sendJson(res, 200, { ok: true, message: 'تم إضافة المدرسة بنجاح.' });
-  }
-
-  // Update school API endpoint
-  if (reqUrl.pathname === '/api/schools/update' && req.method === 'POST') {
-    const { token, schoolId, name, city, code, principalUsername, principalEmail, principalPassword, principalPhone } = await readJsonBody(req);
-    const auth = await verifyAuth(token);
-    if (!auth.ok || auth.user.role !== 'superadmin') {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح لك بتعديل المدارس.' });
-    }
-
-    const state = getSharedState();
-    const schoolIndex = state.schools.findIndex((s) => Number(s.id) === Number(schoolId));
-    if (schoolIndex === -1) {
-      return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
-    }
-
-    const existingSchool = state.schools[schoolIndex];
-    const existingPrincipalUser = state.users.find((u) => u.id === existingSchool.principalProfile.id);
-
-    const updatedSchool = {
-      ...existingSchool,
-      name: String(name || '').trim(),
-      city: String(city || '').trim(),
-      code: String(code || '').trim(),
-      principalProfile: {
-        ...existingSchool.principalProfile,
-        username: String(principalUsername || '').trim().toLowerCase(),
-        email: String(principalEmail || '').trim().toLowerCase(),
-        mobile: String(principalPhone || '').trim(),
-      },
-    };
-
-    // Validate updated school data
-    if (!updatedSchool.name || !updatedSchool.city || !updatedSchool.code || !updatedSchool.principalProfile.username || !updatedSchool.principalProfile.email || !updatedSchool.principalProfile.mobile) {
-      return sendJson(res, 400, { ok: false, message: 'يرجى إكمال جميع حقول المدرسة ومديرها.' });
-    }
-
-    // Check for duplicate school code (excluding current school)
-    if (state.schools.some((s) => s.code === updatedSchool.code && Number(s.id) !== Number(schoolId))) {
-      return sendJson(res, 400, { ok: false, message: 'الرقم الوزاري مستخدم بالفعل لمدرسة أخرى.' });
-    }
-
-    // Check for duplicate principal username (excluding current principal)
-    if (state.users.some((u) => u.username === updatedSchool.principalProfile.username && Number(u.id) !== Number(existingPrincipalUser?.id))) {
-      return sendJson(res, 400, { ok: false, message: 'اسم دخول المدير مستخدم بالفعل لمستخدم آخر.' });
-    }
-
-    // Check for duplicate principal email (excluding current principal)
-    if (state.users.some((u) => u.email === updatedSchool.principalProfile.email && Number(u.id) !== Number(existingPrincipalUser?.id))) {
-      return sendJson(res, 400, { ok: false, message: 'البريد الإلكتروني للمدير مستخدم بالفعل لمستخدم آخر.' });
-    }
-
-    // Update principal user password if provided
-    if (principalPassword) {
-      updatedSchool.principalProfile.password = await hashPassword(String(principalPassword).trim());
-    } else if (existingPrincipalUser?.password) {
-      updatedSchool.principalProfile.password = existingPrincipalUser.password;
-    }
-
-    const nextState = structuredClone(state);
-    nextState.schools[schoolIndex] = updatedSchool;
-
-    // Update principal user in nextState.users
-    if (existingPrincipalUser) {
-      const principalUserIndex = nextState.users.findIndex((u) => u.id === existingPrincipalUser.id);
-      if (principalUserIndex !== -1) {
-        nextState.users[principalUserIndex] = {
-          ...existingPrincipalUser,
-          username: updatedSchool.principalProfile.username,
-          email: updatedSchool.principalProfile.email,
-          password: updatedSchool.principalProfile.password,
-          mobile: updatedSchool.principalProfile.mobile,
-        };
-      }
-    }
-
-    await saveSharedState(nextState, auth.user);
-    await audit(auth.user, 'update_school', { schoolId: schoolId, name: updatedSchool.name });
-    return sendJson(res, 200, { ok: true, message: 'تم تحديث بيانات المدرسة بنجاح.' });
-  }
-
-  if (reqUrl.pathname === '/api/schools/delete' && req.method === 'POST') {
-    const { token, schoolId } = await readJsonBody(req);
-    const auth = await verifyAuth(token);
-    if (!auth.ok || auth.user.role !== 'superadmin') {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح لك بحذف المدارس.' });
-    }
-
-    const state = getSharedState();
-    const schoolIndex = state.schools.findIndex((s) => Number(s.id) === Number(schoolId));
-    if (schoolIndex === -1) {
-      return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
-    }
-
-    const schoolToDelete = state.schools[schoolIndex];
-    const principalUserToDelete = state.users.find((u) => u.id === schoolToDelete.principalProfile.id);
-
-    const nextState = structuredClone(state);
-    nextState.schools.splice(schoolIndex, 1);
-    nextState.users = nextState.users.filter((u) => u.id !== principalUserToDelete.id);
-
-    await saveSharedState(nextState, auth.user);
-    await audit(auth.user, 'delete_school', { schoolId: schoolToDelete.id, name: schoolToDelete.name });
-    return sendJson(res, 200, { ok: true, message: 'تم حذف المدرسة بنجاح.' });
-  }
-
-  if (reqUrl.pathname === '/api/users' && req.method === 'GET') {
-    const token = reqUrl.searchParams.get('token');
-    const auth = await verifyAuth(token);
-    if (!auth.ok || auth.user.role !== 'superadmin') {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
-    }
-    const state = getSharedState();
-    return sendJson(res, 200, { ok: true, users: state.users });
-  }
-
-  if (reqUrl.pathname === '/api/users/add' && req.method === 'POST') {
-    const { token, username, email, password, role, schoolId, mobile } = await readJsonBody(req);
-    const auth = await verifyAuth(token);
-    if (!auth.ok || auth.user.role !== 'superadmin') {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح لك بإضافة مستخدمين.' });
-    }
-
-    const state = getSharedState();
-
-    if (!username || !email || !password || !role) {
-      return sendJson(res, 400, { ok: false, message: 'يرجى إكمال جميع الحقول المطلوبة.' });
-    }
-
-    if (state.users.some((u) => u.username === username)) {
-      return sendJson(res, 400, { ok: false, message: 'اسم المستخدم موجود بالفعل.' });
-    }
-
-    if (state.users.some((u) => u.email === email)) {
-      return sendJson(res, 400, { ok: false, message: 'البريد الإلكتروني موجود بالفعل.' });
-    }
-
-    const hashedPassword = await hashPassword(password);
-    const newUserId = Math.max(0, ...state.users.map((u) => u.id)) + 1;
-
-    const newPrincipal = {
-      id: newUserId,
-      username,
-      email,
-      password: hashedPassword,
-      role,
-      schoolId: role === 'superadmin' ? null : schoolId,
-      mobile: mobile || null,
-    };
-
-    const nextState = structuredClone(state);
-    nextState.users.push(newPrincipal);
-
-    await saveSharedState(nextState, auth.user);
-    await audit(auth.user, 'add_user', { userId: newPrincipal.id, username: newPrincipal.username });
-    return sendJson(res, 200, { ok: true, message: 'تم إضافة المستخدم بنجاح.' });
-  }
-
-  if (reqUrl.pathname === '/api/users/update' && req.method === 'POST') {
-    const { token, userId, username, email, password, role, schoolId, mobile } = await readJsonBody(req);
-    const auth = await verifyAuth(token);
-    if (!auth.ok || auth.user.role !== 'superadmin') {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح لك بتعديل المستخدمين.' });
-    }
-
-    const state = getSharedState();
-    const userIndex = state.users.findIndex((u) => Number(u.id) === Number(userId));
-    if (userIndex === -1) {
-      return sendJson(res, 404, { ok: false, message: 'المستخدم غير موجود.' });
-    }
-
-    const existingUser = state.users[userIndex];
-
-    const updatedUser = {
-      ...existingUser,
-      username: String(username || '').trim(),
-      email: String(email || '').trim(),
-      role: String(role || '').trim(),
-      schoolId: String(role || '').trim() === 'superadmin' ? null : schoolId,
-      mobile: String(mobile || '').trim(),
-    };
-
-    if (!updatedUser.username || !updatedUser.email || !updatedUser.role) {
-      return sendJson(res, 400, { ok: false, message: 'يرجى إكمال جميع الحقول المطلوبة.' });
-    }
-
-    if (state.users.some((u) => u.username === updatedUser.username && Number(u.id) !== Number(userId))) {
-      return sendJson(res, 400, { ok: false, message: 'اسم المستخدم موجود بالفعل لمستخدم آخر.' });
-    }
-
-    if (state.users.some((u) => u.email === updatedUser.email && Number(u.id) !== Number(userId))) {
-      return sendJson(res, 400, { ok: false, message: 'البريد الإلكتروني موجود بالفعل لمستخدم آخر.' });
-    }
-
-    if (password) {
-      updatedUser.password = await hashPassword(password);
-    }
-
-    const nextState = structuredClone(state);
-    nextState.users[userIndex] = updatedUser;
-
-    // If the user is a principal, update the profile in the school as well
-    if (updatedUser.role === 'principal' && updatedUser.schoolId) {
-      const schoolIndex = nextState.schools.findIndex((s) => s.id === updatedUser.schoolId);
-      if (schoolIndex !== -1) {
-        nextState.schools[schoolIndex].principalProfile = {
-          ...nextState.schools[schoolIndex].principalProfile,
-          username: updatedUser.username,
-          email: updatedUser.email,
-          mobile: updatedUser.mobile,
-        };
-      }
-    }
-
-    await saveSharedState(nextState, auth.user);
-    await audit(auth.user, 'update_user', { userId: updatedUser.id, username: updatedUser.username });
-    return sendJson(res, 200, { ok: true, message: 'تم تحديث المستخدم بنجاح.' });
-  }
-
-  if (reqUrl.pathname === '/api/users/delete' && req.method === 'POST') {
-    const { token, userId } = await readJsonBody(req);
-    const auth = await verifyAuth(token);
-    if (!auth.ok || auth.user.role !== 'superadmin') {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح لك بحذف المستخدمين.' });
-    }
-
-    const state = getSharedState();
-    const userIndex = state.users.findIndex((u) => Number(u.id) === Number(userId));
-    if (userIndex === -1) {
-      return sendJson(res, 404, { ok: false, message: 'المستخدم غير موجود.' });
-    }
-
-    const nextState = structuredClone(state);
-    nextState.users.splice(userIndex, 1);
-
-    await saveSharedState(nextState, auth.user);
-    await audit(auth.user, 'delete_user', { userId: userId });
-    return sendJson(res, 200, { ok: true, message: 'تم حذف المستخدم بنجاح.' });
-  }
-
-  if (reqUrl.pathname === '/api/profile/change-password' && req.method === 'POST') {
-    const { token, currentPassword, newPassword } = await readJsonBody(req);
-    const auth = await verifyAuth(token);
-    if (!auth.ok) {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
-    }
-
-    const state = getSharedState();
-    const user = state.users.find((u) => u.id === auth.user.id);
-
-    if (!user) {
-      return sendJson(res, 404, { ok: false, message: 'المستخدم غير موجود.' });
-    }
-
-    const passwordMatch = await verifyPassword(currentPassword, user.password);
-    if (!passwordMatch) {
-      return sendJson(res, 400, { ok: false, message: 'كلمة المرور الحالية غير صحيحة.' });
-    }
-
-    if (!newPassword || String(newPassword).trim().length < 6) {
-      return sendJson(res, 400, { ok: false, message: 'يجب أن تتكون كلمة المرور الجديدة من 6 أحرف على الأقل.' });
-    }
-
-    const hashedPassword = await hashPassword(newPassword);
-
-    const nextState = structuredClone(state);
-    const userIndex = nextState.users.findIndex((u) => u.id === user.id);
-    if (userIndex !== -1) {
-      nextState.users[userIndex].password = hashedPassword;
-    }
-
-    // If the user is a principal, update the password in the school profile as well
-    if (user.role === 'principal' && user.schoolId) {
-      const schoolIndex = nextState.schools.findIndex((s) => s.id === user.schoolId);
-      if (schoolIndex !== -1) {
-        nextState.schools[schoolIndex].principalProfile.password = hashedPassword;
-      }
-    }
-
-    await saveSharedState(nextState, auth.user);
-    await audit(auth.user, 'change_password', { userId: user.id });
-    return sendJson(res, 200, { ok: true, message: 'تم تغيير كلمة المرور بنجاح.' });
-  }
-
-  if (reqUrl.pathname === '/api/profile' && req.method === 'GET') {
-    const token = reqUrl.searchParams.get('token');
-    const auth = await verifyAuth(token);
-    if (!auth.ok) {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
-    }
-    const state = getSharedState();
-    const user = state.users.find((u) => u.id === auth.user.id);
-    if (!user) {
-      return sendJson(res, 404, { ok: false, message: 'المستخدم غير موجود.' });
-    }
-    return sendJson(res, 200, { ok: true, user: sanitizeStateForClient({ users: [user] }).users[0] });
-  }
-
-  if (reqUrl.pathname === '/api/profile/update' && req.method === 'POST') {
-    const { token, username, email, mobile } = await readJsonBody(req);
-    const auth = await verifyAuth(token);
-    if (!auth.ok) {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
-    }
-
-    const state = getSharedState();
-    const userIndex = state.users.findIndex((u) => u.id === auth.user.id);
-    if (userIndex === -1) {
-      return sendJson(res, 404, { ok: false, message: 'المستخدم غير موجود.' });
-    }
-
-    const existingUser = state.users[userIndex];
-
-    const updatedUser = {
-      ...existingUser,
-      username: String(username || '').trim(),
-      email: String(email || '').trim(),
-      mobile: String(mobile || '').trim(),
-    };
-
-    if (!updatedUser.username || !updatedUser.email) {
-      return sendJson(res, 400, { ok: false, message: 'يرجى إكمال جميع الحقول المطلوبة.' });
-    }
-
-    if (state.users.some((u) => u.username === updatedUser.username && u.id !== auth.user.id)) {
-      return sendJson(res, 400, { ok: false, message: 'اسم المستخدم موجود بالفعل لمستخدم آخر.' });
-    }
-
-    if (state.users.some((u) => u.email === updatedUser.email && u.id !== auth.user.id)) {
-      return sendJson(res, 400, { ok: false, message: 'البريد الإلكتروني موجود بالفعل لمستخدم آخر.' });
-    }
-
-    const nextState = structuredClone(state);
-    nextState.users[userIndex] = updatedUser;
-
-    // If the user is a principal, update the profile in the school as well
-    if (updatedUser.role === 'principal' && updatedUser.schoolId) {
-      const schoolIndex = nextState.schools.findIndex((s) => s.id === updatedUser.schoolId);
-      if (schoolIndex !== -1) {
-        nextState.schools[schoolIndex].principalProfile = {
-          ...nextState.schools[schoolIndex].principalProfile,
-          username: updatedUser.username,
-          email: updatedUser.email,
-          mobile: updatedUser.mobile,
-        };
-      }
-    }
-
-    await saveSharedState(nextState, auth.user);
-    await audit(auth.user, 'update_profile', { userId: updatedUser.id, username: updatedUser.username });
-    return sendJson(res, 200, { ok: true, message: 'تم تحديث الملف الشخصي بنجاح.' });
-  }
-
-  if (reqUrl.pathname === '/api/teacher-portal' && req.method === 'GET') {
-    const token = reqUrl.searchParams.get('token');
-    const auth = await verifyAuth(token);
-    if (!auth.ok || auth.user.role !== 'teacher') {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
-    }
-    const state = getSharedState();
-    const teacher = state.users.find((u) => u.id === auth.user.id);
-    if (!teacher || !teacher.schoolId) {
-      return sendJson(res, 404, { ok: false, message: 'المعلم غير موجود أو لا ينتمي إلى مدرسة.' });
-    }
-    const school = state.schools.find((s) => s.id === teacher.schoolId);
-    if (!school) {
-      return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
-    }
-
-    const teacherPortalHtml = renderTeacherPortalHtml(school, teacher);
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(teacherPortalHtml);
-    return;
-  }
-
-  if (reqUrl.pathname === '/api/teacher-portal/notifications' && req.method === 'GET') {
-    const token = reqUrl.searchParams.get('token');
-    const auth = await verifyAuth(token);
-    if (!auth.ok || auth.user.role !== 'teacher') {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
-    }
-    const state = getSharedState();
-    const teacher = state.users.find((u) => u.id === auth.user.id);
-    if (!teacher || !teacher.schoolId) {
-      return sendJson(res, 404, { ok: false, message: 'المعلم غير موجود أو لا ينتمي إلى مدرسة.' });
-    }
-
-    const schoolNotifications = (state.notifications || []).filter(n => Number(n.schoolId) === Number(teacher.schoolId));
-    return sendJson(res, 200, { ok: true, notifications: schoolNotifications });
-  }
-
-  if (reqUrl.pathname === '/api/teacher-portal/notifications/mark-read' && req.method === 'POST') {
-    const { token, notificationId } = await readJsonBody(req);
-    const auth = await verifyAuth(token);
-    if (!auth.ok || auth.user.role !== 'teacher') {
-      return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
-    }
-
-    const state = getSharedState();
-    const notificationIndex = state.notifications.findIndex((n) => Number(n.id) === Number(notificationId));
-    if (notificationIndex === -1) {
-      return sendJson(res, 404, { ok: false, message: 'الإشعار غير موجود.' });
-    }
-
-    const nextState = structuredClone(state);
-    nextState.notifications[notificationIndex].read = true;
-
-    await saveSharedState(nextState, auth.user);
-    await audit(auth.user, 'mark_notification_read', { notificationId: notificationId });
-    return sendJson(res, 200, { ok: true, message: 'تم وضع علامة ' });
-  }
+});
+
+async function startServer() {
+  await mkdir(DATA_DIR, { recursive: true });
+  await mkdir(UPLOADS_DIR, { recursive: true });
+  await mkdir(FACE_UPLOADS_DIR, { recursive: true });
+  await mkdir(EVIDENCE_UPLOADS_DIR, { recursive: true });
+  await mkdir(GLOBAL_BACKUPS_DIR, { recursive: true });
+  await mkdir(SCHOOL_BACKUPS_DIR, { recursive: true });
+  await initializeDatabase();
+  await ensureStateSeeded();
+  await ensureStateMigrations();
+  await cleanupExpiredSessions();
+  await cleanupExpiredAuthOtps();
+  await cleanupExpiredAuthLockouts();
+  // Initialize state cache before anything else
+  await refreshStateCache();
+  await ensureDailyBackups('startup');
+
+  server.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
 }
-}
+
+startServer();
+'''
