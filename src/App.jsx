@@ -812,32 +812,36 @@ const defaultPermissionsByRole = {
 };
 
 const navItems = [
+  // ── بدون مجموعة (العمليات اليومية) ──
   { key: "dashboard", label: "الرئيسية", icon: LayoutDashboard, permission: "dashboard", excludeRoles: ["gate"] },
   { key: "schools", label: "المدارس", icon: Building2, permission: "schools" },
-  { key: "companies", label: "الشركات والفصول", icon: Layers3, permission: "companies" },
-  { key: "students", label: "البصمة والمعرفات", icon: GraduationCap, permission: "students" },
   { key: "attendance", label: "الحضور الذكي", icon: ScanLine, permission: "attendance" },
   { key: "lessonAttendanceSessions", label: "تحضير الحصص", icon: ClipboardList, permission: "actions", roles: ["superadmin", "principal", "supervisor", "teacher"] },
   { key: "actions", label: "إجراءات الطلاب", icon: ClipboardCheck, permission: "actions" },
-  { key: "points", label: "ترتيب الفصول", icon: Trophy, permission: "points", excludeRoles: ["gate"] },
-  { key: "reports", label: "مركز التقارير", icon: LineChart, permission: "reports" },
-  { key: "deviceDisplays", label: "الشاشات والبوابات", icon: ExternalLink, permission: "deviceDisplays" },
-  { key: "messages", label: "الرسائل والتنبيهات", icon: Bell, permission: "messages" },
   { key: "leavePasses", label: "الاستئذان", icon: ClipboardList, permission: "leavePass", roles: ["superadmin", "principal", "supervisor", "teacher"] },
   { key: "leavePassAgentDesk", label: "استئذان الوكيل", icon: ShieldCheck, permission: "leavePass", roles: ["agent"] },
   { key: "leavePassCounselorDesk", label: "استئذان المرشد", icon: UserCheck, permission: "leavePass", roles: ["counselor"] },
   { key: "securityDesk", label: "لوحة الأمن", icon: Shield, permission: "leavePass", roles: ["gate"] },
   { key: "leavePassGateDesk", label: "الاستئذانات", icon: ClipboardList, permission: "leavePass", roles: ["gate"] },
-  { key: "rewardStore", label: "متجر النقاط", icon: Gift, permission: "points", roles: ["superadmin", "principal", "supervisor"] },
-  { key: "pointsRewards", label: "النقاط والمكافآت", icon: Trophy, permission: "points", roles: ["superadmin", "principal", "supervisor"] },
-  { key: "parentsExecutive", label: "المتابعة التنفيذية", icon: BarChart3, permission: "settings", roles: ["superadmin", "principal", "supervisor"] },
+  { key: "messages", label: "الرسائل والتنبيهات", icon: Bell, permission: "messages" },
   { key: "parentsAdmin", label: "أولياء الأمور", icon: Users, permission: "settings", roles: ["superadmin", "principal", "supervisor"] },
-  { key: "schoolStructure", label: "الهيكل المدرسي", icon: School, permission: "settings" },
-  { key: "users", label: "المستخدمون", icon: ShieldCheck, permission: "users" },
-  { key: "platformAuth", label: "الدخول والمصادقة", icon: ShieldCheck, permission: "settings", roles: ["superadmin"] },
-  { key: "settings", label: "إعدادات المدرسة والتشغيل", icon: Settings, permission: "settings" },
-  // صفحة الفصول تعرض تفاصيل كل فصل (شركة) والطلاب المرتبطين به
-  { key: "classes", label: "الفصول", icon: BookOpen, permission: "companies" },
+  { key: "reports", label: "مركز التقارير", icon: LineChart, permission: "reports" },
+  // ── الفصول والتنظيم ──
+  { key: "classes", label: "الفصول", icon: BookOpen, permission: "companies", group: "الفصول والتنظيم" },
+  { key: "points", label: "ترتيب الفصول", icon: Trophy, permission: "points", excludeRoles: ["gate"], group: "الفصول والتنظيم" },
+  { key: "companies", label: "الشركات والفصول", icon: Layers3, permission: "companies", group: "الفصول والتنظيم" },
+  // ── التحفيز والمتابعة ──
+  { key: "pointsRewards", label: "النقاط والمكافآت", icon: Trophy, permission: "points", roles: ["superadmin", "principal", "supervisor"], group: "التحفيز والمتابعة" },
+  { key: "rewardStore", label: "متجر النقاط", icon: Gift, permission: "points", roles: ["superadmin", "principal", "supervisor"], group: "التحفيز والمتابعة" },
+  { key: "parentsExecutive", label: "المتابعة التنفيذية", icon: BarChart3, permission: "settings", roles: ["superadmin", "principal", "supervisor"], group: "التحفيز والمتابعة" },
+  // ── الأجهزة والربط ──
+  { key: "deviceDisplays", label: "الشاشات والبوابات", icon: ExternalLink, permission: "deviceDisplays", group: "الأجهزة والربط" },
+  { key: "students", label: "البصمة والمعرفات", icon: GraduationCap, permission: "students", group: "الأجهزة والربط" },
+  // ── الإعدادات ──
+  { key: "settings", label: "إعدادات المدرسة", icon: Settings, permission: "settings", group: "الإعدادات" },
+  { key: "schoolStructure", label: "إعدادات المدرسة (الهيكل)", icon: School, permission: "settings", group: "الإعدادات" },
+  { key: "users", label: "المستخدمون", icon: ShieldCheck, permission: "users", group: "الإعدادات" },
+  { key: "platformAuth", label: "الدخول والمصادقة", icon: ShieldCheck, permission: "settings", roles: ["superadmin"], group: "الإعدادات" },
 ];
 
 const principalDelegableRoles = ["agent", "counselor", "gate", "supervisor", "teacher", "student"];
@@ -21634,23 +21638,43 @@ ${buildLessonSessionLink(sessionId)}
             </div>
           </div>
 
-          <nav className="mt-5 space-y-2">
-            {allowedNav.map((item) => {
-              const Icon = item.icon;
-              const active = activePage === item.key;
-              const badge = sidebarCounters?.[item.key];
-              return (
-                <button key={item.key} onClick={() => setActivePage(item.key)} className={cx("flex w-full items-center justify-between rounded-2xl px-4 py-3 text-right transition", active ? "bg-sky-700 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50")}>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="font-bold">{item.label}</span>
-                    {badge && !badge.hidden ? (
-                      <span className={cx("inline-flex min-w-[1.75rem] items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-black", badge.tone === 'rose' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-rose-100 text-rose-700 ring-1 ring-rose-200') : badge.tone === 'amber' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-amber-100 text-amber-700 ring-1 ring-amber-200') : badge.tone === 'green' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200') : badge.tone === 'sky' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-sky-100 text-sky-700 ring-1 ring-sky-200') : (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'))}>{badge.value}</span>
-                    ) : null}
-                  </div>
-                  <Icon className="h-5 w-5 shrink-0" />
-                </button>
-              );
-            })}
+          <nav className="mt-5 space-y-1">
+            {(() => {
+              // تجميع العناصر حسب المجموعة
+              const rendered = [];
+              let lastGroup = null;
+              allowedNav.forEach((item) => {
+                const currentGroup = item.group || null;
+                // إضافة عنوان المجموعة عند التغيير
+                if (currentGroup && currentGroup !== lastGroup) {
+                  rendered.push(
+                    <div key={"group-" + currentGroup} className="mt-4 mb-1 px-2">
+                      <div className="flex items-center gap-2">
+                        <div className="h-px flex-1 bg-slate-200" />
+                        <span className="text-[11px] font-black tracking-wide text-slate-400">{currentGroup}</span>
+                        <div className="h-px flex-1 bg-slate-200" />
+                      </div>
+                    </div>
+                  );
+                }
+                lastGroup = currentGroup;
+                const Icon = item.icon;
+                const active = activePage === item.key;
+                const badge = sidebarCounters?.[item.key];
+                rendered.push(
+                  <button key={item.key} onClick={() => setActivePage(item.key)} className={cx("flex w-full items-center justify-between rounded-2xl px-4 py-3 text-right transition", active ? "bg-sky-700 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50")}>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="font-bold">{item.label}</span>
+                      {badge && !badge.hidden ? (
+                        <span className={cx("inline-flex min-w-[1.75rem] items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-black", badge.tone === 'rose' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-rose-100 text-rose-700 ring-1 ring-rose-200') : badge.tone === 'amber' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-amber-100 text-amber-700 ring-1 ring-amber-200') : badge.tone === 'green' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200') : badge.tone === 'sky' ? (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-sky-100 text-sky-700 ring-1 ring-sky-200') : (active ? 'bg-white/20 text-white ring-1 ring-white/30' : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'))}>{badge.value}</span>
+                      ) : null}
+                    </div>
+                    <Icon className="h-5 w-5 shrink-0" />
+                  </button>
+                );
+              });
+              return rendered;
+            })()}
           </nav>
 
           {currentUser && ["superadmin", "principal", "supervisor"].includes(currentUser.role) && (
