@@ -805,7 +805,7 @@ const defaultPermissionsByRole = {
   principal: { dashboard: true, schools: false, companies: true, students: true, attendance: true, actions: true, points: true, reports: true, deviceDisplays: true, messages: true, leavePass: true, settings: true, users: true },
   agent: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: false, points: false, reports: true, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
   counselor: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: false, points: false, reports: true, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
-  gate: { dashboard: false, schools: false, companies: false, students: false, attendance: false, actions: false, points: false, reports: false, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
+  gate: { dashboard: false, schools: false, companies: false, students: false, attendance: true, actions: false, points: false, reports: false, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
   supervisor: { dashboard: true, schools: false, companies: false, students: true, attendance: true, actions: true, points: true, reports: true, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
   teacher: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: true, points: true, reports: false, deviceDisplays: false, messages: false, leavePass: true, settings: false, users: false },
   student: { dashboard: true, schools: false, companies: false, students: false, attendance: false, actions: false, points: true, reports: false, deviceDisplays: false, messages: false, settings: false, users: false },
@@ -827,6 +827,7 @@ const navItems = [
   { key: "leavePassAgentDesk", label: "استئذان الوكيل", icon: ShieldCheck, permission: "leavePass", roles: ["agent"] },
   { key: "leavePassCounselorDesk", label: "استئذان المرشد", icon: UserCheck, permission: "leavePass", roles: ["counselor"] },
   { key: "securityDesk", label: "لوحة الأمن", icon: Shield, permission: "leavePass", roles: ["gate"] },
+  { key: "leavePassGateDesk", label: "الاستئذانات", icon: ClipboardList, permission: "leavePass", roles: ["gate"] },
   { key: "rewardStore", label: "متجر النقاط", icon: Gift, permission: "points", roles: ["superadmin", "principal", "supervisor"] },
   { key: "pointsRewards", label: "النقاط والمكافآت", icon: Trophy, permission: "points", roles: ["superadmin", "principal", "supervisor"] },
   { key: "parentsExecutive", label: "المتابعة التنفيذية", icon: BarChart3, permission: "settings", roles: ["superadmin", "principal", "supervisor"] },
@@ -18145,6 +18146,94 @@ ${buildCsv(auditRows, auditColumns)}`;
 
 
 // ============================================================
+// صفحة اختيار بوابة الحضور الذكي لمسؤول الأمن
+// ============================================================
+function GateAttendancePage({ selectedSchool }) {
+  const gates = Array.isArray(selectedSchool?.smartLinks?.gates) ? selectedSchool.smartLinks.gates : [];
+
+  const openGate = (token) => {
+    const url = buildPublicLink('gate', token);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const getModeLabel = (mode) => {
+    if (mode === 'qr') return 'QR فقط';
+    if (mode === 'face') return 'بصمة وجه فقط';
+    return 'QR + بصمة وجه';
+  };
+
+  const getModeColor = (mode) => {
+    if (mode === 'qr') return 'bg-sky-500 shadow-sky-500/30';
+    if (mode === 'face') return 'bg-violet-500 shadow-violet-500/30';
+    return 'bg-emerald-500 shadow-emerald-500/30';
+  };
+
+  const getModeIcon = (mode) => {
+    if (mode === 'qr') return String.fromCodePoint(0x1F4F7);
+    if (mode === 'face') return String.fromCodePoint(0x1F464);
+    return String.fromCodePoint(0x1F510);
+  };
+
+  return (
+    <div dir="rtl" className="min-h-screen bg-slate-900 text-white">
+      <div className="bg-gradient-to-l from-slate-900 via-slate-800 to-slate-900 border-b border-slate-700 px-4 py-5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/20 ring-1 ring-emerald-500/40">
+            <ScanLine className="h-6 w-6 text-emerald-400" />
+          </div>
+          <div>
+            <div className="text-lg font-black text-white leading-tight">الحضور الذكي</div>
+            <div className="text-xs text-slate-400 leading-tight">{selectedSchool?.name || 'المدرسة'}</div>
+          </div>
+        </div>
+      </div>
+      <div className="p-4">
+        {gates.length === 0 ? (
+          <div className="mt-12 text-center">
+            <div className="text-6xl mb-4">{String.fromCodePoint(0x1F6AA)}</div>
+            <div className="text-lg font-bold text-slate-300">لا توجد بوابات منشأة</div>
+            <div className="mt-2 text-sm text-slate-500 leading-7">
+              يمكن للمدير إنشاء بوابات الحضور من قسم<br />"الشاشات والبوابات"
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="mb-5 text-center">
+              <div className="text-sm text-slate-400">اختر البوابة لفتح التحضير الذكي</div>
+            </div>
+            <div className="space-y-3">
+              {gates.map((gate) => (
+                <button
+                  key={gate.id}
+                  onClick={() => openGate(gate.token)}
+                  className={`w-full rounded-3xl p-5 text-right transition-all active:scale-95 shadow-lg ${getModeColor(gate.mode)}`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 text-2xl">
+                        {getModeIcon(gate.mode)}
+                      </div>
+                      <div>
+                        <div className="text-base font-black text-white leading-tight">{gate.name}</div>
+                        <div className="mt-0.5 text-xs text-white/70">{getModeLabel(gate.mode)}</div>
+                      </div>
+                    </div>
+                    <ExternalLink className="h-5 w-5 text-white/80" />
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="mt-6 rounded-2xl bg-slate-800/60 ring-1 ring-slate-700 px-4 py-3 text-center text-xs text-slate-400">
+              سيُفتح رابط البوابة في نافذة جديدة
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // صفحة مسؤول الأمن (بوابة الحضور)
 // ============================================================
 function SecurityDeskPage({ selectedSchool, currentUser, onUpdateLeavePassStatus }) {
@@ -20849,7 +20938,29 @@ export default function App() {
         return { ...item, status: nextStatus, viewedAt: new Date().toISOString(), viewedByName: currentUser.name || currentUser.username || 'المعلم', timeline: [createLeavePassEvent('viewed', currentUser.name || currentUser.username || 'المعلم', 'تم تسجيل اطلاع المعلم'), ...getLeavePassTimeline(item)] };
       }),
     })));
-    if (changed) pushNotification('الاستئذان', 'اطلع المعلم على طلب الاستئذان.');
+    if (changed) {
+      pushNotification('الاستئذان', 'اطلع المعلم على طلب الاستئذان.');
+      // إرسال تنبيه فوري للمدير ومسؤول الأمن بعد اطلاع المعلم
+      const updatedPass = getLeavePasses(selectedSchool).find((item) => String(item.id) === String(leavePassId));
+      const passStudentName = updatedPass?.studentName || '';
+      const passClassName = updatedPass?.className || updatedPass?.companyName || 'فصله';
+      // تنبيه المدير
+      const principalUsers = (users || []).filter((u) => Number(u.schoolId) === Number(selectedSchool.id) && ['principal', 'supervisor'].includes(String(u.role || '')));
+      principalUsers.forEach((pu) => {
+        setNotifications((prev) => [
+          { id: Date.now() + Number(pu.id), title: '📋 استئذان بانتظار اعتمادك', body: `استئذان ${passStudentName} من ${passClassName}`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [pu.id] },
+          ...prev,
+        ].slice(0, 30));
+      });
+      // تنبيه مسؤول الأمن
+      const gateUsers = (users || []).filter((u) => Number(u.schoolId) === Number(selectedSchool.id) && String(u.role || '') === 'gate');
+      gateUsers.forEach((gu) => {
+        setNotifications((prev) => [
+          { id: Date.now() + Number(gu.id) + 1, title: '🚨 استئذان جديد عند البوابة', body: `استئذان ${passStudentName} من ${passClassName}`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [gu.id] },
+          ...prev,
+        ].slice(0, 30));
+      });
+    }
     return { ok: changed, message: changed ? 'تم تسجيل اطلاع المعلم.' : 'لم يتم العثور على الطلب.' };
   };
 
@@ -21388,6 +21499,7 @@ ${buildLessonSessionLink(sessionId)}
       case "students":
         return <StudentsPage selectedSchool={selectedSchool} onAddStudent={handleAddStudent} onDeleteStudent={handleDeleteStudent} onAwardBehavior={handleAwardBehavior} onEnrollFace={handleEnrollFace} onEnrollFaceDataUrl={handleEnrollFaceDataUrl} onClearFace={handleClearFace} onDownloadStudentCard={handleDownloadStudentCard} onDownloadAllCards={handleDownloadAllCards} />;
       case "attendance":
+        if (currentUser?.role === "gate") return <GateAttendancePage selectedSchool={selectedSchool} />;
         return <AttendancePage selectedSchool={selectedSchool} currentUser={currentUser} attendanceMethod={attendanceMethod} setAttendanceMethod={setAttendanceMethod} scanLog={scanLog} actionLog={actionLog} settings={settings} onScan={handleScan} onFaceScanFile={handleFaceScanFile} onFaceScanDataUrl={handleFaceScanDataUrl} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onUpdateGateLink={handleUpdateGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} onSaveAttendanceBinding={handleSaveAttendanceBinding} />;
       case "actions":
         return <StudentActionsPage selectedSchool={selectedSchool} currentUser={currentUser} settings={settings} actionLog={actionLog} onResolveStudentByBarcode={resolveStudentByBarcode} onResolveStudentByManual={resolveStudentByManual} onResolveStudentByFaceFile={resolveStudentByFaceFile} onResolveStudentByFaceDataUrl={resolveStudentByFaceDataUrl} onApplyStudentAction={handleApplyStudentAction} onRecordProgramAction={handleRecordProgramExecution} />;
@@ -21409,6 +21521,8 @@ ${buildLessonSessionLink(sessionId)}
         return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="counselor" />;
       case "securityDesk":
         return <SecurityDeskPage selectedSchool={selectedSchool} currentUser={currentUser} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} />;
+      case "leavePassGateDesk":
+        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="gate" />;
       case "pointsRewards":
         return <PageErrorBoundary resetKey={`${selectedSchool?.id || 'none'}-pointsRewards`}><PointsRewardsConfigPage selectedSchool={selectedSchool} settings={settings} currentUser={currentUser} onSaveSettings={setSettings} /></PageErrorBoundary>;
       case "rewardStore":
