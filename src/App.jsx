@@ -7705,11 +7705,147 @@ function EditSchoolForm({ school, onSave, onCancel }) {
   );
 }
 
+// ===== مكون نافذة النسخ الاحتياطية التلقائية =====
+function BackupsModal({ onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [data, setData] = useState(null);
+  const [activeTab, setActiveTab] = useState('global');
+  const [downloading, setDownloading] = useState('');
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        const token = getSessionToken();
+        const res = await apiRequest('/api/backups/list', { token });
+        setData(res);
+      } catch (err) {
+        setError(err?.message || 'تعذر تحميل قائمة النسخ الاحتياطية.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const downloadBackup = async (type, name) => {
+    try {
+      setDownloading(name);
+      const token = getSessionToken();
+      const res = await fetch(`/api/backups/download/${type}/${encodeURIComponent(name)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('تعذر تحميل الملف.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      window.alert(err?.message || 'تعذر تحميل الملف.');
+    } finally {
+      setDownloading('');
+    }
+  };
+
+  const formatSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const formatDate = (iso) => {
+    try {
+      return new Date(iso).toLocaleString('ar-SA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch { return iso; }
+  };
+
+  const globalList = data?.global || [];
+  const schoolList = data?.schools || [];
+  const activeList = activeTab === 'global' ? globalList : schoolList;
+
+  return (
+    <Modal title="النسخ الاحتياطية التلقائية" isOpen={true} onClose={onClose}>
+      <div className="space-y-4">
+        {/* معلومات عامة */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-2xl bg-emerald-50 p-3 text-center ring-1 ring-emerald-100">
+            <div className="text-xs text-emerald-700">نسخ المنصة الكاملة</div>
+            <div className="mt-1 text-2xl font-black text-emerald-800">{globalList.length}</div>
+          </div>
+          <div className="rounded-2xl bg-sky-50 p-3 text-center ring-1 ring-sky-100">
+            <div className="text-xs text-sky-700">نسخ المدارس</div>
+            <div className="mt-1 text-2xl font-black text-sky-800">{schoolList.length}</div>
+          </div>
+          <div className="rounded-2xl bg-violet-50 p-3 text-center ring-1 ring-violet-100">
+            <div className="text-xs text-violet-700">مدة الاحتفاظ</div>
+            <div className="mt-1 text-2xl font-black text-violet-800">{data?.retentionDays || 30} يوم</div>
+          </div>
+        </div>
+
+        {/* تبويبات */}
+        <div className="flex gap-2">
+          <button onClick={() => setActiveTab('global')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${activeTab === 'global' ? 'bg-sky-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>نسخ المنصة الكاملة ({globalList.length})</button>
+          <button onClick={() => setActiveTab('school')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${activeTab === 'school' ? 'bg-sky-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>نسخ المدارس ({schoolList.length})</button>
+        </div>
+
+        {/* المحتوى */}
+        {loading && (
+          <div className="flex items-center justify-center py-10 text-slate-500">
+            <RefreshCw className="h-5 w-5 animate-spin ml-2" /> جارٍ تحميل القائمة...
+          </div>
+        )}
+        {error && !loading && (
+          <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700 ring-1 ring-rose-100">{error}</div>
+        )}
+        {!loading && !error && activeList.length === 0 && (
+          <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">
+            لا توجد نسخ احتياطية متاحة بعد. سيتم إنشاؤها تلقائياً عند حفظ البيانات.
+          </div>
+        )}
+        {!loading && !error && activeList.length > 0 && (
+          <div className="max-h-80 overflow-y-auto space-y-2 pl-1">
+            {activeList.map((item) => (
+              <div key={item.name} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-bold text-slate-800 text-sm">{item.name}</div>
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-500">
+                    <span>{formatDate(item.mtime)}</span>
+                    <span className="rounded-lg bg-white px-2 py-0.5 ring-1 ring-slate-200">{formatSize(item.size)}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => downloadBackup(activeTab === 'global' ? 'global' : 'school', item.name)}
+                  disabled={downloading === item.name}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800 disabled:opacity-60"
+                >
+                  {downloading === item.name ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                  تحميل
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="rounded-2xl bg-amber-50 px-4 py-3 text-xs leading-6 text-amber-800 ring-1 ring-amber-100">
+          <span className="font-bold">ملاحظة:</span> يتم إنشاء نسخة احتياطية تلقائياً يومياً عند حفظ البيانات. نسخ المنصة الكاملة تشمل جميع المدارس والمستخدمين والسجلات.
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddSchool, onDeleteSchool, onExportSchool, onUpdateSchoolBranding, onEditSchool }) {
   const [form, setForm] = useState({ name: "", city: "", code: "", manager: "", principalUsername: "", principalEmail: "", principalPassword: "123456", principalPhone: "" });
   const [schoolSaveStatus, setSchoolSaveStatus] = useState('idle'); // idle | saving | saved
   const [editSchoolModalOpen, setEditSchoolModalOpen] = useState(false);
   const [editingSchool, setEditingSchool] = useState(null);
+  const [backupsModalOpen, setBackupsModalOpen] = useState(false);
 
   const columns = [
     { key: "name", label: "المدرسة" },
@@ -7756,7 +7892,15 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
 
   return (
     <div className="space-y-6">
-      <SectionCard title="إدارة المدارس" icon={Building2} action={<Badge tone="blue">مركزية متعددة المدارس</Badge>}>
+      {backupsModalOpen && <BackupsModal onClose={() => setBackupsModalOpen(false)} />}
+      <SectionCard title="إدارة المدارس" icon={Building2} action={
+        <div className="flex items-center gap-2">
+          <button onClick={() => setBackupsModalOpen(true)} className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100 transition">
+            <Archive className="h-4 w-4" /> النسخ الاحتياطية
+          </button>
+          <Badge tone="blue">مركزية متعددة المدارس</Badge>
+        </div>
+      }>
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
           <div className="space-y-6 xl:col-span-2">
             <DataTable columns={columns} rows={schools} />

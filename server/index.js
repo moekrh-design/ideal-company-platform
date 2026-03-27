@@ -2468,6 +2468,61 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, backupsDir: BACKUPS_DIR, retentionDays: BACKUP_RETENTION_DAYS, latest });
     }
 
+    // قائمة النسخ الاحتياطية التلقائية
+    if (reqUrl.pathname === '/api/backups/list' && req.method === 'GET') {
+      const actor = getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه عرض النسخ الاحتياطية.' });
+      try {
+        const { readdir, stat } = await import('node:fs/promises');
+        const globalFiles = existsSync(GLOBAL_BACKUPS_DIR) ? await readdir(GLOBAL_BACKUPS_DIR) : [];
+        const schoolFiles = existsSync(SCHOOL_BACKUPS_DIR) ? await readdir(SCHOOL_BACKUPS_DIR) : [];
+        const globalList = [];
+        for (const f of globalFiles.filter(f => f.endsWith('.json')).sort().reverse()) {
+          try {
+            const s = await stat(path.join(GLOBAL_BACKUPS_DIR, f));
+            globalList.push({ name: f, size: s.size, mtime: s.mtime.toISOString(), type: 'global' });
+          } catch {}
+        }
+        const schoolList = [];
+        for (const f of schoolFiles.filter(f => f.endsWith('.json')).sort().reverse()) {
+          try {
+            const s = await stat(path.join(SCHOOL_BACKUPS_DIR, f));
+            schoolList.push({ name: f, size: s.size, mtime: s.mtime.toISOString(), type: 'school' });
+          } catch {}
+        }
+        return sendJson(res, 200, { ok: true, global: globalList, schools: schoolList, retentionDays: BACKUP_RETENTION_DAYS });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, message: 'تعذر قراءة قائمة النسخ الاحتياطية.' });
+      }
+    }
+
+    // تحميل نسخة احتياطية محددة
+    const backupDownloadMatch = reqUrl.pathname.match(/^\/api\/backups\/download\/(global|school)\/(.+)$/);
+    if (backupDownloadMatch && req.method === 'GET') {
+      const actor = getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه تحميل النسخ الاحتياطية.' });
+      const backupType = backupDownloadMatch[1];
+      const fileName = backupDownloadMatch[2];
+      // تأمين اسم الملف من path traversal
+      const safeName = path.basename(fileName);
+      if (!safeName.endsWith('.json') && !safeName.endsWith('.db')) return sendJson(res, 400, { ok: false, message: 'نوع الملف غير مدعوم.' });
+      const dir = backupType === 'global' ? GLOBAL_BACKUPS_DIR : SCHOOL_BACKUPS_DIR;
+      const filePath = path.join(dir, safeName);
+      if (!existsSync(filePath)) return sendJson(res, 404, { ok: false, message: 'الملف غير موجود.' });
+      try {
+        const content = readFileSync(filePath);
+        res.writeHead(200, {
+          'Content-Type': safeName.endsWith('.db') ? 'application/octet-stream' : 'application/json; charset=utf-8',
+          'Content-Disposition': `attachment; filename="${safeName}"`,
+          'Content-Length': content.length,
+        });
+        res.end(content);
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, message: 'تعذر تحميل الملف.' });
+      }
+      return;
+    }
+
     const schoolDeviceMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links$/);
     if (schoolDeviceMatch && req.method === 'POST') {
       const actor = getUserFromToken(token);
