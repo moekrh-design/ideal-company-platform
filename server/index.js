@@ -371,9 +371,7 @@ async function ensureStateMigrations() {
   }
 }
 
-async function getSharedStateAsync() {
-  const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);  if (!row) return await normalizeStateForStorage(createDefaultSharedState()););
-  try {
+async function getSharedStateAsync() {const row = await dbQueryOne(\'SELECT value FROM app_meta WHERE key = $1\', [\'shared_state\']);  if (!row) return await normalizeStateForStorage(createDefaultSharedState());  try {
     return await normalizeStateForStorage(JSON.parse(row.value), JSON.parse(row.value));
   } catch {
     return await normalizeStateForStorage(createDefaultSharedState());
