@@ -1049,3 +1049,4 @@ const server = http.createServer(async (req, res) => {
     await saveSharedState(nextState, auth.user);
     await audit(auth.user, 'mark_notification_read', { notificationId: notificationId });
     return sendJson(res, 200, { ok: true, message: 'تم وضع علامة ' });
+  }
