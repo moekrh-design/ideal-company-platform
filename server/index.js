@@ -3279,3 +3279,21 @@ server.listen(PORT, () => {
   console.log(`ideal-company-platform server running on http://localhost:${PORT}`);
   console.log(`sqlite db: ${DB_PATH}`);
 });
+
+// ===== جدول النسخ الاحتياطي اليومي الثابت (كل يوم الساعة 12:00 منتصف الليل) =====
+function scheduleNextMidnightBackup() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(0, 0, 0, 0); // منتصف الليل
+  if (next <= now) {
+    next.setDate(next.getDate() + 1); // إذا مرّ منتصف الليل اليوم، انتظر للغد
+  }
+  const msUntilMidnight = next.getTime() - now.getTime();
+  console.log(`[backup] Next scheduled backup in ${Math.round(msUntilMidnight / 60000)} minutes (at midnight).`);
+  setTimeout(async () => {
+    console.log('[backup] Running scheduled midnight backup...');
+    await ensureDailyBackups('scheduled-midnight');
+    scheduleNextMidnightBackup(); // جدولة اليوم التالي
+  }, msUntilMidnight);
+}
+scheduleNextMidnightBackup();

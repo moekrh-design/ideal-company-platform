@@ -60,6 +60,8 @@ import {
   School2,
   Sparkles,
   FolderOpen,
+  Info,
+  ChevronDown,
 } from "lucide-react";
 import {
   Bar,
@@ -8139,6 +8141,47 @@ function BackupsModal({ onClose, onRestoreSuccess, schools = [] }) {
             </div>
           </div>
         )}
+        {/* قسم كيف يعمل النظام */}
+        <details className="rounded-2xl bg-slate-50 ring-1 ring-slate-200 overflow-hidden">
+          <summary className="flex cursor-pointer items-center justify-between px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-100 select-none">
+            <span className="flex items-center gap-2">
+              <Info className="h-4 w-4 text-slate-500" />
+              كيف يعمل نظام النسخ الاحتياطية؟
+            </span>
+            <ChevronDown className="h-4 w-4 text-slate-400" />
+          </summary>
+          <div className="px-4 pb-4 pt-2 space-y-3">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-100">
+                  <th className="rounded-tr-xl px-3 py-2 text-right font-bold text-slate-700 border border-slate-200">الجانب</th>
+                  <th className="rounded-tl-xl px-3 py-2 text-right font-bold text-slate-700 border border-slate-200">التفصيل</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="bg-white">
+                  <td className="px-3 py-2 font-bold text-slate-700 border border-slate-200 whitespace-nowrap">وقت النسخ</td>
+                  <td className="px-3 py-2 text-slate-600 border border-slate-200">تلقائياً كل يوم الساعة <span className="font-bold text-sky-700">12:00 منتصف الليل</span>، وعند أول حفظ للبيانات في اليوم، وعند تشغيل الخادم</td>
+                </tr>
+                <tr className="bg-slate-50">
+                  <td className="px-3 py-2 font-bold text-slate-700 border border-slate-200 whitespace-nowrap">ما يُحفظ</td>
+                  <td className="px-3 py-2 text-slate-600 border border-slate-200">نسخة كاملة للمنصة + نسخة مستقلة لكل مدرسة</td>
+                </tr>
+                <tr className="bg-white">
+                  <td className="px-3 py-2 font-bold text-slate-700 border border-slate-200 whitespace-nowrap">مدة الاحتفاظ</td>
+                  <td className="px-3 py-2 text-slate-600 border border-slate-200"><span className="font-bold text-violet-700">30 يوماً</span> - النسخ الأقدم تُحذف تلقائياً</td>
+                </tr>
+                <tr className="bg-slate-50">
+                  <td className="px-3 py-2 font-bold text-slate-700 border border-slate-200 whitespace-nowrap">التكرار</td>
+                  <td className="px-3 py-2 text-slate-600 border border-slate-200">نسخة واحدة فقط في اليوم - لا يتم الكتابة فوق نسخة موجودة</td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800">
+              <span className="font-bold">تنبيه:</span> النسخة اليومية تُنشأ مرة واحدة في اليوم. استخدم زر <span className="font-bold">"أخذ نسخة الآن"</span> لإنشاء نسخة يدوية إضافية في أي وقت.
+            </div>
+          </div>
+        </details>
         {/* زر استعادة من ملف محلي */}
         <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4">
           <div className="flex items-center justify-between gap-3">
