@@ -7191,6 +7191,101 @@ log('User Agent: ' + navigator.userAgent, true);
       return sendJson(res, 200, { ok: true, message: 'تم تغيير كلمة المرور بنجاح.' });
     }
 
+    if (reqUrl.pathname === '/api/schools' && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'هذه الصلاحية للأدمن الرئيسي فقط.' });
+      const body = await readJsonBody(req);
+      const state = getSharedState();
+      const newSchool = {
+        id: Math.max(0, ...state.schools.map((s) => s.id)) + 1,
+        name: String(body.name || '').trim(),
+        city: String(body.city || '').trim(),
+        code: String(body.code || '').trim(),
+        manager: String(body.manager || '').trim(),
+        status: 'نشطة',
+        companies: [],
+        students: [],
+        principalProfile: {
+          username: String(body.principalUsername || '').trim().toLowerCase(),
+          email: String(body.principalEmail || '').trim().toLowerCase(),
+          password: String(body.principalPassword || '').trim(),
+          mobile: String(body.principalPhone || '').trim(),
+        },
+      };
+
+      if (!newSchool.name || !newSchool.city || !newSchool.code || !newSchool.principalProfile.username || !newSchool.principalProfile.email || !newSchool.principalProfile.password || !newSchool.principalProfile.mobile) {
+        return sendJson(res, 400, { ok: false, message: 'يرجى إكمال جميع حقول المدرسة ومديرها.' });
+      }
+
+      if (state.schools.some((s) => s.code === newSchool.code)) {
+        return sendJson(res, 400, { ok: false, message: 'الرقم الوزاري مستخدم بالفعل.' });
+      }
+      if (state.users.some((u) => u.username === newSchool.principalProfile.username)) {
+        return sendJson(res, 400, { ok: false, message: 'اسم دخول المدير مستخدم بالفعل.' });
+      }
+      if (state.users.some((u) => u.email === newSchool.principalProfile.email)) {
+        return sendJson(res, 400, { ok: false, message: 'البريد الإلكتروني للمدير مستخدم بالفعل.' });
+      }
+
+      const nextState = structuredClone(state);
+      nextState.schools.push(newSchool);
+
+      const nextUserId = Math.max(0, ...nextState.users.map((user) => user.id)) + 1;
+      const seededUsers = createSeedUsersForSchool(newSchool, nextUserId);
+      nextState.users.push(...seededUsers);
+
+      const saved = await saveSharedState(nextState, actor);
+      return sendJson(res, 200, { ok: true, message: 'تمت إضافة المدرسة بنجاح.', school: newSchool, state: sanitizeStateForClient(saved) });
+    }
+
+    const schoolUpdateMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)$/);
+    if (schoolUpdateMatch && req.method === 'PUT') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'هذه الصلاحية للأدمن الرئيسي فقط.' });
+      const schoolId = Number(schoolUpdateMatch[1]);
+      const body = await readJsonBody(req);
+      const state = getSharedState();
+      const schoolIndex = state.schools.findIndex((s) => s.id === schoolId);
+      if (schoolIndex === -1) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+
+      const nextState = structuredClone(state);
+      const existingSchool = nextState.schools[schoolIndex];
+
+      const updatedSchool = {
+        ...existingSchool,
+        name: String(body.name || existingSchool.name).trim(),
+        city: String(body.city || existingSchool.city).trim(),
+        code: String(body.code || existingSchool.code).trim(),
+        manager: String(body.manager || existingSchool.manager).trim(),
+        status: String(body.status || existingSchool.status).trim(),
+      };
+
+      // تحديث بيانات مدير المدرسة إذا تم إرسالها
+      if (body.principalUsername || body.principalEmail || body.principalPassword || body.principalPhone) {
+        const principalUser = nextState.users.find(u => u.schoolId === schoolId && u.role === 'principal');
+        if (principalUser) {
+          principalUser.username = String(body.principalUsername || principalUser.username).trim().toLowerCase();
+          principalUser.email = String(body.principalEmail || principalUser.email).trim().toLowerCase();
+          principalUser.mobile = String(body.principalPhone || principalUser.mobile).trim();
+          if (body.principalPassword) {
+            principalUser.password = hashPassword(String(body.principalPassword).trim());
+          }
+        }
+        updatedSchool.principalProfile = {
+          ...existingSchool.principalProfile,
+          username: String(body.principalUsername || existingSchool.principalProfile?.username).trim().toLowerCase(),
+          email: String(body.principalEmail || existingSchool.principalProfile?.email).trim().toLowerCase(),
+          mobile: String(body.principalPhone || existingSchool.principalProfile?.mobile).trim(),
+          password: body.principalPassword ? hashPassword(String(body.principalPassword).trim()) : existingSchool.principalProfile?.password,
+        };
+      }
+
+      nextState.schools[schoolIndex] = updatedSchool;
+
+      const saved = await saveSharedState(nextState, actor);
+      return sendJson(res, 200, { ok: true, message: 'تم تحديث بيانات المدرسة بنجاح.', school: updatedSchool, state: sanitizeStateForClient(saved) });
+    }
+
     if (reqUrl.pathname === '/api/auth/admin-reset-password' && req.method === 'POST') {
       const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });

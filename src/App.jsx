@@ -7661,9 +7661,35 @@ function SchoolDashboard({ schools, selectedSchool, setSelectedSchoolId, scanLog
   );
 }
 
-function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddSchool, onDeleteSchool, onExportSchool, onUpdateSchoolBranding }) {
-  const [form, setForm] = useState({ name: "", city: "", code: "", manager: "", principalUsername: "", principalEmail: "", principalPassword: "123456" });
+function EditSchoolForm({ school, onSave, onCancel }) {
+  const [form, setForm] = useState(school);
+
+  const submit = (e) => {
+    e.preventDefault();
+    onSave(form);
+  };
+
+  return (
+    <form onSubmit={submit}>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Input label="اسم المدرسة" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <Input label="المدينة" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+        <Input label="الرقم الوزاري" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+        <Input label="مدير المدرسة" value={form.manager} onChange={(e) => setForm({ ...form, manager: e.target.value })} />
+      </div>
+      <div className="mt-6 flex justify-end gap-4">
+        <button type="button" onClick={onCancel} className="rounded-xl bg-slate-100 px-4 py-2 font-bold text-slate-700">إلغاء</button>
+        <button type="submit" className="rounded-xl bg-sky-700 px-4 py-2 font-bold text-white">حفظ التغييرات</button>
+      </div>
+    </form>
+  );
+}
+
+function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddSchool, onDeleteSchool, onExportSchool, onUpdateSchoolBranding, onEditSchool }) {
+  const [form, setForm] = useState({ name: "", city: "", code: "", manager: "", principalUsername: "", principalEmail: "", principalPassword: "123456", principalPhone: "" });
   const [schoolSaveStatus, setSchoolSaveStatus] = useState('idle'); // idle | saving | saved
+  const [editSchoolModalOpen, setEditSchoolModalOpen] = useState(false);
+  const [editingSchool, setEditingSchool] = useState(null);
 
   const columns = [
     { key: "name", label: "المدرسة" },
@@ -7679,6 +7705,7 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
       render: (row) => (
         <div className="flex gap-2">
           <button onClick={() => setSelectedSchoolId(row.id)} className="rounded-xl bg-sky-50 px-3 py-2 font-bold text-sky-700">فتح</button>
+          <button onClick={() => { setEditingSchool(row); setEditSchoolModalOpen(true); }} className="rounded-xl bg-amber-50 px-3 py-2 font-bold text-amber-700">تعديل</button>
           <button onClick={() => onExportSchool(row.id)} className="rounded-xl bg-slate-100 px-3 py-2 font-bold text-slate-700">تصدير</button>
           <button onClick={() => onDeleteSchool(row.id)} className="rounded-xl bg-rose-50 px-3 py-2 font-bold text-rose-700">حذف</button>
         </div>
@@ -7697,9 +7724,10 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
     if (!form.principalUsername) { window.alert('يرجى إدخال اسم دخول مدير المدرسة.'); return; }
     if (!form.principalEmail) { window.alert('يرجى إدخال البريد الإلكتروني لمدير المدرسة.'); return; }
     if (!form.principalPassword) { window.alert('يرجى إدخال كلمة المرور الأولية.'); return; }
+    if (!form.principalPhone) { window.alert('يرجى إدخال رقم جوال مدير المدرسة.'); return; }
     setSchoolSaveStatus('saving');
     setTimeout(() => {
-      onAddSchool(form);
+      onAddSchool({ ...form, principalPhone: normalizePhoneNumber(form.principalPhone) });
       setForm({ name: "", city: "", code: "", manager: "", principalUsername: "", principalEmail: "", principalPassword: "123456" });
       setSchoolSaveStatus('saved');
       setTimeout(() => setSchoolSaveStatus('idle'), 2500);
@@ -7722,6 +7750,7 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
                 <Input label="اسم دخول مدير المدرسة" value={form.principalUsername} onChange={(e) => setForm({ ...form, principalUsername: e.target.value.trim().toLowerCase() })} placeholder="مثال: krj014.principal" />
                 <Input label="البريد الإلكتروني لمدير المدرسة" value={form.principalEmail} onChange={(e) => setForm({ ...form, principalEmail: e.target.value.trim().toLowerCase() })} placeholder="principal@example.com" />
                 <Input label="كلمة المرور الأولية" value={form.principalPassword} onChange={(e) => setForm({ ...form, principalPassword: e.target.value })} placeholder="123456" />
+                <Input label="رقم جوال مدير المدرسة" value={form.principalPhone} onChange={(e) => setForm({ ...form, principalPhone: e.target.value })} placeholder="مثال: 05xxxxxxxx" type="tel" />
               </div>
               <div className="mt-4 rounded-2xl bg-white p-4 text-sm leading-7 text-slate-600 ring-1 ring-slate-200">
                 عند حفظ المدرسة سيتم إنشاء <span className="font-black text-slate-800">مدير المدرسة كأدمن المدرسة</span> مباشرة بهذه البيانات، مع إبقاء حسابات البوابة والمعلم الافتراضية.
@@ -7729,6 +7758,23 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
               <button type="submit" disabled={schoolSaveStatus === 'saving'} className={`mt-4 inline-flex items-center gap-2 rounded-2xl px-5 py-3 font-bold text-white transition-all duration-300 ${schoolSaveStatus === 'saved' ? 'bg-emerald-600 scale-105' : schoolSaveStatus === 'saving' ? 'bg-sky-400 cursor-wait' : 'bg-sky-700 hover:bg-sky-800'}`}>{schoolSaveStatus === 'saving' ? <><RefreshCw className="h-4 w-4 animate-spin" /> جارٍ الحفظ...</> : schoolSaveStatus === 'saved' ? <><CheckCircle className="h-4 w-4" /> تمت الإضافة بنجاح ✓</> : <><Plus className="h-4 w-4" /> حفظ المدرسة وإنشاء الأدمن</>}</button>
             </form>
           </div>
+
+          {editSchoolModalOpen && editingSchool && (
+            <Modal title="تعديل بيانات المدرسة" isOpen={editSchoolModalOpen} onClose={() => setEditSchoolModalOpen(false)}>
+              <EditSchoolForm
+                school={editingSchool}
+                onSave={(updatedSchool) => {
+                  onEditSchool(updatedSchool);
+                  setEditSchoolModalOpen(false);
+                  setEditingSchool(null);
+                }}
+                onCancel={() => {
+                  setEditSchoolModalOpen(false);
+                  setEditingSchool(null);
+                }}
+              />
+            </Modal>
+          )}
           <div className="space-y-4">
             <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
               <div className="text-sm text-slate-500">المدرسة المحددة</div>
@@ -18501,7 +18547,12 @@ export default function App() {
     }
   };
 
-  const handleAddSchool = (form) => {
+  const handleEditSchool = (school) => {
+    console.log("Edit school:", school);
+    // TODO: Implement actual edit logic
+  };
+
+  const handleAddSchool = async (form) => {
     const normalizedPrincipalUsername = String(form.principalUsername || '').trim().toLowerCase();
     const normalizedPrincipalEmail = String(form.principalEmail || '').trim().toLowerCase();
     if (!normalizedPrincipalUsername || !normalizedPrincipalEmail || !String(form.principalPassword || '').trim()) {
@@ -18529,13 +18580,30 @@ export default function App() {
       principalProfile: {
         username: normalizedPrincipalUsername,
         email: normalizedPrincipalEmail,
-        password: String(form.principalPassword || '').trim(),
+          password: String(form.principalPassword || "").trim(),
       },
     };
     const nextUserId = Math.max(0, ...users.map((user) => user.id)) + 1;
-    const seededUsers = createSeedUsersForSchool(newSchool, nextUserId);
-    setSchools((prev) => [...prev, newSchool]);
-    setUsers((prev) => [...prev, ...seededUsers]);
+    const token = getSessionToken();
+    if (!token) { window.alert("فشل المصادقة. يرجى تسجيل الدخول مرة أخرى."); return; }
+
+    try {
+      const response = await fetch("/api/schools", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      });
+      const result = await response.json();
+      if (result.ok) {
+        // بعد إضافة المدرسة بنجاح، نحتاج إلى تحديث الحالة بالكامل من الخادم
+        fetchState();
+      } else {
+        window.alert(result.message || "فشل إضافة المدرسة.");
+      }
+    } catch (error) {
+      console.error("Error adding school:", error);
+      window.alert("حدث خطأ أثناء إضافة المدرسة.");
+    }
     setSelectedSchoolId(newId);
     setActivePage('schools');
     pushNotification('تمت إضافة مدرسة', `أضيفت المدرسة ${form.name} وتم إنشاء مدير المدرسة بحساب ${normalizedPrincipalUsername}.`);
@@ -20110,7 +20178,7 @@ ${buildLessonSessionLink(sessionId)}
     if (currentUser.role === "student") return <StudentRolePage selectedSchool={selectedSchool} currentUser={currentUser} onCreateRewardRedemptionRequest={handleCreateRewardRedemptionRequest} />;
     switch (activePage) {
       case "schools":
-        return <SchoolsPage schools={schools} selectedSchoolId={selectedSchoolId} setSelectedSchoolId={setSelectedSchoolId} onAddSchool={handleAddSchool} onDeleteSchool={handleDeleteSchool} onExportSchool={exportSchoolSnapshot} onUpdateSchoolBranding={handleUpdateSchoolBranding} />;
+        return <SchoolsPage schools={schools} selectedSchoolId={selectedSchoolId} setSelectedSchoolId={setSelectedSchoolId} onAddSchool={handleAddSchool} onDeleteSchool={handleDeleteSchool} onExportSchool={exportSchoolSnapshot} onUpdateSchoolBranding={handleUpdateSchoolBranding} onEditSchool={handleEditSchool} fetchState={fetchState} />;
       case "companies":
         return <CompaniesPage selectedSchool={selectedSchool} onAddCompany={handleAddCompany} onDeleteCompany={handleDeleteCompany} onAwardInitiative={handleAwardInitiative} />;
       case "students":
