@@ -7721,6 +7721,8 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
   const [downloading, setDownloading] = useState('');
   const [restoring, setRestoring] = useState('');
   const [confirmRestore, setConfirmRestore] = useState(null); // { type, name, label }
+  const [confirmDeleteBackup, setConfirmDeleteBackup] = useState(null); // { type, name, label }
+  const [deletingBackup, setDeletingBackup] = useState('');
   const [uploadRestoring, setUploadRestoring] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [confirmUploadRestore, setConfirmUploadRestore] = useState(null); // parsed state from file
@@ -7802,6 +7804,21 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
     }
   };
 
+  const deleteBackup = async (type, name) => {
+    try {
+      setDeletingBackup(name);
+      const token = getSessionToken();
+      const res = await apiRequest(`/api/backups/delete/${type}/${encodeURIComponent(name)}`, { method: 'DELETE', token });
+      if (res?.ok) {
+        await loadList();
+      }
+    } catch (err) {
+      window.alert('تعذر حذف النسخة: ' + (err?.message || ''));
+    } finally {
+      setDeletingBackup('');
+      setConfirmDeleteBackup(null);
+    }
+  };
   const formatSize = (bytes) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -8038,6 +8055,14 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
                       {restoring === item.name ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                       استعادة هذه النسخة
                     </button>
+                    <button
+                      onClick={() => setConfirmDeleteBackup({ type: activeType, name: item.name, label: dateLabel + (schoolLabel ? ` - ${schoolLabel}` : '') })}
+                      disabled={isBusy}
+                      title="حذف هذه النسخة"
+                      className="inline-flex items-center justify-center rounded-xl bg-rose-50 px-2.5 py-2 text-rose-600 hover:bg-rose-100 disabled:opacity-60 ring-1 ring-rose-200"
+                    >
+                      {deletingBackup === item.name ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </button>
                   </div>
                 </div>
               );
@@ -8045,6 +8070,32 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
           </div>
         )}
 
+        {/* مودال تأكيد حذف النسخة */}
+        {confirmDeleteBackup && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+            <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-100">
+                  <Trash2 className="h-5 w-5 text-rose-600" />
+                </div>
+                <div className="font-black text-slate-800 text-base">حذف النسخة الاحتياطية</div>
+              </div>
+              <div className="text-sm text-slate-600 mb-1">هل أنت متأكد من حذف هذه النسخة؟ لا يمكن التراجع عن هذا الإجراء.</div>
+              <div className="mt-2 text-xs text-slate-500">النسخة: <span className="font-bold text-slate-800">{confirmDeleteBackup.label}</span></div>
+              <div className="mt-5 flex gap-2">
+                <button onClick={() => setConfirmDeleteBackup(null)} className="inline-flex flex-1 items-center justify-center rounded-2xl bg-slate-100 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-200">إلغاء</button>
+                <button
+                  onClick={() => deleteBackup(confirmDeleteBackup.type, confirmDeleteBackup.name)}
+                  disabled={deletingBackup === confirmDeleteBackup.name}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-700 disabled:opacity-60"
+                >
+                  {deletingBackup === confirmDeleteBackup.name ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  حذف النسخة
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* زر استعادة من ملف محلي */}
         <div className="rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 p-4">
           <div className="flex items-center justify-between gap-3">
@@ -8089,6 +8140,7 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
   const [backupsModalOpen, setBackupsModalOpen] = useState(false);
   const [importingSchoolId, setImportingSchoolId] = useState(null); // id المدرسة الجاري استيرادها
   const [confirmImportSchool, setConfirmImportSchool] = useState(null); // { schoolId, schoolData, fileName }
+  const [confirmDeleteSchool, setConfirmDeleteSchool] = useState(null); // { id, name, companiesCount, studentsCount }
   const importFileRef = React.useRef(null);
 
   const handleImportSchoolFile = (e) => {
@@ -8152,15 +8204,23 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
             onClick={() => { setImportingSchoolId(row.id); setTimeout(() => importFileRef.current?.click(), 50); }}
             className="rounded-xl bg-violet-50 px-3 py-2 font-bold text-violet-700 hover:bg-violet-100"
           >استيراد</button>
-          <button onClick={() => onDeleteSchool(row.id)} className="rounded-xl bg-rose-50 px-3 py-2 font-bold text-rose-700">حذف</button>
+          <button onClick={() => {
+            const companiesCount = (row.companies || []).length;
+            const studentsCount = (row.companies || []).reduce((acc, c) => acc + (c.students || []).length, 0);
+            setConfirmDeleteSchool({ id: row.id, name: row.name, companiesCount, studentsCount });
+          }} className="rounded-xl bg-rose-50 px-3 py-2 font-bold text-rose-700">حذف</button>
         </div>
       ),
     },
   ];
 
   const activeSchool = schools.find((s) => s.id === selectedSchoolId) || schools[0];
-
-
+  const handleConfirmDeleteSchool = () => {
+    if (confirmDeleteSchool) {
+      onDeleteSchool(confirmDeleteSchool.id);
+      setConfirmDeleteSchool(null);
+    }
+  };
   const submit = (e) => {
     e.preventDefault();
     if (!form.name) { window.alert('يرجى إدخال اسم المدرسة.'); return; }
@@ -8191,6 +8251,42 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
       />
 
       {/* نافذة تأكيد استيراد المدرسة */}
+      {/* مودال تأكيد حذف المدرسة */}
+      {confirmDeleteSchool && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-100 shrink-0">
+                <Trash2 className="h-6 w-6 text-rose-600" />
+              </div>
+              <div>
+                <div className="font-black text-slate-800 text-lg">تحذير: حذف المدرسة</div>
+                <div className="text-sm text-rose-600 font-bold">هذا الإجراء لا يمكن التراجع عنه</div>
+              </div>
+            </div>
+            <div className="rounded-2xl bg-rose-50 border border-rose-200 p-4 mb-4">
+              <div className="font-black text-slate-800 text-base mb-2">{confirmDeleteSchool.name}</div>
+              <div className="text-sm text-slate-600 space-y-1">
+                <div>سيتم حذف <span className="font-bold text-rose-700">{confirmDeleteSchool.companiesCount} فصل/شركة</span> وجميع بياناتها</div>
+                <div>سيتم حذف <span className="font-bold text-rose-700">{confirmDeleteSchool.studentsCount} طالب</span> وسجلاتهم كاملة</div>
+                <div>سيتم حذف جميع المستخدمين المرتبطين بهذه المدرسة</div>
+                <div>سيتم حذف سجلات الحضور والإجراءات والاستئذانات</div>
+              </div>
+            </div>
+            <div className="text-sm text-slate-500 mb-5">يُنصح بأخذ نسخة احتياطية أولاً قبل المتابعة.</div>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDeleteSchool(null)} className="inline-flex flex-1 items-center justify-center rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-200">إلغاء</button>
+              <button
+                onClick={handleConfirmDeleteSchool}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-700"
+              >
+                <Trash2 className="h-4 w-4" />
+                تأكيد الحذف النهائي
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {confirmImportSchool && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-slate-200">

@@ -2607,6 +2607,26 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // حذف نسخة احتياطية محددة
+    const backupDeleteMatch = reqUrl.pathname.match(/^\/api\/backups\/delete\/(global|school)\/(.+)$/);
+    if (backupDeleteMatch && req.method === 'DELETE') {
+      const actor = getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه حذف النسخ الاحتياطية.' });
+      const backupType = backupDeleteMatch[1];
+      const fileName = backupDeleteMatch[2];
+      const safeName = path.basename(fileName);
+      if (!safeName.endsWith('.json')) return sendJson(res, 400, { ok: false, message: 'يمكن حذف ملفات JSON فقط.' });
+      const dir = backupType === 'global' ? GLOBAL_BACKUPS_DIR : SCHOOL_BACKUPS_DIR;
+      const filePath = path.join(dir, safeName);
+      if (!existsSync(filePath)) return sendJson(res, 404, { ok: false, message: 'ملف النسخة الاحتياطية غير موجود.' });
+      try {
+        const { unlink } = await import('node:fs/promises');
+        await unlink(filePath);
+        return sendJson(res, 200, { ok: true, message: `تم حذف النسخة الاحتياطية "${safeName}" بنجاح.` });
+      } catch (err) {
+        return sendJson(res, 500, { ok: false, message: 'تعذر حذف الملف: ' + (err?.message || '') });
+      }
+    }
     // استيراد بيانات مدرسة كاملة من ملف JSON
     const schoolImportSnapshotMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/import-snapshot$/);
     if (schoolImportSnapshotMatch && req.method === 'POST') {
