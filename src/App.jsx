@@ -7722,6 +7722,7 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
   const [restoring, setRestoring] = useState('');
   const [confirmRestore, setConfirmRestore] = useState(null); // { type, name, label }
   const [confirmDeleteBackup, setConfirmDeleteBackup] = useState(null); // { type, name, label }
+  const [selectedSchoolFilter, setSelectedSchoolFilter] = useState('all'); // 'all' أو اسم المدرسة
   const [deletingBackup, setDeletingBackup] = useState('');
   const [uploadRestoring, setUploadRestoring] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -7899,7 +7900,12 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
 
   const globalList = data?.global || [];
   const schoolList = data?.schools || [];
-  const activeList = activeTab === 'global' ? globalList : schoolList;
+  // استخراج أسماء المدارس الفريدة من نسخ المدارس
+  const uniqueSchoolNames = [...new Set((data?.schools || []).map(item => parseSchoolLabel(item.name)).filter(Boolean))].sort();
+  const filteredSchoolList = selectedSchoolFilter === 'all'
+    ? schoolList
+    : schoolList.filter(item => parseSchoolLabel(item.name) === selectedSchoolFilter);
+  const activeList = activeTab === 'global' ? globalList : filteredSchoolList;
   const activeType = activeTab === 'global' ? 'global' : 'school';
 
   return (
@@ -7992,6 +7998,32 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
           <button onClick={() => setActiveTab('school')} className={`rounded-2xl px-4 py-2 text-sm font-bold transition ${activeTab === 'school' ? 'bg-sky-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>نسخ المدارس ({schoolList.length})</button>
         </div>
 
+        {/* منسدلة تصفية المدارس - تظهر فقط عند تبويب نسخ المدارس */}
+        {activeTab === 'school' && uniqueSchoolNames.length > 1 && (
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-bold text-slate-600 shrink-0">تصفية حسب المدرسة:</label>
+            <select
+              value={selectedSchoolFilter}
+              onChange={(e) => setSelectedSchoolFilter(e.target.value)}
+              className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-400"
+            >
+              <option value="all">جميع المدارس ({schoolList.length} نسخة)</option>
+              {uniqueSchoolNames.map(name => {
+                const count = schoolList.filter(item => parseSchoolLabel(item.name) === name).length;
+                return (
+                  <option key={name} value={name}>{name} ({count} نسخة)</option>
+                );
+              })}
+            </select>
+            {selectedSchoolFilter !== 'all' && (
+              <button
+                onClick={() => setSelectedSchoolFilter('all')}
+                className="shrink-0 rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-200"
+                title="إلغاء التصفية"
+              >✕</button>
+            )}
+          </div>
+        )}
         {/* المحتوى */}
         {loading && (
           <div className="flex items-center justify-center py-10 text-slate-500">
@@ -8003,7 +8035,9 @@ function BackupsModal({ onClose, onRestoreSuccess }) {
         )}
         {!loading && !error && activeList.length === 0 && (
           <div className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500 ring-1 ring-slate-200">
-            لا توجد نسخ احتياطية متاحة بعد. سيتم إنشاؤها تلقائياً عند حفظ البيانات.
+            {activeTab === 'school' && selectedSchoolFilter !== 'all'
+              ? `لا توجد نسخ احتياطية لمدرسة "${selectedSchoolFilter}".`
+              : 'لا توجد نسخ احتياطية متاحة بعد. سيتم إنشاؤها تلقائياً عند حفظ البيانات.'}
           </div>
         )}
         {!loading && !error && activeList.length > 0 && (
