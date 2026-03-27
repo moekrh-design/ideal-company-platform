@@ -302,9 +302,7 @@ let _stateCache = null;
 
 async function getSharedStateAsync() {
   const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);
-  if (!row) {
-    return await normalizeStateForStorage(createDefaultSharedState());
-  }
+  if (!row) return await normalizeStateForStorage(createDefaultSharedState());
   try {
     return await normalizeStateForStorage(JSON.parse(row.value));
   } catch (error) {
