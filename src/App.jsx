@@ -5167,7 +5167,7 @@ function splitTickerItems(text) {
 }
 
 function SchoolTickerLogo({ schoolName, className = "" }) {
-  const shortName = String(schoolName || "مدرستي").replace(/\s+/g, " ").trim().slice(0, 10);
+  const shortName = String(schoolName || "مدرستي").replace(/\s+/g, " ").trim();
   return <span className={cx("inline-flex items-center justify-center rounded-full border border-white/35 bg-white/15 px-3 py-1 text-sm font-black text-white shadow-sm backdrop-blur", className)}>{shortName}</span>;
 }
 
