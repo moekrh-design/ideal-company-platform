@@ -32,35 +32,33 @@ select {
 }
 
 /* حركات الشريط الإخباري للشاشات العامة */
-/* RTL: الحركة من اليمين إلى اليسار */
-@keyframes marquee-rtl {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-50%);
-  }
-}
-
-/* LTR: المحتوى يتحرك من اليمين لليسار بشكل مستمر */
+/* LTR (افتراضي): المحتوى يدخل من اليمين ويخرج من اليسار */
 @keyframes marquee-ltr {
   0% {
-    transform: translateX(0);
+    transform: translateX(0%);
   }
   100% {
     transform: translateX(-50%);
   }
 }
-
-.animate-marquee-rtl {
-  animation: marquee-rtl 35s linear infinite;
+/* RTL: المحتوى يدخل من اليسار ويخرج من اليمين */
+@keyframes marquee-rtl {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0%);
+  }
+}
+.animate-marquee-ltr {
+  animation: marquee-ltr 35s linear infinite;
   will-change: transform;
   display: flex;
   width: max-content;
   direction: ltr;
 }
-.animate-marquee-ltr {
-  animation: marquee-ltr 35s linear infinite;
+.animate-marquee-rtl {
+  animation: marquee-rtl 35s linear infinite;
   will-change: transform;
   display: flex;
   width: max-content;

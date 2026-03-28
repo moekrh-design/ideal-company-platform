@@ -5960,19 +5960,21 @@ function PublicScreenPage({ token }) {
                       ))}
                     </div>
                   ) : (
-                    <div className="relative min-w-0 overflow-hidden">
-                      <div className={cx('flex items-center gap-4 whitespace-nowrap font-black', screen.tickerDir === 'ltr' ? 'animate-marquee-ltr' : 'animate-marquee-rtl')} style={{ fontSize: `${tickerFontSize}px`, lineHeight: 1.3 }}>
+                    <div className="relative min-w-0 overflow-hidden" style={{ direction: 'ltr' }}>
+                      <div className={cx('flex items-center gap-4 whitespace-nowrap font-black', screen.tickerDir === 'rtl' ? 'animate-marquee-rtl' : 'animate-marquee-ltr')} style={{ fontSize: `${tickerFontSize}px`, lineHeight: 1.3 }}>
                         {[0, 1].map((loop) => (
                           <React.Fragment key={loop}>
                             {tickerItems.map((item, index) => (
                               <span key={`${loop}-${index}`} className="inline-flex items-center gap-4 px-2">
                                 <span>{item}</span>
-                                {index < tickerItems.length - 1 ? (
+                                {screen.tickerShowLogo !== false ? (
                                   <span className="inline-flex items-center gap-4 opacity-95">
-                                    {screen.tickerShowLogo !== false ? <SchoolTickerLogo schoolName={safeSchoolName} className="px-4 py-1.5" /> : null}
+                                    <SchoolTickerLogo schoolName={safeSchoolName} className="px-4 py-1.5" />
                                     <span className="opacity-80">{screen.tickerSeparator || ' ✦ '}</span>
                                   </span>
-                                ) : null}
+                                ) : (
+                                  <span className="opacity-80 px-2">{screen.tickerSeparator || ' ✦ '}</span>
+                                )}
                               </span>
                             ))}
                           </React.Fragment>
