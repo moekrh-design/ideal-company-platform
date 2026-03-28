@@ -1717,10 +1717,14 @@ function applyAttendanceScanToState(state, schoolId, barcodeValue, method = 'QR'
   let classroomRef = null;
   let company = null;
 
+  // استخراج رقم الهوية من الباركود القديم بصيغة SS-{schoolId}--------{nationalId}
+  const legacyBarcodeMatch = normalizedValue.match(/^SS-[\dA-Z]+-{2,}([\dA-Z]+)$/);
+  const legacyNationalId = legacyBarcodeMatch ? legacyBarcodeMatch[1] : null;
   if (attendanceSource.sourceMode === 'structure') {
     student = attendanceSource.students.find((item) =>
       String(item.barcode || '').toUpperCase() === normalizedValue
       || String(item.nationalId || '').trim() === rawValue
+      || (legacyNationalId && String(item.nationalId || '').trim() === legacyNationalId)
       || String(item.guardianMobile || '').replace(/\s+/g, '') === rawValue.replace(/\s+/g, '')
       || String(item.name || '').trim() === rawValue
     );
@@ -1728,7 +1732,11 @@ function applyAttendanceScanToState(state, schoolId, barcodeValue, method = 'QR'
     classroomRef = (school.structure?.classrooms || []).find((item) => String(item.id) === String(student.classroomId));
     if (!classroomRef) return { ok: false, message: 'الفصل المرتبط بهذا الطالب غير موجود داخل الهيكل المدرسي.' };
   } else {
-    student = school.students.find((item) => String(item.barcode || '').toUpperCase() === normalizedValue);
+    student = school.students.find((item) =>
+      String(item.barcode || '').toUpperCase() === normalizedValue
+      || String(item.nationalId || '').trim() === rawValue
+      || (legacyNationalId && String(item.nationalId || '').trim() === legacyNationalId)
+    );
     if (!student) return { ok: false, message: 'لم يتم العثور على الطالب المرتبط بهذا الرمز.' };
     company = school.companies.find((item) => item.id === student.companyId);
   }
