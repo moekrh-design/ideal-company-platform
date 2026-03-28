@@ -3217,8 +3217,63 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
+    // ===== إضافة مدرسة جديدة =====
+    if (reqUrl.pathname === '/api/schools' && req.method === 'POST') {
+      const actor = getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      if (actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه إضافة مدارس.' });
+      const form = await readJsonBody(req);
+      const currentState = getSharedState();
+      // التحقق من البيانات المطلوبة
+      const principalUsername = String(form.principalUsername || '').trim().toLowerCase();
+      const principalEmail = String(form.principalEmail || '').trim().toLowerCase();
+      const principalPassword = String(form.principalPassword || '').trim();
+      if (!form.name || !principalUsername || !principalEmail || !principalPassword) {
+        return sendJson(res, 400, { ok: false, message: 'بيانات المدرسة أو مدير المدرسة غير مكتملة.' });
+      }
+      if (currentState.users.some((u) => String(u.username || '').toLowerCase() === principalUsername)) {
+        return sendJson(res, 400, { ok: false, message: 'اسم دخول مدير المدرسة مستخدم مسبقاً. اختر اسماً آخر.' });
+      }
+      if (currentState.users.some((u) => String(u.email || '').toLowerCase() === principalEmail)) {
+        return sendJson(res, 400, { ok: false, message: 'البريد الإلكتروني مستخدم مسبقاً. اختر بريداً آخر.' });
+      }
+      const newId = Math.max(0, ...currentState.schools.map((s) => s.id)) + 1;
+      const newSchool = {
+        id: newId,
+        name: String(form.name || '').trim(),
+        city: String(form.city || '').trim(),
+        code: String(form.code || '').trim(),
+        manager: String(form.manager || '—').trim(),
+        status: 'نشطة',
+        companies: [],
+        students: [],
+        principalProfile: {
+          username: principalUsername,
+          email: principalEmail,
+          password: principalPassword,
+        },
+      };
+      const nextUserId = Math.max(0, ...currentState.users.map((u) => u.id)) + 1;
+      const principalUser = {
+        id: nextUserId,
+        username: principalUsername,
+        email: principalEmail,
+        password: principalPassword,
+        role: 'principal',
+        schoolId: newId,
+        active: true,
+        permissions: {},
+      };
+      const nextState = hydrateSharedState({
+        ...currentState,
+        schools: [...currentState.schools, newSchool],
+        users: [...currentState.users, principalUser],
+      });
+      const saved = saveSharedState(nextState, actor);
+      return sendJson(res, 200, { ok: true, school: newSchool, state: sanitizeStateForClient(saved) });
+    }
+    // ===== نهاية إضافة مدرسة جديدة =====
     // ===== نهاية مسارات API بوابة ولي الأمر =====
-
     if (reqUrl.pathname.startsWith('/api/')) {
       return notFound(res);
     }
