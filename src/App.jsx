@@ -5258,11 +5258,19 @@ function PublicScreenPage({ token }) {
     name: getShortStudentName(String(item?.name || item?.student || item?.title || `طالب ${index + 1}`)),
     points: Number(item?.points || 0),
   })).sort((a, b) => b.points - a.points), [topStudentsView]);
-  const topCompaniesChartData = useMemo(() => (topCompaniesView || []).slice(0, 6).map((item, index) => ({
-    rank: index + 1,
-    name: String(item?.companyName || item?.className || item?.name || item?.title || `شركة ${index + 1}`),
-    points: Number(item?.points || 0),
-  })).sort((a, b) => b.points - a.points), [topCompaniesView]);
+  const topCompaniesChartData = useMemo(() => (topCompaniesView || []).slice(0, 6).map((item, index) => {
+    const companyName = String(item?.companyName || item?.name || item?.title || `شركة ${index + 1}`);
+    const className = String(item?.className || '');
+    // إذا كان اسم الشركة مختلفاً عن اسم الفصل، أضف اسم الفصل
+    const displayName = (className && className !== companyName) ? `${companyName} - ${className}` : companyName;
+    return {
+      rank: index + 1,
+      name: displayName,
+      companyName,
+      className,
+      points: Number(item?.points || 0),
+    };
+  }).sort((a, b) => b.points - a.points), [topCompaniesView]);
 
   const slides = useMemo(() => {
     try {
@@ -5506,7 +5514,10 @@ function PublicScreenPage({ token }) {
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
                       <div className="text-sm font-black text-sky-700">المركز {formatEnglishDigits(index + 1)}</div>
-                      <div className="mt-1 truncate text-2xl font-black text-slate-950 xl:text-3xl" title={item.name}>{getShortStudentName(item.name)}</div>
+                      <div className="mt-1 truncate text-2xl font-black text-slate-950 xl:text-3xl" title={item.companyName || item.name}>{item.companyName || item.name}</div>
+                      {item.className && item.className !== (item.companyName || item.name) && (
+                        <div className="mt-0.5 truncate text-base font-bold text-slate-500">{item.className}</div>
+                      )}
                     </div>
                     <div className="rounded-2xl bg-slate-950 px-4 py-3 text-center text-white">
                       <div className="text-xs font-bold text-white/70">النقاط</div>
