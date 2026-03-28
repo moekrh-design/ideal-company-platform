@@ -8463,7 +8463,7 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
               <div className="mt-1 text-slate-500">{activeSchool.city}</div>
               <div className="mt-4 grid grid-cols-2 gap-3 text-center">
                 <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-2xl font-black">{getUnifiedSchoolStudents(activeSchool, { includeArchived: false, preferStructure: true }).length}</div><div className="text-sm text-slate-500">طالب</div></div>
-                <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-2xl font-black">{activeSchool.companies.length}</div><div className="text-sm text-slate-500">شركة</div></div>
+                <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><div className="text-2xl font-black">{getUnifiedCompanyRows(activeSchool, { preferStructure: true }).length}</div><div className="text-sm text-slate-500">شركة</div></div>
               </div>
               <div className="mt-4 rounded-2xl bg-white p-4 text-sm leading-7 text-slate-600 ring-1 ring-slate-200">
                 عند إضافة مدرسة جديدة، تصبح قابلة مباشرة لإضافة الشركات والطلاب والحضور دون إعادة تشغيل المنصة. كما يتم إنشاء <span className="font-black text-slate-800">حساب مدير المدرسة</span> مرتبطًا بالبريد الإلكتروني ليستفاد منه لاحقًا في الاسترجاع والإشعارات.
