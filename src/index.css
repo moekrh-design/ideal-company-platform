@@ -57,13 +57,14 @@ select {
   will-change: transform;
   display: flex;
   width: max-content;
+  direction: ltr;
 }
-
 .animate-marquee-ltr {
   animation: marquee-ltr 35s linear infinite;
   will-change: transform;
   display: flex;
   width: max-content;
+  direction: ltr;
 }
 
 /* تأثير ظهور أيقونة النجاح في الكاميرا */

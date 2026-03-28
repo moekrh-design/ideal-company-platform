@@ -5255,7 +5255,7 @@ function PublicScreenPage({ token }) {
   const rewardStoreSummary = live?.rewardStoreSummary || null;
   const topStudentsChartData = useMemo(() => (topStudentsView || []).slice(0, 6).map((item, index) => ({
     rank: index + 1,
-    name: String(item?.name || item?.student || item?.title || `طالب ${index + 1}`),
+    name: getShortStudentName(String(item?.name || item?.student || item?.title || `طالب ${index + 1}`)),
     points: Number(item?.points || 0),
   })).sort((a, b) => b.points - a.points), [topStudentsView]);
   const topCompaniesChartData = useMemo(() => (topCompaniesView || []).slice(0, 6).map((item, index) => ({
@@ -5327,7 +5327,7 @@ function PublicScreenPage({ token }) {
                   <div className="mt-4 grid gap-3">
                     {attendanceDonut.map((item, index) => (
                       <div key={item.name} className="flex items-center justify-between rounded-2xl bg-slate-100 px-4 py-3 text-lg font-bold ring-1 ring-slate-200">
-                        <span className="inline-flex items-center gap-3"><span className="h-4 w-4 rounded-full" style={{ backgroundColor: index === 0 ? '#10b981' : '#f43f5e' }} />{item.name}</span>
+                        <span className="inline-flex items-center gap-3"><span className="h-4 w-4 rounded-full" style={{ backgroundColor: index === 0 ? '#10b981' : '#f43f5e' }} />{getShortStudentName(item.name)}</span>
                         <span>{item.value}</span>
                       </div>
                     ))}
@@ -5506,7 +5506,7 @@ function PublicScreenPage({ token }) {
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0">
                       <div className="text-sm font-black text-sky-700">المركز {formatEnglishDigits(index + 1)}</div>
-                      <div className="mt-1 truncate text-2xl font-black text-slate-950 xl:text-3xl" title={item.name}>{item.name}</div>
+                      <div className="mt-1 truncate text-2xl font-black text-slate-950 xl:text-3xl" title={item.name}>{getShortStudentName(item.name)}</div>
                     </div>
                     <div className="rounded-2xl bg-slate-950 px-4 py-3 text-center text-white">
                       <div className="text-xs font-bold text-white/70">النقاط</div>
@@ -5792,7 +5792,7 @@ function PublicScreenPage({ token }) {
                       <div key={item.title || index} className="flex items-center justify-between rounded-[1.4rem] bg-emerald-50 px-5 py-4 ring-1 ring-emerald-200">
                         <div className="flex items-center gap-3">
                           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-200 text-lg font-black text-emerald-800">{index + 1}</span>
-                          <div className="text-2xl font-black text-slate-900">{item.title || item.name}</div>
+                          <div className="text-2xl font-black text-slate-900">{getShortStudentName(item.title || item.name)}</div>
                         </div>
                         <div className="rounded-xl bg-emerald-600 px-4 py-2 text-xl font-black text-white">{formatEnglishDigits(item.count)} مرة</div>
                       </div>
@@ -5811,7 +5811,7 @@ function PublicScreenPage({ token }) {
                       <div key={item.title || index} className="flex items-center justify-between rounded-[1.4rem] bg-rose-50 px-5 py-4 ring-1 ring-rose-200">
                         <div className="flex items-center gap-3">
                           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-200 text-lg font-black text-rose-800">{index + 1}</span>
-                          <div className="text-2xl font-black text-slate-900">{item.title || item.name}</div>
+                          <div className="text-2xl font-black text-slate-900">{getShortStudentName(item.title || item.name)}</div>
                         </div>
                         <div className="rounded-xl bg-rose-600 px-4 py-2 text-xl font-black text-white">{formatEnglishDigits(item.count)} مرة</div>
                       </div>
