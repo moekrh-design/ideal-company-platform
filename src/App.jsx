@@ -19249,7 +19249,7 @@ export default function App() {
   // ===== نهاية نظام التنبيهات الصوتية =====
 
   const allowedNav = useMemo(() => navItems.filter((item) => {
-    if (item.key === "schoolStructure") return currentUser?.role === "principal";
+    if (item.key === "schoolStructure") return currentUser?.role === "principal" || currentUser?.role === "superadmin";
     // استثناء الأدوار المحددة في excludeRoles
     if (Array.isArray(item.excludeRoles) && item.excludeRoles.length) {
       if (item.excludeRoles.includes(currentUser?.role)) return false;
