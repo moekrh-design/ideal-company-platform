@@ -950,6 +950,8 @@ function normalizeSmartLinks(links) {
       lessonAttendanceSummary: item?.widgets?.lessonAttendanceSummary !== false,
       rewardStoreSummary: item?.widgets?.rewardStoreSummary !== false,
     },
+    topCompaniesMax: Math.max(1, Math.min(10, Number(item?.topCompaniesMax || 3))),
+    topCompaniesLayout: ['auto','grid','list'].includes(String(item?.topCompaniesLayout || '')) ? item.topCompaniesLayout : 'auto',
     rewardStoreSettings: {
       mode: ['all','featured','marked'].includes(String(item?.rewardStoreSettings?.mode || '')) ? item.rewardStoreSettings.mode : 'all',
       sourceFilter: ['all','school','parent','external'].includes(String(item?.rewardStoreSettings?.sourceFilter || '')) ? item.rewardStoreSettings.sourceFilter : 'all',
@@ -4125,6 +4127,26 @@ function ScreenSettingsEditor({ value, onChange, compact = false, classrooms = [
           </label>
         ))}
       </div>
+      {widgets.topCompanies !== false ? (
+        <div className="rounded-3xl bg-slate-100/80 p-5 ring-1 ring-slate-200">
+          <div className="mb-3 text-sm font-black text-slate-800">إعدادات ترتيب الشركات</div>
+          <div className={cx("grid grid-cols-1 gap-4", compact ? "xl:grid-cols-2" : "lg:grid-cols-2")}>
+            <Select label="عدد الشركات المعروضة" value={value.topCompaniesMax || 3} onChange={(e) => onChange({ ...value, topCompaniesMax: Number(e.target.value) })}>
+              <option value={3}>3 شركات</option>
+              <option value={4}>4 شركات</option>
+              <option value={5}>5 شركات</option>
+              <option value={6}>6 شركات</option>
+              <option value={8}>8 شركات</option>
+              <option value={10}>10 شركات</option>
+            </Select>
+            <Select label="تخطيط العرض" value={value.topCompaniesLayout || 'auto'} onChange={(e) => onChange({ ...value, topCompaniesLayout: e.target.value })}>
+              <option value="auto">تلقائي (حسب العدد)</option>
+              <option value="grid">شبكة</option>
+              <option value="list">قائمة</option>
+            </Select>
+          </div>
+        </div>
+      ) : null}
       {widgets.rewardStoreSummary !== false ? (
         <div className="rounded-3xl bg-slate-100/80 p-5 ring-1 ring-slate-200">
           <div className="mb-3 text-sm font-black text-slate-800">إعدادات عرض متجر النقاط لهذه الشاشة</div>
@@ -4249,6 +4271,8 @@ function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink,
         lessonAttendanceSummary: screen.widgets?.lessonAttendanceSummary !== false,
         rewardStoreSummary: screen.widgets?.rewardStoreSummary !== false,
       },
+      topCompaniesMax: Math.max(1, Math.min(10, Number(screen?.topCompaniesMax || 3))),
+      topCompaniesLayout: ['auto','grid','list'].includes(String(screen?.topCompaniesLayout || '')) ? screen.topCompaniesLayout : 'auto',
       rewardStoreSettings: {
         mode: ['all','featured','marked'].includes(String(screen.rewardStoreSettings?.mode || '')) ? screen.rewardStoreSettings.mode : 'all',
         sourceFilter: ['all','school','parent','external'].includes(String(screen.rewardStoreSettings?.sourceFilter || '')) ? screen.rewardStoreSettings.sourceFilter : 'all',
@@ -5258,6 +5282,8 @@ function PublicScreenPage({ token }) {
     name: getShortStudentName(String(item?.name || item?.student || item?.title || `طالب ${index + 1}`)),
     points: Number(item?.points || 0),
   })).sort((a, b) => b.points - a.points), [topStudentsView]);
+  const topCompaniesMax = Math.max(1, Math.min(10, Number(screen?.topCompaniesMax || 3)));
+  const topCompaniesLayout = screen?.topCompaniesLayout || 'auto';
   const topCompaniesChartData = useMemo(() => (topCompaniesView || []).slice(0, 6).map((item, index) => {
     const companyName = String(item?.companyName || item?.name || item?.title || `شركة ${index + 1}`);
     const className = String(item?.className || '');
@@ -5489,43 +5515,92 @@ function PublicScreenPage({ token }) {
       });
     }
     if (widgets.topCompanies !== false) {
+      const displayedCompanies = (topCompaniesChartData || []).slice(0, topCompaniesMax);
+      const useGrid = topCompaniesLayout === 'grid' || (topCompaniesLayout === 'auto' && topCompaniesMax > 4);
+      const rankGradients = [
+        { grad: 'from-amber-400 to-yellow-300', text: 'text-amber-900', badge: 'bg-amber-500', barColor: '#f59e0b', medal: '🥇' },
+        { grad: 'from-slate-300 to-slate-200', text: 'text-slate-700', badge: 'bg-slate-400', barColor: '#94a3b8', medal: '🥈' },
+        { grad: 'from-orange-400 to-amber-300', text: 'text-orange-900', badge: 'bg-orange-500', barColor: '#f97316', medal: '🥉' },
+        { grad: 'from-sky-400 to-blue-300', text: 'text-sky-900', badge: 'bg-sky-500', barColor: '#0ea5e9', medal: '4' },
+        { grad: 'from-violet-400 to-purple-300', text: 'text-violet-900', badge: 'bg-violet-500', barColor: '#8b5cf6', medal: '5' },
+        { grad: 'from-emerald-400 to-green-300', text: 'text-emerald-900', badge: 'bg-emerald-500', barColor: '#10b981', medal: '6' },
+      ];
+      const maxPoints = Math.max(...displayedCompanies.map(c => c.points || 0), 1);
       items.push({
         key: 'topCompanies',
         title: 'ترتيب الشركات',
         render: () => (
-          <div className={cx('grid h-full gap-6 rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200 xl:grid-cols-[1.2fr_0.8fr]', screenTemplate === 'leaderboard' ? 'bg-gradient-to-l from-white to-sky-50' : '')}>
-            <div className="min-h-0">
-              <div className="mb-5 flex items-center justify-between text-3xl font-black xl:text-4xl"><span>الشركات المتفوقة</span>{screenTemplate === 'leaderboard' ? <span className="rounded-full bg-sky-100 px-4 py-2 text-lg text-sky-800">ترتيب حي</span> : null}</div>
-              <ResponsiveContainer width="100%" height="86%">
-                <BarChart data={topCompaniesChartData} layout="vertical" margin={{ left: 310, right: 145, top: 14, bottom: 14 }} barCategoryGap={18}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#dbeafe" />
-                  <XAxis type="number" tickFormatter={(value) => formatEnglishDigits(value)} tick={{ fontSize: 20, fontWeight: 900, fill: '#334155' }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="name" width={300} axisLine={false} tickLine={false} tick={(props) => <ScreenAxisTick {...props} width={290} />} />
-                  <Tooltip contentStyle={{ borderRadius: '18px', border: '1px solid #cbd5e1', fontWeight: 800 }} formatter={(value) => [`${formatEnglishDigits(value)} نقطة`, 'النقاط']} />
-                  <Bar dataKey="points" fill="#0ea5e9" radius={[0, 20, 20, 0]} barSize={48}>
-                    <LabelList dataKey="points" content={(props) => <ScreenBarValueLabel {...props} />} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+          <div className="flex h-full flex-col rounded-[2.2rem] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 text-white shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="mb-6 flex items-center justify-between flex-shrink-0">
+              <div>
+                <div className="text-4xl font-black xl:text-5xl tracking-tight">ترتيب الشركات</div>
+                <div className="mt-1 text-slate-400 text-lg">المؤشر التنافسي الحي</div>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 ring-1 ring-emerald-500/40">
+                  <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+                  <span className="text-sm font-black text-emerald-300">مباشر</span>
+                </div>
+                <div className="rounded-2xl bg-white/10 px-4 py-2 text-center">
+                  <div className="text-xs text-slate-400">الشركات</div>
+                  <div className="text-2xl font-black">{formatEnglishDigits(displayedCompanies.length)}</div>
+                </div>
+              </div>
             </div>
-            <div className="grid content-start gap-4">
-              {(topCompaniesChartData || []).slice(0, 5).map((item, index) => (
-                <div key={item.id || item.name || index} className="rounded-[1.7rem] bg-slate-50 px-5 py-4 ring-1 ring-slate-200">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="text-sm font-black text-sky-700">المركز {formatEnglishDigits(index + 1)}</div>
-                      <div className="mt-1 truncate text-2xl font-black text-slate-950 xl:text-3xl" title={item.companyName || item.name}>{item.companyName || item.name}</div>
+            {/* Companies Grid/List */}
+            <div className={cx('flex-1 min-h-0 overflow-hidden', useGrid ? 'grid gap-4' : 'flex flex-col gap-3')}
+              style={useGrid ? { gridTemplateColumns: `repeat(${Math.min(3, Math.ceil(displayedCompanies.length / 2))}, 1fr)` } : {}}>
+              {displayedCompanies.map((item, index) => {
+                const rank = rankGradients[index] || rankGradients[rankGradients.length - 1];
+                const pct = maxPoints > 0 ? Math.round((item.points / maxPoints) * 100) : 0;
+                const isTop3 = index < 3;
+                return (
+                  <div key={item.id || item.name || index}
+                    className={cx('relative flex flex-col justify-between overflow-hidden rounded-[1.6rem] p-5 ring-1 ring-white/10 transition-all',
+                      isTop3 ? `bg-gradient-to-br ${rank.grad}` : 'bg-white/8 backdrop-blur-sm'
+                    )}>
+                    {/* Rank Badge */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className={cx('flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl text-lg font-black shadow-lg',
+                        isTop3 ? `${rank.badge} text-white` : 'bg-white/20 text-white'
+                      )}>
+                        {index < 3 ? rank.medal : formatEnglishDigits(index + 1)}
+                      </div>
+                      <div className={cx('rounded-xl px-3 py-1.5 text-center shadow-sm',
+                        isTop3 ? 'bg-black/20' : 'bg-white/15'
+                      )}>
+                        <div className={cx('text-2xl font-black xl:text-3xl leading-none', isTop3 ? rank.text : 'text-white')}>
+                          {formatEnglishDigits(item.points)}
+                        </div>
+                        <div className={cx('text-xs font-bold', isTop3 ? rank.text + '/70' : 'text-white/60')}>نقطة</div>
+                      </div>
+                    </div>
+                    {/* Company Name */}
+                    <div className="mt-3">
+                      <div className={cx('truncate text-xl font-black xl:text-2xl leading-tight', isTop3 ? rank.text : 'text-white')}
+                        title={item.companyName || item.name}>
+                        {item.companyName || item.name}
+                      </div>
                       {item.className && item.className !== (item.companyName || item.name) && (
-                        <div className="mt-0.5 truncate text-base font-bold text-slate-500">{item.className}</div>
+                        <div className={cx('mt-0.5 truncate text-sm font-bold', isTop3 ? rank.text + '/70' : 'text-slate-400')}>
+                          {item.className}
+                        </div>
                       )}
                     </div>
-                    <div className="rounded-2xl bg-slate-950 px-4 py-3 text-center text-white">
-                      <div className="text-xs font-bold text-white/70">النقاط</div>
-                      <div className="mt-1 text-2xl font-black xl:text-3xl">{formatEnglishDigits(item.points)}</div>
+                    {/* Progress Bar */}
+                    <div className="mt-3">
+                      <div className={cx('h-2 w-full overflow-hidden rounded-full', isTop3 ? 'bg-black/20' : 'bg-white/10')}>
+                        <div className={cx('h-full rounded-full transition-all', isTop3 ? 'bg-black/40' : 'bg-white/40')}
+                          style={{ width: `${pct}%` }} />
+                      </div>
+                      <div className={cx('mt-1 text-right text-xs font-bold', isTop3 ? rank.text + '/60' : 'text-slate-500')}>
+                        {formatEnglishDigits(pct)}%
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ),

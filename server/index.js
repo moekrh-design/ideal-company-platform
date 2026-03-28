@@ -1436,6 +1436,119 @@ async function testSchoolMessagingIntegration(state, schoolId, channel, settings
   return { ok: true, state: hydrateSharedState(next), message: 'تم تنفيذ اختبار الإشعار الداخلي بنجاح.', log };
 }
 
+// ===== دوال مساعدة لبناء ملخصات الشاشات =====
+function getSchoolRewardStore(school) {
+  return {
+    items: Array.isArray(school?.rewardStore?.items) ? school.rewardStore.items : [],
+    parentProposals: Array.isArray(school?.rewardStore?.parentProposals) ? school.rewardStore.parentProposals : [],
+    redemptionRequests: Array.isArray(school?.rewardStore?.redemptionRequests) ? school.rewardStore.redemptionRequests : [],
+  };
+}
+function normalizeRewardStoreItemServer(item = {}) {
+  return {
+    id: item.id || '',
+    title: String(item.title || '').trim() || 'جائزة',
+    pointsCost: Math.max(0, Number(item.pointsCost || 0)),
+    quantity: Math.max(0, Number(item.quantity || 0)),
+    remainingQuantity: Math.max(0, Number(item.remainingQuantity ?? item.quantity ?? 0)),
+    approvalStatus: String(item.approvalStatus || 'active'),
+    isActive: item.isActive !== false,
+    featured: item.featured === true,
+    showOnScreens: item.showOnScreens !== false,
+    sourceType: String(item.sourceType || 'school'),
+    donorName: String(item.donorName || '').trim(),
+    displayPriority: Number(item.displayPriority || 0),
+    image: item.image || '',
+  };
+}
+function buildServerRewardStoreSummary(school, screenConfig = null) {
+  const store = getSchoolRewardStore(school);
+  const rawItems = store.items || [];
+  const items = rawItems.map((item) => normalizeRewardStoreItemServer(item));
+  const proposals = store.parentProposals || [];
+  const redemptionRequests = store.redemptionRequests || [];
+  const donorNames = new Set(items.map((item) => item.donorName).filter(Boolean));
+  const settings = screenConfig?.rewardStoreSettings || {};
+  const mode = String(settings.mode || 'all');
+  const sourceFilter = String(settings.sourceFilter || 'all');
+  const maxItems = Math.max(1, Math.min(24, Number(settings.maxItems || 8)));
+  let displayItems = items.filter((item) => item.showOnScreens !== false && item.approvalStatus === 'active' && item.isActive !== false);
+  if (sourceFilter !== 'all') displayItems = displayItems.filter((item) => item.sourceType === sourceFilter);
+  if (mode === 'featured') displayItems = displayItems.filter((item) => item.featured === true);
+  displayItems = displayItems.sort((a, b) => Number(b.featured) - Number(a.featured) || Number(b.displayPriority) - Number(a.displayPriority)).slice(0, maxItems);
+  return {
+    totalItems: items.length,
+    activeItems: items.filter((item) => item.approvalStatus === 'active' && item.isActive !== false).length,
+    pendingProposals: proposals.filter((item) => String(item.status || 'pending') === 'pending').length,
+    donorCount: donorNames.size,
+    pendingRedemptions: redemptionRequests.filter((item) => String(item.status || 'pending') === 'pending').length,
+    remainingQuantity: items.reduce((sum, item) => sum + Number(item.remainingQuantity || 0), 0),
+    schoolSourceCount: items.filter((item) => item.sourceType === 'school').reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    parentSourceCount: items.filter((item) => item.sourceType === 'parent').reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    externalSourceCount: items.filter((item) => item.sourceType === 'external').reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    items: displayItems.map((item) => ({
+      id: item.id,
+      title: item.title,
+      image: item.image || '',
+      pointsCost: item.pointsCost,
+      quantity: item.quantity,
+      remainingQuantity: item.remainingQuantity,
+      donorLabel: item.donorName || (item.sourceType === 'parent' ? 'ولي أمر' : item.sourceType === 'external' ? 'متبرع' : 'المدرسة'),
+      featured: item.featured,
+      showOnScreens: item.showOnScreens,
+      sourceType: item.sourceType,
+    })),
+    mode,
+    sourceFilter,
+    maxItems,
+  };
+}
+function buildServerParentPortalSummary(school, state) {
+  const students = Array.isArray(school?.students) ? school.students : [];
+  const structureStudents = (Array.isArray(school?.structure?.classrooms) ? school.structure.classrooms : []).flatMap((c) => Array.isArray(c.students) ? c.students : []);
+  const allStudents = structureStudents.length ? structureStudents : students;
+  const studentsWithGuardian = allStudents.filter((s) => String(s.guardianMobile || '').trim()).length;
+  const totalStudents = allStudents.length;
+  const coverageRate = totalStudents ? Math.round((studentsWithGuardian / totalStudents) * 100) : 0;
+  const portalSettings = state?.settings?.parentPortal || {};
+  return {
+    linkedParents: studentsWithGuardian,
+    activeParents: studentsWithGuardian,
+    pendingRequests: 0,
+    suspendedParents: 0,
+    coverageRate,
+    guardianCoverageRate: coverageRate,
+    portalEnabled: portalSettings.enabled !== false,
+    approvalMode: portalSettings.approvalMode || 'auto',
+    extraContacts: 0,
+    preferredWhatsappCount: 0,
+  };
+}
+function buildServerLessonAttendanceSummary(school) {
+  const sessions = Array.isArray(school?.lessonSessions) ? school.lessonSessions : [];
+  if (!sessions.length) return null;
+  const latestSession = sessions.sort((a, b) => String(b.dateIso || '').localeCompare(String(a.dateIso || ''))).find((s) => s.status !== 'archived') || sessions[0];
+  if (!latestSession) return null;
+  const submissions = Array.isArray(latestSession.submissions) ? latestSession.submissions : [];
+  const totalPresent = submissions.reduce((sum, s) => sum + (Array.isArray(s.presentStudentIds) ? s.presentStudentIds.length : 0), 0);
+  const totalAbsent = submissions.reduce((sum, s) => sum + (Array.isArray(s.absentStudentIds) ? s.absentStudentIds.length : 0), 0);
+  return {
+    label: `${latestSession.slotLabel || 'الحصة'} • ${latestSession.dateIso || ''}`.trim(),
+    status: latestSession.status || 'open',
+    expectedTeachers: Number(latestSession.expectedTeachers || 0),
+    sentTeachers: Number(latestSession.sentTeachers || 0),
+    openedTeachers: Number(latestSession.openedTeachers || 0),
+    submittedTeachers: submissions.length,
+    totalPresent,
+    totalAbsent,
+    classRows: submissions.slice(0, 4).map((s) => ({
+      name: s.className || '—',
+      present: Array.isArray(s.presentStudentIds) ? s.presentStudentIds.length : 0,
+      absent: Array.isArray(s.absentStudentIds) ? s.absentStudentIds.length : 0,
+    })),
+  };
+}
+// ===== نهاية الدوال المساعدة =====
 function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
   const school = state.schools.find((item) => Number(item.id) === Number(schoolId));
   if (!school) return null;
@@ -1566,6 +1679,9 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
     attendanceTrend,
     teacherActivity,
     structureSpotlight,
+    rewardStoreSummary: buildServerRewardStoreSummary(school, screenConfig),
+    parentPortalSummary: buildServerParentPortalSummary(school, state),
+    lessonAttendanceSummary: buildServerLessonAttendanceSummary(school),
   };
 }
 
