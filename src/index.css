@@ -42,13 +42,13 @@ select {
   }
 }
 
-/* LTR: الحركة من اليسار إلى اليمين */
+/* LTR: المحتوى يتحرك من اليمين لليسار بشكل مستمر */
 @keyframes marquee-ltr {
   0% {
-    transform: translateX(-50%);
+    transform: translateX(0);
   }
   100% {
-    transform: translateX(0);
+    transform: translateX(-50%);
   }
 }
 

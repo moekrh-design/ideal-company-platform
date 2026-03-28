@@ -233,6 +233,13 @@ const SCHOOL_GENDER_OPTIONS = [
   ["mixed", "مجمع"],
 ];
 
+function getShortStudentName(fullName) {
+  if (!fullName) return 'طالب';
+  const parts = String(fullName).trim().split(/\s+/);
+  if (parts.length <= 2) return fullName;
+  return `${parts[0]} ${parts[parts.length - 1]}`;
+}
+
 function schoolHasStructureClassrooms(school) {
   return Array.isArray(school?.structure?.classrooms) && school.structure.classrooms.length > 0;
 }
@@ -5331,7 +5338,7 @@ function PublicScreenPage({ token }) {
                   <div className="grid gap-4">
                     {classActivities.slice(0, 6).map((item) => (
                       <div key={item.id} className="rounded-[1.5rem] bg-slate-100 p-5 ring-1 ring-slate-200">
-                        <div className="text-2xl font-black">{item.student || item.name || 'طالب'}</div>
+                        <div className="text-2xl font-black">{getShortStudentName(item.student || item.name)}</div>
                         <div className="mt-2 text-lg text-slate-500">{item.result || 'نشاط'} {item.time ? `• ${item.time}` : ''}</div>
                       </div>
                     ))}
@@ -5403,13 +5410,13 @@ function PublicScreenPage({ token }) {
                   </div>
                   <div className="grid grid-cols-2 gap-4 pt-6">
                     <div className="rounded-[1.7rem] bg-slate-950 p-6 text-white"><div className="text-lg text-white/70">الحاضرون الآن</div><div className="mt-3 text-7xl font-black">{formatEnglishDigits(summaryView?.presentToday || 0)}</div></div>
-                    <div className="rounded-[1.7rem] bg-white p-3 text-slate-950 ring-1 ring-slate-200"><div className="text-center text-lg font-bold text-slate-500">نسبة الحضور</div><MiniAttendanceRing value={summaryView?.attendanceRate || 0} /></div>
+                    <div className="rounded-[1.7rem] bg-white p-3 text-slate-950 ring-1 ring-slate-200 flex flex-col items-center justify-center"><div className="text-center text-lg font-bold text-slate-500">نسبة الحضور</div><MiniAttendanceRing value={summaryView?.attendanceRate || 0} /></div>
                   </div>
                 </div>
               ) : null}
               <div className={cx('grid gap-6', screenTemplate === 'reception' ? 'xl:col-span-1 grid-cols-2 xl:grid-cols-2' : 'grid-cols-2 xl:col-span-3 xl:grid-cols-3', screenTemplate === 'leaderboard' ? 'xl:col-span-3' : '')}>
                 <div className="rounded-[2rem] bg-white p-7 text-center text-slate-950 shadow-2xl ring-1 ring-slate-200"><div className="text-2xl font-bold text-slate-500">الحاضرون اليوم</div><div className="mt-5 text-7xl font-black text-slate-900 xl:text-8xl">{formatEnglishDigits(summaryView?.presentToday || 0)}</div><div className="mt-4 text-2xl text-slate-500">من {formatEnglishDigits(summaryView?.totalStudents || 0)} طالب</div></div>
-                <div className="rounded-[2rem] bg-white p-4 text-slate-950 shadow-2xl ring-1 ring-slate-200"><div className="text-center text-2xl font-bold text-slate-500">نسبة الحضور</div><MiniAttendanceRing value={summaryView?.attendanceRate || 0} /></div>
+                <div className="rounded-[2rem] bg-white p-4 text-slate-950 shadow-2xl ring-1 ring-slate-200 flex flex-col items-center justify-center"><div className="text-center text-2xl font-bold text-slate-500">نسبة الحضور</div><MiniAttendanceRing value={summaryView?.attendanceRate || 0} /></div>
                 <div className="rounded-[2rem] bg-white p-7 text-center text-slate-950 shadow-2xl ring-1 ring-slate-200"><div className="text-2xl font-bold text-slate-500">المبكرون</div><div className="mt-5 text-7xl font-black text-emerald-700 xl:text-8xl">{formatEnglishDigits(summaryView?.earlyToday || 0)}</div><div className="mt-4 text-2xl text-slate-500">اليوم</div></div>
                 <div className="rounded-[2rem] bg-white p-7 text-center text-slate-950 shadow-2xl ring-1 ring-slate-200"><div className="text-2xl font-bold text-slate-500">المكافآت</div><div className="mt-5 text-7xl font-black text-violet-700 xl:text-8xl">{formatEnglishDigits(summaryView?.rewardsToday || 0)}</div><div className="mt-4 text-2xl text-slate-500">اليوم</div></div>
                 <div className="rounded-[2rem] bg-white p-7 text-center text-slate-950 shadow-2xl ring-1 ring-slate-200"><div className="text-2xl font-bold text-slate-500">الخصومات</div><div className="mt-5 text-7xl font-black text-rose-700 xl:text-8xl">{formatEnglishDigits(summaryView?.violationsToday || 0)}</div><div className="mt-4 text-2xl text-slate-500">اليوم</div></div>
@@ -5706,7 +5713,7 @@ function PublicScreenPage({ token }) {
           <div className={cx('grid h-full grid-cols-1 gap-4 overflow-hidden rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200', screenTemplate === 'news' ? 'xl:grid-cols-1 bg-gradient-to-l from-white to-slate-50' : 'xl:grid-cols-2')}>
             {recentAttendanceView.slice(0, 8).map((item) => (
               <div key={item.id} className="rounded-[1.75rem] bg-slate-100 p-5 ring-1 ring-slate-200">
-                <div className="text-3xl font-black">{item.student}</div>
+                <div className="text-3xl font-black">{getShortStudentName(item.student)}</div>
                 <div className="mt-3 text-xl text-slate-500">{item.time} • {item.result}</div>
               </div>
             ))}
