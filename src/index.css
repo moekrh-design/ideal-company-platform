@@ -32,30 +32,38 @@ select {
 }
 
 /* حركات الشريط الإخباري للشاشات العامة */
+/* RTL: الحركة من اليمين إلى اليسار */
 @keyframes marquee-rtl {
   0% {
-    transform: translateX(100%);
+    transform: translateX(0);
   }
   100% {
-    transform: translateX(-100%);
+    transform: translateX(-50%);
   }
 }
 
+/* LTR: الحركة من اليسار إلى اليمين */
 @keyframes marquee-ltr {
   0% {
-    transform: translateX(-100%);
+    transform: translateX(-50%);
   }
   100% {
-    transform: translateX(100%);
+    transform: translateX(0);
   }
 }
 
 .animate-marquee-rtl {
-  animation: marquee-rtl 24s linear infinite; will-change: transform;
+  animation: marquee-rtl 35s linear infinite;
+  will-change: transform;
+  display: flex;
+  width: max-content;
 }
 
 .animate-marquee-ltr {
-  animation: marquee-ltr 24s linear infinite; will-change: transform;
+  animation: marquee-ltr 35s linear infinite;
+  will-change: transform;
+  display: flex;
+  width: max-content;
 }
 
 /* تأثير ظهور أيقونة النجاح في الكاميرا */

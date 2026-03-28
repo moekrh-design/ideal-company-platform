@@ -923,7 +923,7 @@ function normalizeSmartLinks(links) {
     template: SCREEN_TEMPLATE_OPTIONS.some(([key]) => key === item?.template) ? item.template : "executive",
     tickerEnabled: item?.tickerEnabled === true,
     tickerText: String(item?.tickerText || ""),
-    tickerDir: item?.tickerDir === "ltr" ? "ltr" : "rtl",
+    tickerDir: item?.tickerDir === "rtl" ? "rtl" : "ltr",
     tickerBg: TICKER_BG_OPTIONS.some(([key]) => key === item?.tickerBg) ? item.tickerBg : "amber",
     tickerSeparator: String(item?.tickerSeparator || " ✦ "),
     tickerFontSize: Math.max(18, Math.min(48, Number(item?.tickerFontSize) || 28)),
@@ -4001,24 +4001,27 @@ function ScreenBarValueLabel({ x, y, width, value, suffix = '' }) {
 
 function MiniAttendanceRing({ value }) {
   const safeValue = Math.max(0, Math.min(100, Number(value) || 0));
-  const chartData = [
-    { name: 'الحضور', value: safeValue, fill: '#0ea5e9' },
-    { name: 'الباقي', value: Math.max(0, 100 - safeValue), fill: '#dbeafe' },
-  ];
-
+  const radius = 88;
+  const circumference = 2 * Math.PI * radius;
+  const dashArray = circumference * safeValue / 100;
+  const dashOffset = circumference * 0.25;
   return (
-    <div className="flex flex-col items-center justify-center">
-      <div className="h-44 w-full max-w-[240px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie data={chartData} dataKey="value" innerRadius={46} outerRadius={66} startAngle={90} endAngle={-270} stroke="none" paddingAngle={0}>
-              {chartData.map((entry, index) => <Cell key={`${entry.name}-${index}`} fill={entry.fill} />)}
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="-mt-28 text-center">
-        <div className="text-6xl font-black text-sky-700 xl:text-7xl">{formatEnglishDigits(safeValue)}%</div>
+    <div className="relative flex items-center justify-center" style={{ width: 220, height: 220 }}>
+      <svg width="220" height="220" viewBox="0 0 220 220" style={{ position: 'absolute', top: 0, left: 0 }}>
+        <circle cx="110" cy="110" r={radius} fill="none" stroke="#dbeafe" strokeWidth="28" />
+        <circle
+          cx="110" cy="110" r={radius}
+          fill="none"
+          stroke="#0ea5e9"
+          strokeWidth="28"
+          strokeLinecap="round"
+          strokeDasharray={`${dashArray} ${circumference - dashArray}`}
+          strokeDashoffset={dashOffset}
+          style={{ transition: 'stroke-dasharray 0.6s ease' }}
+        />
+      </svg>
+      <div className="relative z-10 flex flex-col items-center justify-center text-center">
+        <div className="text-6xl font-black text-sky-700 xl:text-7xl" style={{ lineHeight: 1 }}>{formatEnglishDigits(safeValue)}%</div>
         <div className="mt-2 text-xl text-slate-500">تحديث مباشر</div>
       </div>
     </div>
@@ -4194,7 +4197,7 @@ function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink,
     template: "executive",
     tickerEnabled: false,
     tickerText: "",
-    tickerDir: "rtl",
+    tickerDir: "ltr",
     tickerBg: "amber",
     tickerSeparator: " ✦ ",
     tickerFontSize: "28",
@@ -4250,7 +4253,7 @@ function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink,
       template: screen.template || "executive",
       tickerEnabled: Boolean(screen.tickerEnabled),
       tickerText: screen.tickerText || "",
-      tickerDir: screen.tickerDir || "rtl",
+      tickerDir: screen.tickerDir || "ltr",
       tickerBg: screen.tickerBg || "amber",
       tickerSeparator: screen.tickerSeparator || " ✦ ",
       tickerFontSize: String(screen.tickerFontSize || 28),
@@ -4272,7 +4275,7 @@ function SchoolDeviceLinksPanel({ selectedSchool, currentUser, onCreateGateLink,
     template: "executive",
     tickerEnabled: false,
     tickerText: "",
-    tickerDir: "rtl",
+    tickerDir: "ltr",
     tickerBg: "amber",
     tickerSeparator: " ✦ ",
     tickerFontSize: "28",
@@ -5437,10 +5440,10 @@ function PublicScreenPage({ token }) {
                 <YAxis tickFormatter={(value) => formatEnglishDigits(value)} tick={{ fontSize: 20, fontWeight: 900, fill: '#334155' }} axisLine={false} tickLine={false} width={56} />
                 <Tooltip contentStyle={{ borderRadius: '18px', border: '1px solid #cbd5e1', fontWeight: 800 }} formatter={(value) => formatEnglishDigits(value)} />
                 <Bar dataKey="attendance" name="الحضور" fill="#0ea5e9" radius={[18, 18, 0, 0]} barSize={64}>
-                  <LabelList dataKey="attendance" position="top" formatter={(value) => formatEnglishDigits(value)} style={{ fill: '#0f172a', fontSize: 22, fontWeight: 900 }} />
+                  <LabelList dataKey="attendance" position="insideTop" offset={14} formatter={(value) => formatEnglishDigits(value)} style={{ fill: '#ffffff', fontSize: 26, fontWeight: 900 }} />
                 </Bar>
                 <Bar dataKey="early" name="المبكر" fill="#10b981" radius={[18, 18, 0, 0]} barSize={64}>
-                  <LabelList dataKey="early" position="top" formatter={(value) => formatEnglishDigits(value)} style={{ fill: '#0f172a', fontSize: 22, fontWeight: 900 }} />
+                  <LabelList dataKey="early" position="insideTop" offset={14} formatter={(value) => formatEnglishDigits(value)} style={{ fill: '#ffffff', fontSize: 26, fontWeight: 900 }} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -5676,7 +5679,7 @@ function PublicScreenPage({ token }) {
                     <YAxis domain={[0, 100]} tickFormatter={(value) => formatEnglishDigits(value)} tick={{ fontSize: 18, fontWeight: 800, fill: '#334155' }} axisLine={false} tickLine={false} />
                     <Tooltip formatter={(value) => [`${formatEnglishDigits(value)}%`, 'النسبة']} contentStyle={{ borderRadius: '18px', border: '1px solid #cbd5e1', fontWeight: 800 }} />
                     <Bar dataKey="value" fill="#6366f1" radius={[18, 18, 0, 0]} barSize={68}>
-                      <LabelList dataKey="value" position="top" formatter={(value) => `${formatEnglishDigits(value)}%`} style={{ fill: '#0f172a', fontSize: 20, fontWeight: 900 }} />
+                      <LabelList dataKey="value" position="insideTop" offset={14} formatter={(value) => `${formatEnglishDigits(value)}%`} style={{ fill: '#ffffff', fontSize: 24, fontWeight: 900 }} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -6213,7 +6216,7 @@ function SchoolStructurePage({ selectedSchool, schoolUsers = [], currentUser, on
         template: screen.template || "executive",
         tickerEnabled: Boolean(screen.tickerEnabled),
         tickerText: screen.tickerText || "",
-        tickerDir: screen.tickerDir || "rtl",
+        tickerDir: screen.tickerDir || "ltr",
         tickerBg: screen.tickerBg || "amber",
         tickerSeparator: screen.tickerSeparator || " ✦ ",
         tickerFontSize: Number(screen.tickerFontSize) || 28,
