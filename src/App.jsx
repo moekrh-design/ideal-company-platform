@@ -20080,11 +20080,20 @@ export default function App() {
       });
       const result = await response.json();
       if (result.ok) {
-        // بعد إضافة المدرسة بنجاح، نحتاج إلى تحديث الحالة بالكامل من الخادم
-        try {
-          const stateResp = await apiRequest('/api/state', { method: 'GET', token: getSessionToken() });
-          if (stateResp?.state) applyServerStatePayload(stateResp.state, loadUiState());
-        } catch (_) {}
+        // تحديث الحالة مباشرةً من النتيجة المُرجَعة
+        if (result.state) {
+          applyServerStatePayload(result.state, loadUiState());
+        } else {
+          // في حالة عدم وجود state في الرد، نجلب الحالة من bootstrap
+          try {
+            const stateResp = await apiRequest('/api/bootstrap', { method: 'GET', token: getSessionToken() });
+            if (stateResp?.state) applyServerStatePayload(stateResp.state, loadUiState());
+          } catch (_) {}
+        }
+        const addedSchoolId = result.school?.id || newId;
+        setSelectedSchoolId(addedSchoolId);
+        setActivePage('schools');
+        pushNotification('تمت إضافة مدرسة', `أضيفت المدرسة ${form.name} وتم إنشاء مدير المدرسة بحساب ${normalizedPrincipalUsername}.`);
       } else {
         window.alert(result.message || "فشل إضافة المدرسة.");
       }
@@ -20092,9 +20101,6 @@ export default function App() {
       console.error("Error adding school:", error);
       window.alert("حدث خطأ أثناء إضافة المدرسة.");
     }
-    setSelectedSchoolId(newId);
-    setActivePage('schools');
-    pushNotification('تمت إضافة مدرسة', `أضيفت المدرسة ${form.name} وتم إنشاء مدير المدرسة بحساب ${normalizedPrincipalUsername}.`);
   };
 
   const handleUpdateSchoolBranding = (schoolId, patch) => {
