@@ -1717,14 +1717,15 @@ function applyAttendanceScanToState(state, schoolId, barcodeValue, method = 'QR'
   let classroomRef = null;
   let company = null;
 
-  // استخراج رقم الهوية من الباركود القديم بصيغة SS-{schoolId}--------{nationalId}
-  const legacyBarcodeMatch = normalizedValue.match(/^SS-[\dA-Z]+-{2,}([\dA-Z]+)$/);
-  const legacyNationalId = legacyBarcodeMatch ? legacyBarcodeMatch[1] : null;
+  // استخراج آخر جزء رقمي من الباركود القديم SS-{schoolId}--------{digits} أو الجديد SS-{code}-{class}-{digits}
+  const legacyParts = normalizedValue.split(/[-\s]+/).filter((p) => /^[\dA-Z]+$/.test(p));
+  const legacySuffix = legacyParts.length >= 2 ? legacyParts[legacyParts.length - 1] : null;
   if (attendanceSource.sourceMode === 'structure') {
     student = attendanceSource.students.find((item) =>
       String(item.barcode || '').toUpperCase() === normalizedValue
       || String(item.nationalId || '').trim() === rawValue
-      || (legacyNationalId && String(item.nationalId || '').trim() === legacyNationalId)
+      || (legacySuffix && String(item.nationalId || '').trim().endsWith(legacySuffix))
+      || (legacySuffix && String(item.barcode || '').toUpperCase().endsWith(legacySuffix))
       || String(item.guardianMobile || '').replace(/\s+/g, '') === rawValue.replace(/\s+/g, '')
       || String(item.name || '').trim() === rawValue
     );
@@ -1735,7 +1736,8 @@ function applyAttendanceScanToState(state, schoolId, barcodeValue, method = 'QR'
     student = school.students.find((item) =>
       String(item.barcode || '').toUpperCase() === normalizedValue
       || String(item.nationalId || '').trim() === rawValue
-      || (legacyNationalId && String(item.nationalId || '').trim() === legacyNationalId)
+      || (legacySuffix && String(item.nationalId || '').trim().endsWith(legacySuffix))
+      || (legacySuffix && String(item.barcode || '').toUpperCase().endsWith(legacySuffix))
     );
     if (!student) return { ok: false, message: 'لم يتم العثور على الطالب المرتبط بهذا الرمز.' };
     company = school.companies.find((item) => item.id === student.companyId);
