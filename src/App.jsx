@@ -3219,7 +3219,7 @@ function QrCodeVisual({ value, size = 172, className = "", imageClassName = "" }
   return <img src={src} alt={`QR ${value}`} className={cx("rounded-2xl bg-white object-contain", className, imageClassName)} style={{ width: size, height: size }} />;
 }
 
-function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetectBarcode, onDetectFace, variant = "default", autoStart = false, autoRestart = false, hideDeviceSelect = false, videoHeightClass = "h-56" }) {
+function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetectBarcode, onDetectFace, onResolveBarcodeLabel, variant = "default", autoStart = false, autoRestart = false, hideDeviceSelect = false, videoHeightClass = "h-56" }) {
   const videoRef = useRef(null);
   const canvasOverlayRef = useRef(null);
   const streamRef = useRef(null);
@@ -3632,7 +3632,8 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
         }
         const value = await detectBarcodeValueFromSource(videoRef.current);
         if (value) {
-          flashSuccessFrame(`تمت قراءة QR: ${value}`);
+          const barcodeLabel = onResolveBarcodeLabel ? (onResolveBarcodeLabel(value) || value) : value;
+          flashSuccessFrame(`تمت قراءة QR: ${barcodeLabel}`);
           window.setTimeout(() => onDetectBarcode(value), 220);
           if (autoRestartRef.current) {
             // نحفظ بصمة الإطار الحالي وننتظر تغيير المشهد
@@ -3802,7 +3803,8 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
     if (mode === "barcode") {
       const value = await detectBarcodeValueFromSource(dataUrl);
       if (value) {
-        flashSuccessFrame(`تم التعرف على QR: ${value}`);
+        const barcodeLabel2 = onResolveBarcodeLabel ? (onResolveBarcodeLabel(value) || value) : value;
+        flashSuccessFrame(`تم التعرف على QR: ${barcodeLabel2}`);
         onDetectBarcode?.(value);
       } else {
         setMessage("لم يتم التعرف على QR من هذه اللقطة. حاول تقريب البطاقة أو تحسين الإضاءة.");
@@ -5071,7 +5073,7 @@ function PublicGatePage({ token }) {
           </div>
         ) : null}
         <div className="rounded-[2rem] border border-white/10 bg-white/5 p-4 shadow-2xl backdrop-blur md:p-6">
-          <LiveCameraPanel mode={mode === 'qr' ? 'barcode' : mode === 'face' ? 'face' : 'mixed'} variant="gate" autoStart autoRestart hideDeviceSelect videoHeightClass="h-[48vh] md:h-[58vh]" title={`مرحبًا بكم في ${payload.school?.name || 'المدرسة'}`} description={`${payload.gate?.name || 'البوابة'} • وجّه QR أو الوجه أمام الكاميرا وسيتم التعرف تلقائياً بدون تدخل يدوي.`} onDetectBarcode={(value) => submitScan(value, 'QR')} onDetectFace={resolveFaceDataUrl} onCapture={resolveFaceDataUrl} />
+          <LiveCameraPanel mode={mode === 'qr' ? 'barcode' : mode === 'face' ? 'face' : 'mixed'} variant="gate" autoStart autoRestart hideDeviceSelect videoHeightClass="h-[48vh] md:h-[58vh]" title={`مرحبًا بكم في ${payload.school?.name || 'المدرسة'}`} description={`${payload.gate?.name || 'البوابة'} • وجّه QR أو الوجه أمام الكاميرا وسيتم التعرف تلقائياً بدون تدخل يدوي.`} onDetectBarcode={(value) => submitScan(value, 'QR')} onDetectFace={resolveFaceDataUrl} onCapture={resolveFaceDataUrl} onResolveBarcodeLabel={(barcode) => { const s = students.find((st) => String(st.barcode || '').toUpperCase() === String(barcode || '').toUpperCase() || String(st.studentNumber || '') === String(barcode || '')); return s ? (s.name || s.fullName || null) : null; }} />
         </div>
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <div className="rounded-3xl bg-white p-5 text-slate-900 ring-1 ring-slate-200">
