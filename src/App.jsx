@@ -5529,81 +5529,108 @@ function PublicScreenPage({ token }) {
       items.push({
         key: 'topCompanies',
         title: 'ترتيب الشركات',
-        render: () => (
-          <div className="flex h-full flex-col rounded-[2.2rem] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 text-white shadow-2xl overflow-hidden">
-            {/* Header */}
-            <div className="mb-6 flex items-center justify-between flex-shrink-0">
-              <div>
-                <div className="text-4xl font-black xl:text-5xl tracking-tight">ترتيب الشركات</div>
-                <div className="mt-1 text-slate-400 text-lg">المؤشر التنافسي الحي</div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 rounded-full bg-emerald-500/20 px-4 py-2 ring-1 ring-emerald-500/40">
-                  <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
-                  <span className="text-sm font-black text-emerald-300">مباشر</span>
+        render: () => {
+          // تحديد عدد الأعمدة بناءً على عدد الشركات
+          const count = displayedCompanies.length;
+          const cols = count <= 3 ? 1 : count <= 6 ? 2 : 3;
+          const useColLayout = useGrid || (topCompaniesLayout === 'auto' && count > 3);
+          return (
+            <div className="flex h-full flex-col rounded-[2.2rem] bg-gradient-to-br from-[#0f172a] via-[#1e293b] to-[#0f172a] p-5 text-white shadow-2xl overflow-hidden">
+              {/* Header مضغوط */}
+              <div className="mb-4 flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center gap-4">
+                  <div>
+                    <div className="text-3xl font-black tracking-tight xl:text-4xl">ترتيب الشركات</div>
+                    <div className="mt-0.5 text-sm font-bold text-slate-400">المؤشر التنافسي الحي</div>
+                  </div>
                 </div>
-                <div className="rounded-2xl bg-white/10 px-4 py-2 text-center">
-                  <div className="text-xs text-slate-400">الشركات</div>
-                  <div className="text-2xl font-black">{formatEnglishDigits(displayedCompanies.length)}</div>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 rounded-full bg-emerald-500/20 px-3 py-1.5 ring-1 ring-emerald-500/40">
+                    <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                    <span className="text-xs font-black text-emerald-300">مباشر</span>
+                  </div>
+                  <div className="rounded-xl bg-white/10 px-3 py-1.5 text-center">
+                    <div className="text-xs text-slate-400">الشركات</div>
+                    <div className="text-xl font-black">{formatEnglishDigits(count)}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-            {/* Companies Grid/List */}
-            <div className={cx('flex-1 min-h-0 overflow-hidden', useGrid ? 'grid gap-4' : 'flex flex-col gap-3')}
-              style={useGrid ? { gridTemplateColumns: `repeat(${Math.min(3, Math.ceil(displayedCompanies.length / 2))}, 1fr)` } : {}}>
-              {displayedCompanies.map((item, index) => {
-                const rank = rankGradients[index] || rankGradients[rankGradients.length - 1];
-                const pct = maxPoints > 0 ? Math.round((item.points / maxPoints) * 100) : 0;
-                const isTop3 = index < 3;
-                return (
-                  <div key={item.id || item.name || index}
-                    className={cx('relative flex flex-col justify-between overflow-hidden rounded-[1.6rem] p-5 ring-1 ring-white/10 transition-all',
-                      isTop3 ? `bg-gradient-to-br ${rank.grad}` : 'bg-white/8 backdrop-blur-sm'
-                    )}>
-                    {/* Rank Badge */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className={cx('flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl text-lg font-black shadow-lg',
-                        isTop3 ? `${rank.badge} text-white` : 'bg-white/20 text-white'
-                      )}>
-                        {index < 3 ? rank.medal : formatEnglishDigits(index + 1)}
+              {/* قائمة الشركات */}
+              <div
+                className="flex-1 min-h-0 overflow-hidden"
+                style={{
+                  display: 'grid',
+                  gap: '0.6rem',
+                  gridTemplateColumns: useColLayout ? `repeat(${cols}, 1fr)` : '1fr',
+                  alignContent: 'stretch',
+                }}
+              >
+                {displayedCompanies.map((item, index) => {
+                  const rank = rankGradients[index] || rankGradients[rankGradients.length - 1];
+                  const pct = maxPoints > 0 ? Math.round((item.points / maxPoints) * 100) : 0;
+                  const isTop3 = index < 3;
+                  const medals = ['🥇', '🥈', '🥉'];
+                  const rankColors = [
+                    { bg: 'linear-gradient(135deg, #f59e0b 0%, #fbbf24 50%, #f59e0b 100%)', text: '#78350f', badge: '#d97706', bar: 'rgba(120,53,15,0.35)' },
+                    { bg: 'linear-gradient(135deg, #94a3b8 0%, #cbd5e1 50%, #94a3b8 100%)', text: '#1e293b', badge: '#64748b', bar: 'rgba(30,41,59,0.25)' },
+                    { bg: 'linear-gradient(135deg, #f97316 0%, #fb923c 50%, #f97316 100%)', text: '#7c2d12', badge: '#ea580c', bar: 'rgba(124,45,18,0.35)' },
+                  ];
+                  const rc = isTop3 ? rankColors[index] : null;
+                  return (
+                    <div
+                      key={item.id || item.name || index}
+                      className="relative flex items-center gap-3 overflow-hidden rounded-2xl px-4 py-3 ring-1 ring-white/10"
+                      style={rc ? { background: rc.bg } : { background: 'rgba(255,255,255,0.07)', backdropFilter: 'blur(8px)' }}
+                    >
+                      {/* رقم الترتيب */}
+                      <div
+                        className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-2xl font-black shadow-md"
+                        style={rc ? { background: rc.badge, color: '#fff' } : { background: 'rgba(255,255,255,0.15)', color: '#fff' }}
+                      >
+                        {isTop3 ? medals[index] : formatEnglishDigits(index + 1)}
                       </div>
-                      <div className={cx('rounded-xl px-3 py-1.5 text-center shadow-sm',
-                        isTop3 ? 'bg-black/20' : 'bg-white/15'
-                      )}>
-                        <div className={cx('text-2xl font-black xl:text-3xl leading-none', isTop3 ? rank.text : 'text-white')}>
+                      {/* اسم الشركة */}
+                      <div className="min-w-0 flex-1">
+                        <div
+                          className="truncate text-xl font-black leading-tight xl:text-2xl"
+                          style={{ color: rc ? rc.text : '#fff' }}
+                          title={item.companyName || item.name}
+                        >
+                          {item.companyName || item.name}
+                        </div>
+                        {item.className && item.className !== (item.companyName || item.name) && (
+                          <div className="mt-0.5 truncate text-sm font-bold" style={{ color: rc ? rc.text + 'aa' : 'rgba(255,255,255,0.55)' }}>
+                            {item.className}
+                          </div>
+                        )}
+                        {/* شريط التقدم */}
+                        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full" style={{ background: rc ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.12)' }}>
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{ width: `${pct}%`, background: rc ? rc.bar : 'rgba(255,255,255,0.5)' }}
+                          />
+                        </div>
+                      </div>
+                      {/* النقاط */}
+                      <div
+                        className="flex-shrink-0 rounded-xl px-3 py-2 text-center shadow-sm"
+                        style={rc ? { background: 'rgba(0,0,0,0.18)' } : { background: 'rgba(255,255,255,0.12)' }}
+                      >
+                        <div
+                          className="text-2xl font-black leading-none xl:text-3xl"
+                          style={{ color: rc ? rc.text : '#fff' }}
+                        >
                           {formatEnglishDigits(item.points)}
                         </div>
-                        <div className={cx('text-xs font-bold', isTop3 ? rank.text + '/70' : 'text-white/60')}>نقطة</div>
+                        <div className="mt-0.5 text-xs font-bold" style={{ color: rc ? rc.text + '99' : 'rgba(255,255,255,0.55)' }}>نقطة</div>
                       </div>
                     </div>
-                    {/* Company Name */}
-                    <div className="mt-3">
-                      <div className={cx('truncate text-xl font-black xl:text-2xl leading-tight', isTop3 ? rank.text : 'text-white')}
-                        title={item.companyName || item.name}>
-                        {item.companyName || item.name}
-                      </div>
-                      {item.className && item.className !== (item.companyName || item.name) && (
-                        <div className={cx('mt-0.5 truncate text-sm font-bold', isTop3 ? rank.text + '/70' : 'text-slate-400')}>
-                          {item.className}
-                        </div>
-                      )}
-                    </div>
-                    {/* Progress Bar */}
-                    <div className="mt-3">
-                      <div className={cx('h-2 w-full overflow-hidden rounded-full', isTop3 ? 'bg-black/20' : 'bg-white/10')}>
-                        <div className={cx('h-full rounded-full transition-all', isTop3 ? 'bg-black/40' : 'bg-white/40')}
-                          style={{ width: `${pct}%` }} />
-                      </div>
-                      <div className={cx('mt-1 text-right text-xs font-bold', isTop3 ? rank.text + '/60' : 'text-slate-500')}>
-                        {formatEnglishDigits(pct)}%
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        ),
+          );
+        },
       });
     }
 
@@ -5618,41 +5645,89 @@ function PublicScreenPage({ token }) {
         key: 'lessonAttendanceSummary',
         title: 'تحضير الحصص',
         render: () => (
-          <div className="grid h-full gap-6 xl:grid-cols-[1.02fr_0.98fr]">
-            <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
-              <div className="mb-5 flex items-center justify-between">
+          <div className="grid h-full gap-4 xl:grid-cols-[1.15fr_0.85fr]" style={{ minHeight: 0 }}>
+            {/* العمود الأيمن: الإحصائيات */}
+            <div className="flex min-h-0 flex-col rounded-[2rem] bg-white p-5 text-slate-950 shadow-xl ring-1 ring-slate-200">
+              {/* رأس القسم */}
+              <div className="mb-3 flex flex-shrink-0 items-center justify-between">
                 <div>
-                  <div className="text-4xl font-black xl:text-5xl">تحضير الحصص</div>
-                  <div className="mt-2 text-xl text-slate-500">{lessonAttendanceSummary.label || 'آخر جلسة تحضير'}</div>
+                  <div className="text-3xl font-black xl:text-4xl">تحضير الحصص</div>
+                  <div className="mt-0.5 text-sm text-slate-500">{lessonAttendanceSummary.label || 'آخر جلسة تحضير'}</div>
                 </div>
-                <div className={cx('rounded-full px-5 py-3 text-lg font-black', lessonAttendanceSummary.status === 'closed' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-800')}>{lessonAttendanceSummary.status === 'closed' ? 'مغلقة' : 'مفتوحة'}</div>
+                <div className={cx('rounded-full px-4 py-2 text-base font-black', lessonAttendanceSummary.status === 'closed' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-100 text-emerald-800')}>
+                  {lessonAttendanceSummary.status === 'closed' ? 'مغلقة' : 'مفتوحة'}
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+              {/* إحصائيات رئيسية */}
+              <div className="mb-3 grid flex-shrink-0 grid-cols-4 gap-2">
                 {[
-                  ['المستهدفون', lessonAttendanceSummary.expectedTeachers || 0, 'text-slate-900'],
-                  ['المرسل لهم', lessonAttendanceSummary.sentTeachers || 0, 'text-violet-700'],
-                  ['اعتمدوا', lessonAttendanceSummary.submittedTeachers || 0, 'text-emerald-700'],
-                  ['الغائبون', lessonAttendanceSummary.totalAbsent || 0, 'text-rose-700'],
-                ].map(([label, value, tone]) => <div key={label} className="rounded-[1.6rem] bg-slate-50 p-5 text-center ring-1 ring-slate-200"><div className="text-lg font-bold text-slate-500">{label}</div><div className={cx('mt-3 text-6xl font-black xl:text-7xl', tone)}>{formatEnglishDigits(value)}</div></div>)}
+                  ['المستهدفون', lessonAttendanceSummary.expectedTeachers || 0, 'text-slate-900', 'bg-slate-50 ring-slate-200'],
+                  ['المرسل لهم', lessonAttendanceSummary.sentTeachers || 0, 'text-violet-700', 'bg-violet-50 ring-violet-100'],
+                  ['اعتمدوا', lessonAttendanceSummary.submittedTeachers || 0, 'text-emerald-700', 'bg-emerald-50 ring-emerald-100'],
+                  ['الغائبون', lessonAttendanceSummary.totalAbsent || 0, 'text-rose-700', 'bg-rose-50 ring-rose-100'],
+                ].map(([label, value, tone, box]) => (
+                  <div key={label} className={cx('rounded-2xl p-3 text-center ring-1', box)}>
+                    <div className="text-xs font-bold text-slate-500 leading-tight">{label}</div>
+                    <div className={cx('mt-1 text-3xl font-black xl:text-4xl', tone)}>{formatEnglishDigits(value)}</div>
+                  </div>
+                ))}
               </div>
-              <div className="mt-6 grid gap-3">{(lessonAttendanceSummary.classRows || []).slice(0,4).map((item)=><div key={item.name} className="flex items-center justify-between rounded-2xl bg-slate-100 px-4 py-3 ring-1 ring-slate-200"><span className="font-black text-slate-900">{item.name}</span><span className="flex gap-2"><span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-black text-emerald-800">{formatEnglishDigits(item.present)} حاضر</span><span className="rounded-full bg-rose-100 px-3 py-1 text-sm font-black text-rose-800">{formatEnglishDigits(item.absent)} غائب</span></span></div>)}</div>
+              {/* قائمة الفصول */}
+              <div className="flex-1 min-h-0 overflow-auto">
+                <div className="grid gap-2">
+                  {(lessonAttendanceSummary.classRows || []).slice(0, 6).map((item) => (
+                    <div key={item.name} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
+                      <span className="font-black text-slate-900">{item.name}</span>
+                      <span className="flex gap-2">
+                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-black text-emerald-800">{formatEnglishDigits(item.present)} حاضر</span>
+                        <span className="rounded-full bg-rose-100 px-3 py-1 text-sm font-black text-rose-800">{formatEnglishDigits(item.absent)} غائب</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="grid gap-6">
-              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
-                <div className="mb-4 text-3xl font-black">مراحل التنفيذ</div>
-                <ResponsiveContainer width="100%" height={260}><BarChart data={lessonBars}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis allowDecimals={false} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="value" fill="#0ea5e9" radius={[18,18,0,0]}><LabelList dataKey="value" position="top" formatter={(value)=>formatEnglishDigits(value)} /></Bar></BarChart></ResponsiveContainer>
+            {/* العمود الأيسر: مراحل التنفيذ + ملخص */}
+            <div className="flex min-h-0 flex-col gap-3">
+              {/* مراحل التنفيذ */}
+              <div className="flex-1 min-h-0 rounded-[2rem] bg-white p-5 text-slate-950 shadow-xl ring-1 ring-slate-200">
+                <div className="mb-2 flex-shrink-0 text-xl font-black">مراحل التنفيذ</div>
+                <div className="h-[calc(100%-2.5rem)] min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={lessonBars} margin={{ top: 16, right: 8, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis dataKey="name" tick={{ fontSize: 13, fontWeight: 900, fill: '#0f172a' }} axisLine={false} tickLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 12, fontWeight: 800, fill: '#334155' }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={{ borderRadius: '14px', border: '1px solid #cbd5e1', fontWeight: 800 }} />
+                      <Bar dataKey="value" fill="#0ea5e9" radius={[14, 14, 0, 0]}>
+                        <LabelList dataKey="value" position="top" formatter={(value) => formatEnglishDigits(value)} style={{ fill: '#0f172a', fontSize: 16, fontWeight: 900 }} />
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
-                <div className="mb-4 text-3xl font-black">ملخص سريع</div>
-                <div className="grid gap-4">
-                  <div className="rounded-[1.5rem] bg-sky-50 px-5 py-4 ring-1 ring-sky-200"><div className="text-base font-bold text-sky-700">فتحوا الرابط</div><div className="mt-2 text-5xl font-black text-sky-700">{formatEnglishDigits(lessonAttendanceSummary.openedTeachers || 0)}</div></div>
-                  <div className="rounded-[1.5rem] bg-emerald-50 px-5 py-4 ring-1 ring-emerald-200"><div className="text-base font-bold text-emerald-700">الحاضرون</div><div className="mt-2 text-5xl font-black text-emerald-700">{formatEnglishDigits(lessonAttendanceSummary.totalPresent || 0)}</div></div>
-                  <div className="rounded-[1.5rem] bg-rose-50 px-5 py-4 ring-1 ring-rose-200"><div className="text-base font-bold text-rose-700">الغائبون</div><div className="mt-2 text-5xl font-black text-rose-700">{formatEnglishDigits(lessonAttendanceSummary.totalAbsent || 0)}</div></div>
+              {/* ملخص سريع */}
+              <div className="flex-shrink-0 rounded-[2rem] bg-white p-5 text-slate-950 shadow-xl ring-1 ring-slate-200">
+                <div className="mb-3 text-xl font-black">ملخص سريع</div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-xl bg-sky-50 px-3 py-2 ring-1 ring-sky-200">
+                    <div className="text-xs font-bold text-sky-700">فتحوا الرابط</div>
+                    <div className="mt-1 text-3xl font-black text-sky-700">{formatEnglishDigits(lessonAttendanceSummary.openedTeachers || 0)}</div>
+                  </div>
+                  <div className="rounded-xl bg-emerald-50 px-3 py-2 ring-1 ring-emerald-200">
+                    <div className="text-xs font-bold text-emerald-700">الحاضرون</div>
+                    <div className="mt-1 text-3xl font-black text-emerald-700">{formatEnglishDigits(lessonAttendanceSummary.totalPresent || 0)}</div>
+                  </div>
+                  <div className="rounded-xl bg-rose-50 px-3 py-2 ring-1 ring-rose-200">
+                    <div className="text-xs font-bold text-rose-700">الغائبون</div>
+                    <div className="mt-1 text-3xl font-black text-rose-700">{formatEnglishDigits(lessonAttendanceSummary.totalAbsent || 0)}</div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         ),
+
       });
     }
 
@@ -5667,58 +5742,92 @@ function PublicScreenPage({ token }) {
         key: 'rewardStoreSummary',
         title: 'محتويات متجر النقاط',
         render: () => (
-          <div className="grid h-full gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-            <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
-              <div className="mb-5 flex items-center justify-between">
+          <div className="grid h-full gap-4 xl:grid-cols-[1.15fr_0.85fr]" style={{ minHeight: 0 }}>
+            {/* العمود الأيمن: قائمة الجوائز */}
+            <div className="flex min-h-0 flex-col rounded-[2rem] bg-white p-5 text-slate-950 shadow-xl ring-1 ring-slate-200">
+              {/* رأس القسم */}
+              <div className="mb-3 flex flex-shrink-0 items-center justify-between">
                 <div>
-                  <div className="text-4xl font-black xl:text-5xl">متجر النقاط</div>
-                  <div className="mt-2 text-xl text-slate-500">عرض الجوائز بحسب إعدادات هذه الشاشة</div>
+                  <div className="text-3xl font-black xl:text-4xl">متجر النقاط</div>
+                  <div className="mt-0.5 text-sm text-slate-500">عرض الجوائز بحسب إعدادات هذه الشاشة</div>
                 </div>
-                <div className="rounded-full bg-violet-100 px-5 py-3 text-lg font-black text-violet-800">{formatEnglishDigits(rewardStoreSummary.items?.length || 0)} جائزة معروضة</div>
+                <div className="rounded-full bg-violet-100 px-4 py-2 text-base font-black text-violet-800">{formatEnglishDigits(rewardStoreSummary.items?.length || 0)} جائزة</div>
               </div>
-              <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+              {/* إحصائيات مضغوطة */}
+              <div className="mb-3 grid flex-shrink-0 grid-cols-4 gap-2">
                 {[
-                  ['المعتمدة', rewardStoreSummary.activeItems || 0, 'text-emerald-700'],
-                  ['المتبقي', rewardStoreSummary.remainingQuantity || 0, 'text-sky-700'],
-                  ['طلبات التسليم', rewardStoreSummary.pendingRedemptions || 0, 'text-amber-700'],
-                  ['المتبرعون', rewardStoreSummary.donorCount || 0, 'text-violet-700'],
-                ].map(([label, value, tone]) => <div key={label} className="rounded-[1.6rem] bg-slate-50 p-5 text-center ring-1 ring-slate-200"><div className="text-lg font-bold text-slate-500">{label}</div><div className={cx('mt-3 text-6xl font-black xl:text-7xl', tone)}>{formatEnglishDigits(value)}</div></div>)}
-              </div>
-              <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                {(rewardStoreSummary.items || []).slice(0, Number(rewardStoreSummary.maxItems || 8)).map((item) => (
-                  <div key={item.id} className="flex items-center gap-4 rounded-[1.7rem] bg-slate-50 p-4 ring-1 ring-slate-200">
-                    <div className="relative h-20 w-24 overflow-hidden rounded-2xl bg-slate-100 flex-shrink-0">{item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs text-slate-400">بدون صورة</div>}</div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xl font-black text-slate-900">{item.title}</div>
-                      <div className="mt-1 text-sm text-slate-500">{item.donorLabel} • المتبقي {formatEnglishDigits(item.remainingQuantity || 0)}</div>
-                      <div className="mt-2 flex items-center gap-2">
-                        {item.featured ? <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-black text-amber-800">مهمة</span> : null}
-                      </div>
-                    </div>
-                    <div className="flex-shrink-0 rounded-2xl bg-emerald-600 px-4 py-3 text-center shadow-sm">
-                      <div className="text-2xl font-black text-white leading-none">{formatEnglishDigits(item.pointsCost || 0)}</div>
-                      <div className="text-xs font-bold text-emerald-100 mt-0.5">نقطة</div>
-                    </div>
+                  ['المعتمدة', rewardStoreSummary.activeItems || 0, 'text-emerald-700', 'bg-emerald-50 ring-emerald-100'],
+                  ['المتبقي', rewardStoreSummary.remainingQuantity || 0, 'text-sky-700', 'bg-sky-50 ring-sky-100'],
+                  ['طلبات التسليم', rewardStoreSummary.pendingRedemptions || 0, 'text-amber-700', 'bg-amber-50 ring-amber-100'],
+                  ['المتبرعون', rewardStoreSummary.donorCount || 0, 'text-violet-700', 'bg-violet-50 ring-violet-100'],
+                ].map(([label, value, tone, box]) => (
+                  <div key={label} className={cx('rounded-2xl p-3 text-center ring-1', box)}>
+                    <div className="text-xs font-bold text-slate-500 leading-tight">{label}</div>
+                    <div className={cx('mt-1 text-3xl font-black xl:text-4xl', tone)}>{formatEnglishDigits(value)}</div>
                   </div>
                 ))}
               </div>
-            </div>
-            <div className="grid gap-6">
-              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
-                <div className="mb-4 text-3xl font-black">مصادر الجوائز</div>
-                <ResponsiveContainer width="100%" height={260}><PieChart><Pie data={(sourceRows.length ? sourceRows : [{ name: 'لا توجد بيانات', value: 1 }])} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={3}>{(sourceRows.length ? sourceRows : [{ name: 'لا توجد بيانات', value: 1 }]).map((_, index) => <Cell key={index} fill={["#10b981", "#0ea5e9", "#8b5cf6", "#f59e0b"][index % 4]} />)}</Pie><Tooltip formatter={(value) => [formatEnglishDigits(value), 'الكمية']} /></PieChart></ResponsiveContainer>
+              {/* قائمة الجوائز */}
+              <div className="min-h-0 flex-1 overflow-auto">
+                <div className="grid gap-2" style={{ gridTemplateColumns: (rewardStoreSummary.items || []).length > 4 ? '1fr 1fr' : '1fr' }}>
+                  {(rewardStoreSummary.items || []).slice(0, Number(rewardStoreSummary.maxItems || 8)).map((item) => (
+                    <div key={item.id} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200">
+                      <div className="relative h-14 w-16 flex-shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                        {item.image ? <img src={item.image} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-2xl">🎁</div>}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-base font-black text-slate-900">{item.title}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">{item.donorLabel} • متبقي {formatEnglishDigits(item.remainingQuantity || 0)}</div>
+                        {item.featured ? <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-800">مهمة</span> : null}
+                      </div>
+                      <div className="flex-shrink-0 rounded-xl bg-emerald-600 px-3 py-2 text-center shadow-sm">
+                        <div className="text-xl font-black text-white leading-none">{formatEnglishDigits(item.pointsCost || 0)}</div>
+                        <div className="text-xs font-bold text-emerald-100">نقطة</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
-                <div className="mb-4 text-3xl font-black">خيارات العرض</div>
-                <div className="grid gap-4">
-                  <div className="rounded-[1.5rem] bg-slate-50 px-5 py-4 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">وضع الشاشة</div><div className="mt-2 text-3xl font-black text-slate-900">{rewardStoreSummary.mode === 'featured' ? 'المهمة فقط' : rewardStoreSummary.mode === 'marked' ? 'المعلّم عليها' : 'كل الجوائز'}</div></div>
-                  <div className="rounded-[1.5rem] bg-slate-50 px-5 py-4 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">المصدر</div><div className="mt-2 text-3xl font-black text-slate-900">{rewardStoreSummary.sourceFilter === 'school' ? 'إدارة المدرسة' : rewardStoreSummary.sourceFilter === 'parent' ? 'أولياء الأمور' : rewardStoreSummary.sourceFilter === 'external' ? 'متبرعون خارجيون' : 'كل المصادر'}</div></div>
-                  <div className="rounded-[1.5rem] bg-slate-50 px-5 py-4 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">عدد المعروض</div><div className="mt-2 text-5xl font-black text-slate-900">{formatEnglishDigits(rewardStoreSummary.items?.length || 0)}</div></div>
+            </div>
+            {/* العمود الأيسر: مصادر + إعدادات */}
+            <div className="flex min-h-0 flex-col gap-3">
+              {/* مصادر الجوائز */}
+              <div className="flex-1 min-h-0 rounded-[2rem] bg-white p-5 text-slate-950 shadow-xl ring-1 ring-slate-200">
+                <div className="mb-2 flex-shrink-0 text-xl font-black">مصادر الجوائز</div>
+                <div className="h-[calc(100%-2.5rem)] min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={(sourceRows.length ? sourceRows : [{ name: 'لا توجد بيانات', value: 1 }])} dataKey="value" nameKey="name" innerRadius="30%" outerRadius="60%" paddingAngle={3}>
+                        {(sourceRows.length ? sourceRows : [{ name: 'لا توجد بيانات', value: 1 }]).map((_, index) => <Cell key={index} fill={["#10b981", "#0ea5e9", "#8b5cf6", "#f59e0b"][index % 4]} />)}
+                      </Pie>
+                      <Tooltip formatter={(value) => [formatEnglishDigits(value), 'الكمية']} />
+                      <Legend wrapperStyle={{ fontSize: '12px', fontWeight: 800 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              {/* خيارات العرض */}
+              <div className="flex-shrink-0 rounded-[2rem] bg-white p-5 text-slate-950 shadow-xl ring-1 ring-slate-200">
+                <div className="mb-3 text-xl font-black">خيارات العرض</div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+                    <div className="text-xs font-bold text-slate-500">وضع الشاشة</div>
+                    <div className="mt-1 text-sm font-black text-slate-900">{rewardStoreSummary.mode === 'featured' ? 'المهمة فقط' : rewardStoreSummary.mode === 'marked' ? 'المعلّم' : 'كل الجوائز'}</div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+                    <div className="text-xs font-bold text-slate-500">المصدر</div>
+                    <div className="mt-1 text-sm font-black text-slate-900">{rewardStoreSummary.sourceFilter === 'school' ? 'المدرسة' : rewardStoreSummary.sourceFilter === 'parent' ? 'أولياء الأمور' : rewardStoreSummary.sourceFilter === 'external' ? 'متبرعون' : 'الكل'}</div>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+                    <div className="text-xs font-bold text-slate-500">المعروض</div>
+                    <div className="mt-1 text-3xl font-black text-slate-900">{formatEnglishDigits(rewardStoreSummary.items?.length || 0)}</div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         ),
+
       });
     }
 
@@ -5737,57 +5846,79 @@ function PublicScreenPage({ token }) {
         key: 'parentPortalSummary',
         title: 'جاهزية أولياء الأمور',
         render: () => (
-          <div className="grid h-full gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-            <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
-              <div className="mb-5 flex items-center justify-between">
+          <div className="grid h-full gap-4 xl:grid-cols-[1.15fr_0.85fr]" style={{ minHeight: 0 }}>
+            {/* العمود الأيمن: الإحصائيات الرئيسية */}
+            <div className="flex min-h-0 flex-col rounded-[2rem] bg-white p-5 text-slate-950 shadow-xl ring-1 ring-slate-200">
+              {/* رأس القسم */}
+              <div className="mb-3 flex flex-shrink-0 items-center justify-between">
                 <div>
-                  <div className="text-4xl font-black xl:text-5xl">جاهزية أولياء الأمور</div>
-                  <div className="mt-2 text-xl text-slate-500">صورة تنفيذية مختصرة لبوابة ولي الأمر على هذه الشاشة</div>
+                  <div className="text-3xl font-black xl:text-4xl">جاهزية أولياء الأمور</div>
+                  <div className="mt-0.5 text-sm text-slate-500">صورة تنفيذية مختصرة لبوابة ولي الأمر على هذه الشاشة</div>
                 </div>
-                <div className={cx('rounded-full px-5 py-3 text-lg font-black', parentPortalSummary.portalEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800')}>
-                  {parentPortalSummary.portalEnabled ? 'البوابة مفعلة' : 'البوابة مقفلة'}
+                <div className={cx('rounded-full px-4 py-2 text-base font-black', parentPortalSummary.portalEnabled ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800')}>
+                  {parentPortalSummary.portalEnabled ? 'البوابة مفعلة' : 'البوابة معطلة'}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+              {/* إحصائيات رئيسية */}
+              <div className="mb-3 grid flex-shrink-0 grid-cols-4 gap-2">
                 {portalStats.map((item) => (
-                  <div key={item.label} className={cx('rounded-[1.7rem] p-5 text-center ring-1', item.box)}>
-                    <div className="text-lg font-bold text-slate-500">{item.label}</div>
-                    <div className={cx('mt-4 text-6xl font-black xl:text-7xl', item.tone)}>{formatEnglishDigits(item.value)}</div>
+                  <div key={item.label} className={cx('rounded-2xl p-3 text-center ring-1', item.box)}>
+                    <div className="text-xs font-bold text-slate-500 leading-tight">{item.label}</div>
+                    <div className={cx('mt-1 text-3xl font-black xl:text-4xl', item.tone)}>{formatEnglishDigits(item.value)}</div>
                   </div>
                 ))}
               </div>
-              <div className="mt-6 grid gap-4 xl:grid-cols-3">
-                <div className="rounded-[1.6rem] bg-slate-100 p-5 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">سياسة تحديث الرقم</div><div className="mt-3 text-3xl font-black text-slate-900">{parentPortalSummary.approvalMode === 'manual' ? 'يدوي' : 'تلقائي'}</div></div>
-                <div className="rounded-[1.6rem] bg-slate-100 p-5 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">الأرقام الإضافية</div><div className="mt-3 text-3xl font-black text-slate-900">{formatEnglishDigits(parentPortalSummary.extraContacts || 0)}</div></div>
-                <div className="rounded-[1.6rem] bg-slate-100 p-5 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">تفضيل واتساب</div><div className="mt-3 text-3xl font-black text-emerald-700">{formatEnglishDigits(parentPortalSummary.preferredWhatsappCount || 0)}</div></div>
+              {/* تفاصيل إضافية */}
+              <div className="mb-3 grid flex-shrink-0 grid-cols-3 gap-2">
+                <div className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+                  <div className="text-xs font-bold text-slate-500">سياسة تحديث الرقم</div>
+                  <div className="mt-1 text-base font-black text-slate-900">{parentPortalSummary.approvalMode === 'manual' ? 'يدوي' : 'تلقائي'}</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+                  <div className="text-xs font-bold text-slate-500">الأرقام الإضافية</div>
+                  <div className="mt-1 text-2xl font-black text-slate-900">{formatEnglishDigits(parentPortalSummary.extraContacts || 0)}</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+                  <div className="text-xs font-bold text-slate-500">تفضيل واتساب</div>
+                  <div className="mt-1 text-2xl font-black text-emerald-700">{formatEnglishDigits(parentPortalSummary.preferredWhatsappCount || 0)}</div>
+                </div>
+              </div>
+              {/* نبض البوابة */}
+              <div className="flex-1 min-h-0 grid grid-cols-3 gap-2">
+                <div className="rounded-2xl bg-violet-50 p-3 ring-1 ring-violet-200 flex flex-col justify-between">
+                  <div className="text-xs font-bold text-violet-700">تغطية أولياء الأمور</div>
+                  <div className="text-4xl font-black text-violet-700 xl:text-5xl">{formatEnglishDigits(parentPortalSummary.coverageRate || 0)}%</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-200 flex flex-col justify-between">
+                  <div className="text-xs font-bold text-slate-500">تغطية أرقام الجوال</div>
+                  <div className="text-4xl font-black text-slate-900 xl:text-5xl">{formatEnglishDigits(parentPortalSummary.guardianCoverageRate || 0)}%</div>
+                </div>
+                <div className="rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-200 flex flex-col justify-between">
+                  <div className="text-xs font-bold text-amber-700">آخر تنبيه إداري</div>
+                  <div className="text-base font-black text-amber-800">{parentPortalSummary.lastAlertAt ? formatDateTime(parentPortalSummary.lastAlertAt) : 'لا يوجد'}</div>
+                </div>
               </div>
             </div>
-            <div className="grid gap-6">
-              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
-                <div className="mb-4 text-3xl font-black">نسب التغطية</div>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={coverageData} margin={{ top: 20, right: 10, left: 10, bottom: 10 }}>
+            {/* العمود الأيسر: نسب التغطية */}
+            <div className="flex min-h-0 flex-col rounded-[2rem] bg-white p-5 text-slate-950 shadow-xl ring-1 ring-slate-200">
+              <div className="mb-2 flex-shrink-0 text-xl font-black">نسب التغطية</div>
+              <div className="flex-1 min-h-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={coverageData} margin={{ top: 16, right: 8, left: 0, bottom: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                    <XAxis dataKey="name" tick={{ fontSize: 18, fontWeight: 900, fill: '#0f172a' }} axisLine={false} tickLine={false} />
-                    <YAxis domain={[0, 100]} tickFormatter={(value) => formatEnglishDigits(value)} tick={{ fontSize: 18, fontWeight: 800, fill: '#334155' }} axisLine={false} tickLine={false} />
-                    <Tooltip formatter={(value) => [`${formatEnglishDigits(value)}%`, 'النسبة']} contentStyle={{ borderRadius: '18px', border: '1px solid #cbd5e1', fontWeight: 800 }} />
-                    <Bar dataKey="value" fill="#6366f1" radius={[18, 18, 0, 0]} barSize={68}>
-                      <LabelList dataKey="value" position="insideTop" offset={14} formatter={(value) => `${formatEnglishDigits(value)}%`} style={{ fill: '#ffffff', fontSize: 24, fontWeight: 900 }} />
+                    <XAxis dataKey="name" tick={{ fontSize: 13, fontWeight: 900, fill: '#0f172a' }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} tickFormatter={(value) => formatEnglishDigits(value)} tick={{ fontSize: 12, fontWeight: 800, fill: '#334155' }} axisLine={false} tickLine={false} />
+                    <Tooltip formatter={(value) => [`${formatEnglishDigits(value)}%`, 'النسبة']} contentStyle={{ borderRadius: '14px', border: '1px solid #cbd5e1', fontWeight: 800 }} />
+                    <Bar dataKey="value" fill="#6366f1" radius={[14, 14, 0, 0]} barSize={56}>
+                      <LabelList dataKey="value" position="insideTop" offset={10} formatter={(value) => `${formatEnglishDigits(value)}%`} style={{ fill: '#ffffff', fontSize: 18, fontWeight: 900 }} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div className="rounded-[2.2rem] bg-white p-8 text-slate-950 shadow-2xl ring-1 ring-slate-200">
-                <div className="mb-4 text-3xl font-black">نبض البوابة</div>
-                <div className="grid gap-4">
-                  <div className="rounded-[1.5rem] bg-violet-50 px-5 py-4 ring-1 ring-violet-200"><div className="text-base font-bold text-violet-700">تغطية أولياء الأمور</div><div className="mt-2 text-5xl font-black text-violet-700">{formatEnglishDigits(parentPortalSummary.coverageRate || 0)}%</div></div>
-                  <div className="rounded-[1.5rem] bg-slate-50 px-5 py-4 ring-1 ring-slate-200"><div className="text-base font-bold text-slate-500">تغطية أرقام الجوال</div><div className="mt-2 text-5xl font-black text-slate-900">{formatEnglishDigits(parentPortalSummary.guardianCoverageRate || 0)}%</div></div>
-                  <div className="rounded-[1.5rem] bg-amber-50 px-5 py-4 ring-1 ring-amber-200"><div className="text-base font-bold text-amber-700">آخر تنبيه إداري</div><div className="mt-2 text-2xl font-black text-amber-800">{parentPortalSummary.lastAlertAt ? formatDateTime(parentPortalSummary.lastAlertAt) : 'لا يوجد'}</div></div>
-                </div>
-              </div>
             </div>
           </div>
         ),
+
       });
     }
 
