@@ -21916,7 +21916,7 @@ ${buildLessonSessionLink(sessionId)}
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Badge tone="green">{selectedSchool?.name || "بدون مدرسة"}</Badge>
                       <Badge tone="blue">{selectedSchool?.city || "—"}</Badge>
-                      <Badge tone="violet">{selectedSchool?.students?.length || 0} طالب</Badge>
+                      <Badge tone="violet">{getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).length} طالب</Badge>
                       <Badge tone="amber">{attendanceMethod === "barcode" ? "QR" : "بصمة وجه"}</Badge>
                     </div>
                   </>
@@ -21926,8 +21926,8 @@ ${buildLessonSessionLink(sessionId)}
                     <h1 className="mt-1 text-2xl font-black text-slate-800 md:text-3xl">{selectedSchool?.name || "—"}</h1>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Badge tone="green">{selectedSchool?.city || "—"}</Badge>
-                      <Badge tone="blue">{selectedSchool?.students?.length || 0} طالب</Badge>
-                      <Badge tone="violet">{selectedSchool?.companies?.length || 0} شركات</Badge>
+                      <Badge tone="blue">{getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).length} طالب</Badge>
+                      <Badge tone="violet">{getUnifiedCompanyRows(selectedSchool, { preferStructure: true }).length} شركات</Badge>
                       <Badge tone="amber">{attendanceMethod === "barcode" ? "QR" : "بصمة وجه"}</Badge>
                     </div>
                   </>
