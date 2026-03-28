@@ -3219,7 +3219,7 @@ function QrCodeVisual({ value, size = 172, className = "", imageClassName = "" }
   return <img src={src} alt={`QR ${value}`} className={cx("rounded-2xl bg-white object-contain", className, imageClassName)} style={{ width: size, height: size }} />;
 }
 
-function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetectBarcode, onDetectFace, onResolveBarcodeLabel, variant = "default", autoStart = false, autoRestart = false, hideDeviceSelect = false, videoHeightClass = "h-56" }) {
+function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetectBarcode, onDetectFace, onResolveBarcodeLabel, externalMessage, variant = "default", autoStart = false, autoRestart = false, hideDeviceSelect = false, videoHeightClass = "h-56" }) {
   const videoRef = useRef(null);
   const canvasOverlayRef = useRef(null);
   const streamRef = useRef(null);
@@ -3898,7 +3898,7 @@ function LiveCameraPanel({ mode = "face", title, description, onCapture, onDetec
           {!cameraReady && active ? <div className="absolute inset-0 flex items-center justify-center bg-slate-950/35"><div className="rounded-3xl bg-slate-950/75 px-5 py-4 text-center text-sm font-bold text-white ring-1 ring-white/10">إذا بقيت الشاشة سوداء فبدّل مصدر الكاميرا أو اضغط إعادة التشغيل.</div></div> : null}
         </div>
       </div>
-      {message ? <div className={cx("mt-3 rounded-2xl px-4 py-3 text-sm ring-1", showGreenFrame ? "bg-emerald-50 text-emerald-700 ring-emerald-100" : "bg-slate-50 text-slate-600 ring-slate-200")}>{message}</div> : null}
+      {(externalMessage || message) ? <div className={cx("mt-3 rounded-2xl px-4 py-3 text-sm ring-1", showGreenFrame ? "bg-emerald-50 text-emerald-700 ring-emerald-100" : "bg-slate-50 text-slate-600 ring-slate-200")}>{externalMessage || message}</div> : null}
       {error ? <div className="mt-3 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-100">{error}</div> : null}
       <div className={cx("mt-4 flex flex-wrap gap-3", variant === "gate" ? "justify-center" : "") }>
         {!active ? <button onClick={startCamera} className="rounded-2xl bg-sky-700 px-4 py-3 text-sm font-bold text-white">تشغيل الكاميرا</button> : <button onClick={stopCamera} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700">إيقاف الكاميرا</button>}
@@ -4505,7 +4505,8 @@ function PublicGatePage({ token }) {
   const [faceFile, setFaceFile] = useState(null);
   const [facePreview, setFacePreview] = useState("");
   const [message, setMessage] = useState("");
-  const [lastScanResult, setLastScanResult] = useState(null); // { student, message, ok, ts }
+  const [lastScanResult, setLastScanResult] = useState(null);
+  const [lastScanStudentName, setLastScanStudentName] = useState(''); // { student, message, ok, ts }
   const [isOnline, setIsOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const [offlineQueueCount, setOfflineQueueCount] = useState(() => readGateOfflineQueue(token).length);
   const [offlineQueuePreview, setOfflineQueuePreview] = useState(() => getGateOfflineQueueSummary(token));
@@ -4578,7 +4579,9 @@ function PublicGatePage({ token }) {
   const applyScanResponse = useCallback((response, fallbackMessage) => {
     if (response?.live) setPayload((prev) => (prev ? ({ ...prev, live: response.live }) : prev));
     if (response?.student) {
+      const studentName = response.student.name || response.student.fullName || '';
       setLastScanResult({ student: response.student, message: response.message || fallbackMessage || 'تمت العملية بنجاح.', ok: true, ts: Date.now() });
+      if (studentName) setLastScanStudentName(studentName);
     } else if (fallbackMessage) {
       setLastScanResult({ student: null, message: fallbackMessage, ok: true, ts: Date.now() });
     }
@@ -4695,6 +4698,7 @@ function PublicGatePage({ token }) {
       return;
     }
     setBusy(true);
+    setLastScanStudentName('');
     try {
       const response = await apiRequest(`/api/public/gate/${token}/scan`, { method: 'POST', body: { barcode, method, capturedAt: operation.capturedAt, capturedAtLocal: operation.capturedAtLocal, clientOperationId: operation.id } });
       applyScanResponse(response);
@@ -5073,7 +5077,7 @@ function PublicGatePage({ token }) {
           </div>
         ) : null}
         <div className="rounded-[2rem] border border-white/10 bg-white/5 p-4 shadow-2xl backdrop-blur md:p-6">
-          <LiveCameraPanel mode={mode === 'qr' ? 'barcode' : mode === 'face' ? 'face' : 'mixed'} variant="gate" autoStart autoRestart hideDeviceSelect videoHeightClass="h-[48vh] md:h-[58vh]" title={`مرحبًا بكم في ${payload.school?.name || 'المدرسة'}`} description={`${payload.gate?.name || 'البوابة'} • وجّه QR أو الوجه أمام الكاميرا وسيتم التعرف تلقائياً بدون تدخل يدوي.`} onDetectBarcode={(value) => submitScan(value, 'QR')} onDetectFace={resolveFaceDataUrl} onCapture={resolveFaceDataUrl} onResolveBarcodeLabel={(barcode) => { const s = students.find((st) => String(st.barcode || '').toUpperCase() === String(barcode || '').toUpperCase() || String(st.studentNumber || '') === String(barcode || '')); return s ? (s.name || s.fullName || null) : null; }} />
+          <LiveCameraPanel mode={mode === 'qr' ? 'barcode' : mode === 'face' ? 'face' : 'mixed'} variant="gate" autoStart autoRestart hideDeviceSelect videoHeightClass="h-[48vh] md:h-[58vh]" title={`مرحبًا بكم في ${payload.school?.name || 'المدرسة'}`} description={`${payload.gate?.name || 'البوابة'} • وجّه QR أو الوجه أمام الكاميرا وسيتم التعرف تلقائياً بدون تدخل يدوي.`} onDetectBarcode={(value) => submitScan(value, 'QR')} onDetectFace={resolveFaceDataUrl} onCapture={resolveFaceDataUrl} onResolveBarcodeLabel={(barcode) => { const s = students.find((st) => String(st.barcode || '').toUpperCase() === String(barcode || '').toUpperCase() || String(st.studentNumber || '') === String(barcode || '')); return s ? (s.name || s.fullName || null) : null; }} externalMessage={lastScanStudentName ? `مرحباً ${lastScanStudentName}` : ''} />
         </div>
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <div className="rounded-3xl bg-white p-5 text-slate-900 ring-1 ring-slate-200">
