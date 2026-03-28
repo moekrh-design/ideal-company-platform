@@ -2368,8 +2368,12 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { ok: false, message: 'اختر كلمة مرور جديدة مختلفة عن الحالية.' });
       }
       const next = structuredClone(state);
-      next.users = (next.users || []).map((item) => Number(item.id) !== Number(user.id) ? item : { ...item, password: newPassword });
-      saveSharedState(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
+      const hashedNewPassword = hashPassword(newPassword);
+      next.users = (next.users || []).map((item) => Number(item.id) !== Number(user.id) ? item : { ...item, password: hashedNewPassword });
+      // نحفظ مباشرة باستخدام writeStateRow لتجنب إعادة تطبيع كلمة المرور المُشفَّرة
+      writeStateRow(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
+      void ensureDailyBackups('save', next);
+      broadcastAllLive(next);
       audit({ username: user.username, role: user.role }, 'change_password', { userId: user.id });
       return sendJson(res, 200, { ok: true, message: 'تم تغيير كلمة المرور بنجاح.' });
     }
@@ -2415,8 +2419,12 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { ok: false, message: 'كلمة المرور الجديدة مطابقة لكلمة المرور الحالية لهذا المستخدم.' });
       }
       const next = structuredClone(state);
-      next.users = (next.users || []).map((item) => Number(item.id) !== Number(targetUser.id) ? item : { ...item, password: newPassword });
-      saveSharedState(next, { username: actorFull.username, role: actorFull.role, id: actorFull.id, schoolId: actorFull.schoolId ?? null });
+      const hashedResetPassword = hashPassword(newPassword);
+      next.users = (next.users || []).map((item) => Number(item.id) !== Number(targetUser.id) ? item : { ...item, password: hashedResetPassword });
+      // نحفظ مباشرة باستخدام writeStateRow لتجنب إعادة تطبيع كلمة المرور المُشفَّرة
+      writeStateRow(next, { username: actorFull.username, role: actorFull.role, id: actorFull.id, schoolId: actorFull.schoolId ?? null });
+      void ensureDailyBackups('save', next);
+      broadcastAllLive(next);
       audit({ username: actorFull.username, role: actorFull.role }, 'admin_reset_password', { targetUserId: targetUser.id, targetUsername: targetUser.username, targetRole: targetUser.role });
       return sendJson(res, 200, { ok: true, message: `تمت إعادة تعيين كلمة مرور المستخدم ${targetUser.name || targetUser.username} بنجاح.` });
     }

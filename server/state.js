@@ -418,7 +418,7 @@ export function hydrateUsers(users, schools) {
         username: user.username || `user${index + 1}`,
         email: String(user.email || '').trim().toLowerCase(),
         mobile: String(user.mobile || '').trim(),
-        password: user.password || "123456",
+        password: user.password || "",
         role,
         schoolId: scopedSchoolId,
         studentId: user.studentId || null,
