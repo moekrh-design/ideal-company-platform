@@ -2958,8 +2958,11 @@ function getUnifiedSchoolStudents(school, { includeArchived = false, preferStruc
     })));
 
   const baseStudents = Array.isArray(school.students) ? school.students.map((student) => ({ ...student, source: student.source || 'school', rawId: student.id })) : [];
+  // إذا كان الهيكل يحتوي على طلاب فعليين، استخدمه
   if (preferStructure && structureStudents.length) return structureStudents;
-  return [...structureStudents, ...baseStudents];
+  // إذا لم يكن الهيكل يحتوي على طلاب، استخدم المصدر القديم (school.students)
+  if (baseStudents.length) return baseStudents;
+  return [];
 }
 
 
@@ -2998,7 +3001,10 @@ function sortUnifiedCompanyRows(rows = []) {
 function getUnifiedCompanyRows(school, { preferStructure = true } = {}) {
   if (!school) return [];
   const classrooms = Array.isArray(school?.structure?.classrooms) ? school.structure.classrooms : [];
-  if (preferStructure && classrooms.length) {
+  // استخدم الهيكل فقط إذا كان يحتوي على فصول فيها طلاب فعليين، أو إذا لم يكن هناك شركات قديمة
+  const hasStructureStudents = classrooms.some((c) => Array.isArray(c.students) && c.students.length > 0);
+  const hasOldCompanies = Array.isArray(school.companies) && school.companies.length > 0;
+  if (preferStructure && classrooms.length && (hasStructureStudents || !hasOldCompanies)) {
     return sortUnifiedCompanyRows(classrooms.map((classroom, index) => {
       const students = Array.isArray(classroom.students) ? classroom.students : [];
       const activeStudents = students.filter((student) => String(student?.status || 'active') !== 'archived');
