@@ -8716,6 +8716,7 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
     faceReady: false,
   });
   const [faceBusy, setFaceBusy] = useState(false);
+  const [facePreviewDataUrl, setFacePreviewDataUrl] = useState(null); // معاينة الصورة قبل الحفظ
 
   useEffect(() => {
     setForm((prev) => ({ ...prev, companyId: String(unifiedCompanies[0]?.rawId || unifiedCompanies[0]?.id || "") }));
@@ -8765,20 +8766,27 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
       window.alert('اختر طالباً أولاً قبل تسجيل البصمة.');
       return null;
     }
+    // عرض معاينة الصورة بدلاً من الحفظ المباشر
+    setFacePreviewDataUrl(dataUrl);
+    // إرجاع قيمة حتى تتوقف الكاميرا وتعرض رسالة نجاح الالتقاط
+    return { name: featuredStudent.name, enrolled: false, preview: true };
+  };
+
+  const handleFacePreviewSave = async () => {
+    if (!featuredStudent || !facePreviewDataUrl) return;
     setFaceBusy(true);
     try {
-      const ok = await onEnrollFaceDataUrl(featuredStudent.id, dataUrl);
-      if (ok) {
-        // إرجاع اسم الطالب لإيقاف الكاميرا وعرض رسالة نجاح
-        return { name: featuredStudent.name, enrolled: true };
-      }
-      return null;
+      await onEnrollFaceDataUrl(featuredStudent.id, facePreviewDataUrl);
+      setFacePreviewDataUrl(null);
     } catch (err) {
       window.alert(err?.message || 'تعذر تسجيل بصمة الوجه.');
-      return null;
     } finally {
       setFaceBusy(false);
     }
+  };
+
+  const handleFacePreviewDiscard = () => {
+    setFacePreviewDataUrl(null);
   };
 
 
@@ -8998,22 +9006,72 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
                   <div className="space-y-4 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
                     <div>
                       <div className="font-bold text-slate-800">تسجيل بصمة الوجه</div>
-                      <div className="mt-2 text-sm leading-7 text-slate-600">اختر الطالب أولًا ثم سجّل له صورة الوجه أو امسحها من نفس التبويب.</div>
+                      <div className="mt-2 text-sm leading-7 text-slate-600">اختر الطالب أولًا ثم التقط صورة الوجه. ستظهر الصورة للمراجعة قبل الحفظ.</div>
                     </div>
-                    {featuredStudent.facePhoto ? (
-                      <img src={featuredStudent.facePhoto} alt={featuredStudent.name} className="h-44 w-full rounded-2xl object-cover ring-1 ring-slate-200" />
+
+                    {facePreviewDataUrl ? (
+                      /* مرحلة المعاينة - بعد الالتقاط وقبل الحفظ */
+                      <div className="space-y-3">
+                        <div className="relative">
+                          <img src={facePreviewDataUrl} alt="معاينة الوجه" className="h-56 w-full rounded-2xl object-cover ring-2 ring-emerald-400" />
+                          <div className="absolute top-2 right-2 rounded-xl bg-amber-500 px-3 py-1 text-xs font-bold text-white shadow">لم تُحفظ بعد</div>
+                        </div>
+                        <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
+                          ✅ تم التقاط الصورة. تحقق من جودتها ثم اختر أحد الخيارات أدناه.
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            onClick={handleFacePreviewSave}
+                            disabled={faceBusy}
+                            className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-sm disabled:opacity-60 hover:bg-emerald-700 active:scale-95 transition-all"
+                          >
+                            {faceBusy ? (
+                              <>جارٍ الحفظ...</>
+                            ) : (
+                              <>✓ حفظ البصمة</>
+                            )}
+                          </button>
+                          <button
+                            onClick={handleFacePreviewDiscard}
+                            disabled={faceBusy}
+                            className="inline-flex items-center gap-2 rounded-2xl bg-amber-50 px-5 py-3 text-sm font-bold text-amber-700 ring-1 ring-amber-200 disabled:opacity-60 hover:bg-amber-100 active:scale-95 transition-all"
+                          >
+                            ↺ إعادة الالتقاط
+                          </button>
+                          <button
+                            onClick={() => { handleFacePreviewDiscard(); onClearFace(featuredStudent.id); }}
+                            disabled={faceBusy}
+                            className="rounded-2xl bg-rose-50 px-5 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200 disabled:opacity-60 hover:bg-rose-100 active:scale-95 transition-all"
+                          >
+                            حذف البصمة
+                          </button>
+                        </div>
+                      </div>
                     ) : (
-                      <div className="flex h-44 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white text-sm text-slate-500">لا توجد صورة وجه مسجلة بعد</div>
+                      /* الحالة العادية - عرض الصورة المحفوظة وأدوات الالتقاط */
+                      <>
+                        {featuredStudent.facePhoto ? (
+                          <img src={featuredStudent.facePhoto} alt={featuredStudent.name} className="h-44 w-full rounded-2xl object-cover ring-1 ring-slate-200" />
+                        ) : (
+                          <div className="flex h-44 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white text-sm text-slate-500">لا توجد صورة وجه مسجلة بعد</div>
+                        )}
+                        <div className="flex flex-wrap gap-3">
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-sky-700 px-4 py-3 text-sm font-bold text-white">
+                            <Upload className="h-4 w-4" /> رفع صورة وجه
+                            <input type="file" accept="image/*" capture="user" className="hidden" onChange={handleFaceFile} />
+                          </label>
+                          {featuredStudent.facePhoto ? (
+                            <button onClick={() => onClearFace(featuredStudent.id)} className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">حذف البصمة</button>
+                          ) : null}
+                        </div>
+                        <LiveCameraPanel
+                          mode="face"
+                          title="التقاط مباشر"
+                          description="اضغط 'التقاط احتياطي' أسفل الكاميرا لالتقاط صورة الوجه. ستظهر الصورة للمراجعة قبل الحفظ."
+                          onCapture={handleFaceCameraCapture}
+                        />
+                      </>
                     )}
-                    <div className="flex flex-wrap gap-3">
-                      <label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-sky-700 px-4 py-3 text-sm font-bold text-white">
-                        <Upload className="h-4 w-4" /> رفع صورة وجه
-                        <input type="file" accept="image/*" capture="user" className="hidden" onChange={handleFaceFile} />
-                      </label>
-                      <button onClick={() => onClearFace(featuredStudent.id)} className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">حذف البصمة</button>
-                    </div>
-                    <LiveCameraPanel mode="face" title="التقاط مباشر" description="اضغط زر 'التقاط احتياطي' أسفل الكاميرا لتسجيل بصمة الوجه للطالب المحدد. التسجيل يدوي فقط ولا يتم تلقائياً." onCapture={handleFaceCameraCapture} />
-                    {faceBusy ? <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">جارٍ حفظ البصمة...</div> : null}
                   </div>
                 ) : null}
               </div>
