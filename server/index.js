@@ -2989,16 +2989,43 @@ const server = http.createServer(async (req, res) => {
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
-      const student = school.students.find((item) => Number(item.id) === studentId);
+      // البحث في school.students أولاً (المصدر القديم)
+      let student = school.students.find((item) => Number(item.id) === studentId);
+      let studentSource = 'school';
+      let classroomRef = null;
+
+      // إذا لم يوجد في المصدر القديم، ابحث في الهيكل المدرسي (structure.classrooms)
+      if (!student && Array.isArray(school?.structure?.classrooms)) {
+        for (const classroom of school.structure.classrooms) {
+          if (!Array.isArray(classroom.students)) continue;
+          const found = classroom.students.find((item) => Number(item.id) === studentId);
+          if (found) {
+            student = found;
+            classroomRef = classroom;
+            studentSource = 'structure';
+            break;
+          }
+        }
+      }
+
       if (!student) return sendJson(res, 404, { ok: false, message: 'الطالب غير موجود.' });
+
       const signature = Array.isArray(body.signature) ? body.signature : [];
       const imageUrl = body.imageData ? await writeDataUrlToUploads(FACE_UPLOADS_DIR, [String(schoolId), String(studentId)], `face-${Date.now()}`, body.imageData) : student.facePhoto;
       student.faceReady = Boolean(signature.length || imageUrl);
       student.faceSignature = signature;
       student.facePhoto = imageUrl || '';
+
       const saved = saveSharedState(next, actor);
       const updatedSchool = saved.schools.find((item) => Number(item.id) === schoolId);
-      const updatedStudent = updatedSchool?.students?.find((item) => Number(item.id) === studentId) || null;
+      // استرجاع الطالب المحدّث من المصدر الصحيح
+      let updatedStudent = null;
+      if (studentSource === 'structure' && classroomRef) {
+        const updatedClassroom = updatedSchool?.structure?.classrooms?.find((c) => Number(c.id) === Number(classroomRef.id));
+        updatedStudent = updatedClassroom?.students?.find((item) => Number(item.id) === studentId) || null;
+      } else {
+        updatedStudent = updatedSchool?.students?.find((item) => Number(item.id) === studentId) || null;
+      }
       return sendJson(res, 200, { ok: true, student: updatedStudent, state: sanitizeStateForClient(saved) });
     }
 
