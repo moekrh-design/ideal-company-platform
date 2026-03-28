@@ -8277,8 +8277,8 @@ function SchoolsPage({ schools, selectedSchoolId, setSelectedSchoolId, onAddScho
     { key: "city", label: "المدينة" },
     { key: "code", label: "الرقم الوزاري" },
     { key: "manager", label: "المدير" },
-    { key: "studentsCount", label: "الطلاب", render: (row) => row.students.length },
-    { key: "companiesCount", label: "الشركات", render: (row) => row.companies.length },
+    { key: "studentsCount", label: "الطلاب", render: (row) => getUnifiedSchoolStudents(row, { includeArchived: false, preferStructure: true }).length },
+    { key: "companiesCount", label: "الشركات", render: (row) => getUnifiedCompanyRows(row, { preferStructure: true }).length },
     { key: "status", label: "الحالة", render: (row) => <Badge tone="green">{row.status}</Badge> },
     {
       key: "actions",
