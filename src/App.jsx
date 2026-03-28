@@ -69,6 +69,7 @@ import {
   CartesianGrid,
   Cell,
   LabelList,
+  Legend,
   Line,
   LineChart as RLineChart,
   Pie,
