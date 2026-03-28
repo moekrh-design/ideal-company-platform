@@ -2911,7 +2911,7 @@ function compareFaceSignatures(baseSignature, candidateSignature) {
   return total / length;
 }
 
-function findBestFaceMatch(signature, students, maxScore = 32) {
+function findBestFaceMatch(signature, students, maxScore = 22) {
   let bestStudent = null;
   let bestScore = Number.POSITIVE_INFINITY;
   students.forEach((student) => {
@@ -4719,7 +4719,7 @@ function PublicGatePage({ token }) {
       setMessage('لم يتم التعرف على وجه واضح في الصورة.');
       return null;
     }
-    const match = findBestFaceMatch(template.signature, students, 38);
+    const match = findBestFaceMatch(template.signature, students, 22);
     if (!match.student) {
       setMessage('لم يتم العثور على تطابق كافٍ للوجه.');
       return null;
@@ -4743,7 +4743,7 @@ function PublicGatePage({ token }) {
     if (!faceFile) return;
     const template = await buildFaceTemplateFromFile(faceFile);
     if (template.faceDetected === false) return setMessage('لم يتم التعرف على وجه واضح في الصورة.');
-    const match = findBestFaceMatch(template.signature, students, 38);
+    const match = findBestFaceMatch(template.signature, students, 22);
     if (!match.student) return setMessage('لم يتم العثور على تطابق كافٍ للوجه.');
     await submitScan(match.student.barcode, 'بصمة وجه');
     setFaceFile(null);

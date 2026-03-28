@@ -19,12 +19,12 @@ export const initialSchools = [
       { id: 104, name: "شركة المجد", className: "2/2", leader: "بندر عسيري", points: 860, early: 13, behavior: 88, initiatives: 3 },
     ],
     students: [
-      { id: 1, name: "أحمد إبراهيم أحمد الحربي", nationalId: "1100000011", grade: "الأول متوسط", companyId: 101, barcode: "ST-0001-ABH", faceReady: true, status: "مبكر", attendanceRate: 99, points: 138 },
+      { id: 1, name: "أحمد إبراهيم أحمد الحربي", nationalId: "1100000011", grade: "الأول متوسط", companyId: 101, barcode: "ST-0001-ABH", faceReady: false, status: "مبكر", attendanceRate: 99, points: 138 },
       { id: 2, name: "ياسر مفلح علي القحطاني", nationalId: "1100000012", grade: "الأول متوسط", companyId: 101, barcode: "ST-0002-ABH", faceReady: false, status: "في الوقت", attendanceRate: 96, points: 121 },
-      { id: 3, name: "يزن عامر إبراهيم عسيري", nationalId: "1100000013", grade: "الأول متوسط", companyId: 102, barcode: "ST-0003-ABH", faceReady: true, status: "مبكر", attendanceRate: 98, points: 130 },
-      { id: 4, name: "بندر هادي المحب عسيري", nationalId: "1100000014", grade: "الثاني متوسط", companyId: 103, barcode: "ST-0004-ABH", faceReady: true, status: "متأخر", attendanceRate: 87, points: 97 },
+      { id: 3, name: "يزن عامر إبراهيم عسيري", nationalId: "1100000013", grade: "الأول متوسط", companyId: 102, barcode: "ST-0003-ABH", faceReady: false, status: "مبكر", attendanceRate: 98, points: 130 },
+      { id: 4, name: "بندر هادي المحب عسيري", nationalId: "1100000014", grade: "الثاني متوسط", companyId: 103, barcode: "ST-0004-ABH", faceReady: false, status: "متأخر", attendanceRate: 87, points: 97 },
       { id: 5, name: "سعد سالم مسفر الشهراني", nationalId: "1100000015", grade: "الثاني متوسط", companyId: 104, barcode: "ST-0005-ABH", faceReady: false, status: "في الوقت", attendanceRate: 95, points: 115 },
-      { id: 6, name: "عبدالرحمن فهد الشمراني", nationalId: "1100000016", grade: "الثاني متوسط", companyId: 104, barcode: "ST-0006-ABH", faceReady: true, status: "مبكر", attendanceRate: 100, points: 140 },
+      { id: 6, name: "عبدالرحمن فهد الشمراني", nationalId: "1100000016", grade: "الثاني متوسط", companyId: 104, barcode: "ST-0006-ABH", faceReady: false, status: "مبكر", attendanceRate: 100, points: 140 },
     ],
   },
   {
@@ -39,8 +39,8 @@ export const initialSchools = [
       { id: 202, name: "شركة المستقبل", className: "1/2", leader: "فهد العتيبي", points: 965, early: 17, behavior: 94, initiatives: 5 },
     ],
     students: [
-      { id: 7, name: "عبدالله سالم الدوسري", nationalId: "1100000021", grade: "الأول متوسط", companyId: 201, barcode: "ST-0007-RYD", faceReady: true, status: "مبكر", attendanceRate: 97, points: 136 },
-      { id: 8, name: "فهد محمد العتيبي", nationalId: "1100000022", grade: "الأول متوسط", companyId: 202, barcode: "ST-0008-RYD", faceReady: true, status: "في الوقت", attendanceRate: 95, points: 118 },
+      { id: 7, name: "عبدالله سالم الدوسري", nationalId: "1100000021", grade: "الأول متوسط", companyId: 201, barcode: "ST-0007-RYD", faceReady: false, status: "مبكر", attendanceRate: 97, points: 136 },
+      { id: 8, name: "فهد محمد العتيبي", nationalId: "1100000022", grade: "الأول متوسط", companyId: 202, barcode: "ST-0008-RYD", faceReady: false, status: "في الوقت", attendanceRate: 95, points: 118 },
       { id: 9, name: "تركي حامد المطيري", nationalId: "1100000023", grade: "الثاني متوسط", companyId: 202, barcode: "ST-0009-RYD", faceReady: false, status: "مبكر", attendanceRate: 98, points: 124 },
     ],
   },
