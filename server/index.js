@@ -2193,9 +2193,28 @@ function mimeTypeFor(filePath) {
   }[ext] || 'application/octet-stream';
 }
 
+const SERVER_PUBLIC_DIR = path.join(__dirname, 'public');
 function serveStatic(req, res) {
   const reqUrl = new URL(req.url, `http://${req.headers.host}`);
   let pathname = decodeURIComponent(reqUrl.pathname);
+  // خدمة ملفات /public/ من server/public/
+  if (pathname.startsWith('/public/')) {
+    const pubFilePath = path.join(SERVER_PUBLIC_DIR, pathname.replace(/^\/public\//, ''));
+    if (!pubFilePath.startsWith(SERVER_PUBLIC_DIR) || !existsSync(pubFilePath)) {
+      sendText(res, 404, 'File not found');
+      return;
+    }
+    const ct = mimeTypeFor(pubFilePath);
+    const pubHeaders = { 'Content-Type': ct, 'Cache-Control': 'public, max-age=86400' };
+    // Service Worker يجب أن يُقدَّم بدون cache طويل مع Service-Worker-Allowed
+    if (pubFilePath.endsWith('-sw.js')) {
+      pubHeaders['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+      pubHeaders['Service-Worker-Allowed'] = '/';
+    }
+    res.writeHead(200, pubHeaders);
+    createReadStream(pubFilePath).pipe(res);
+    return;
+  }
   if (pathname.startsWith('/uploads/')) {
     const uploadPath = path.join(UPLOADS_DIR, pathname.replace(/^\/uploads\//, ''));
     if (!uploadPath.startsWith(UPLOADS_DIR) || !existsSync(uploadPath)) {
@@ -5925,6 +5944,7 @@ async function doAltVerify() {
 (function() {
   // كشف ما إذا كان التطبيق مفتوحاً كـ standalone (من الشاشة الرئيسية)
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+    || window.matchMedia('(display-mode: fullscreen)').matches
     || window.navigator.standalone === true
     || document.referrer.includes('android-app://');
 
@@ -5939,7 +5959,13 @@ async function doAltVerify() {
   // إذا كان على سطح المكتب أو مفتوحاً كـ standalone، لا نُظهر الشاشة
   if (isStandalone || !isMobile) return;
 
-  // التحقق من أن المستخدم لم يتخطَّ الشاشة مسبقاً (تخطي مؤقت)
+  // التحقق من أن المستخدم سبق وثبّت التطبيق (يُحفظ في localStorage بشكل دائم)
+  const installedKey = 'pwa_installed_v1';
+  try {
+    if (localStorage.getItem(installedKey) === '1') return;
+  } catch(e) {}
+
+  // التحقق من أن المستخدم لم يتخطَّ الشاشة مسبقاً (تخطي مؤقت للجلسة)
   const skipKey = 'pwa_gate_skipped';
   const skipped = sessionStorage.getItem(skipKey);
   if (skipped) return;
@@ -5977,6 +6003,8 @@ async function doAltVerify() {
 
 function _pwaGateSkip() {
   sessionStorage.setItem('pwa_gate_skipped', '1');
+  // حفظ حالة التخطي بشكل دائم في localStorage لتجنب ظهور الشاشة مرة أخرى
+  try { localStorage.setItem('pwa_installed_v1', '1'); } catch(e) {}
   document.getElementById('pwaGate').style.display = 'none';
 }
 
@@ -6210,6 +6238,11 @@ window.addEventListener('appinstalled', () => {
   const banner = document.getElementById('installBanner');
   if (banner) banner.style.display = 'none';
   deferredPrompt = null;
+  // حفظ حالة التثبيت بشكل دائم في localStorage
+  try { localStorage.setItem('pwa_installed_v1', '1'); } catch(e) {}
+  // إخفاء شاشة التثبيت إذا كانت ظاهرة
+  const gate = document.getElementById('pwaGate');
+  if (gate) gate.style.display = 'none';
 });
 </script>
 </body>
