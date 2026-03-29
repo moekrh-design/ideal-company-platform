@@ -9081,6 +9081,142 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
     );
   };
 
+  // طباعة باركودات الفصل المختار - A4 عمودين خمس بطاقات
+  const printClassBarcodes = async () => {
+    const classStudents = selectedGroupId === 'all' ? unifiedStudents : students;
+    if (!classStudents || classStudents.length === 0) {
+      alert('لا يوجد طلاب في الفصل المختار');
+      return;
+    }
+    const groupLabel = selectedGroup ? (selectedGroup.className ? `${selectedGroup.className} — ${selectedGroup.name}` : selectedGroup.name) : 'جميع الطلاب';
+    const schoolName = selectedSchool?.name || '—';
+
+    // توليد QR لكل طالب
+    const cardsData = await Promise.all(
+      classStudents.map(async (student) => {
+        const qrValue = student.barcode || student.studentNumber || student.id || '';
+        const qrUrl = await generateQrDataUrl(qrValue, 160);
+        return { student, qrUrl };
+      })
+    );
+
+    // بناء HTML البطاقات
+    const cardsHtml = cardsData.map(({ student, qrUrl }) => `
+      <div class="card">
+        <div class="card-qr">
+          <img src="${qrUrl}" alt="QR" />
+        </div>
+        <div class="card-info">
+          <div class="card-name">${student.name || student.fullName || '—'}</div>
+          <div class="card-meta">${schoolName}</div>
+          <div class="card-meta">${groupLabel}</div>
+          <div class="card-barcode">${student.barcode || student.studentNumber || '—'}</div>
+        </div>
+      </div>
+    `).join('');
+
+    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+    if (!printWindow) return;
+    printWindow.document.write(`<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>باركودات الفصل — ${groupLabel}</title>
+  <style>
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 0; padding: 0; }
+    body {
+      font-family: "Tahoma", "Arial", sans-serif;
+      background: #fff;
+      direction: rtl;
+      padding: 10mm;
+    }
+    .page-header {
+      text-align: center;
+      margin-bottom: 8mm;
+      padding-bottom: 4mm;
+      border-bottom: 2px solid #0f172a;
+    }
+    .page-header h1 {
+      font-size: 18px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .page-header p {
+      font-size: 12px;
+      color: #475569;
+      margin-top: 3px;
+    }
+    .cards-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5mm;
+    }
+    .card {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 4mm;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 4mm 5mm;
+      background: #fff;
+      page-break-inside: avoid;
+      min-height: 38mm;
+      max-height: 42mm;
+    }
+    .card-qr img {
+      width: 30mm;
+      height: 30mm;
+      object-fit: contain;
+      display: block;
+    }
+    .card-info {
+      flex: 1;
+      overflow: hidden;
+    }
+    .card-name {
+      font-size: 13px;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.3;
+      margin-bottom: 2mm;
+    }
+    .card-meta {
+      font-size: 10px;
+      color: #475569;
+      line-height: 1.5;
+    }
+    .card-barcode {
+      font-family: monospace;
+      font-size: 10px;
+      color: #64748b;
+      margin-top: 2mm;
+      letter-spacing: 0.5px;
+    }
+    @media print {
+      body { padding: 8mm; }
+      @page {
+        size: A4 portrait;
+        margin: 8mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-header">
+    <h1>باركودات الفصل — ${groupLabel}</h1>
+    <p>${schoolName} &nbsp;|&nbsp; عدد الطلاب: ${cardsData.length}</p>
+  </div>
+  <div class="cards-grid">
+    ${cardsHtml}
+  </div>
+</body>
+</html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); }, 350);
+  };
+
   const columns = [
     { key: "name", label: "اسم الطالب" },
     { key: "studentNumber", label: "رقم الطالب" },
@@ -9133,6 +9269,7 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
               <button type="button" onClick={exportStudentsExcel} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white"><Download className="h-4 w-4" /> تصدير Excel</button>
               <button type="button" onClick={exportStudentsCsv} className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-4 py-3 text-sm font-black text-white"><Download className="h-4 w-4" /> تصدير CSV</button>
               <button type="button" onClick={printCurrentBarcode} className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700"><Printer className="h-4 w-4" /> طباعة الباركود</button>
+              <button type="button" onClick={printClassBarcodes} className="inline-flex items-center gap-2 rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700"><Printer className="h-4 w-4" /> طباعة باركود الفصل</button>
             </div>
           </div>
 
