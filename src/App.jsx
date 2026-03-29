@@ -11434,7 +11434,7 @@ function AttendancePage({ selectedSchool, currentUser, attendanceMethod, setAtte
 
               {attendanceMethod === "barcode" ? (
                 <div className="space-y-4">
-                  <LiveCameraPanel mode="barcode" title="التقاط مباشر لـ QR" description="يمكنك تشغيل كاميرا اللابتوب أو الآيباد أو الجوال وقراءة QR الطالب مباشرة من البوابة." onDetectBarcode={(value) => { setScanValue(value); onScan(value); }} />
+                  <LiveCameraPanel mode="barcode" title="التقاط مباشر لـ QR" description="يمكنك تشغيل كاميرا اللابتوب أو الآيباد أو الجوال وقراءة QR الطالب مباشرة من البوابة." onDetectBarcode={(value) => { setScanValue(value); onScan(value); }} onResolveBarcodeLabel={(barcode) => { const normalizedBarcode = sanitizeBarcodeValue(barcode); const s = attendanceStudents.find((st) => sanitizeBarcodeValue(st.barcode || '') === normalizedBarcode || String(st.studentNumber || '') === String(barcode || '') || String(st.nationalId || '') === String(barcode || '') || String(st.identityNumber || '') === String(barcode || '')); if (s) return s.name || s.fullName || null; const fallback = (selectedSchool?.students || []).find((st) => sanitizeBarcodeValue(st.barcode || '') === normalizedBarcode); return fallback ? (fallback.name || fallback.fullName || null) : null; }} />
                 </div>
               ) : (
                 <div className="space-y-4">
