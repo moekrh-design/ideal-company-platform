@@ -23,6 +23,7 @@ const SCHOOL_BACKUPS_DIR = path.join(BACKUPS_DIR, 'schools');
 const BACKUP_RETENTION_DAYS = Number(process.env.BACKUP_RETENTION_DAYS || 30);
 const PORT = Number(process.env.PORT || 4000);
 const SESSION_DAYS = Number(process.env.SESSION_DAYS || 7);
+const PARENT_SESSION_DAYS = Number(process.env.PARENT_SESSION_DAYS || 30);
 const JSON_LIMIT_BYTES = 50 * 1024 * 1024;
 const SCREEN_TRANSITION_KEYS = ["fade","cut","slide-left","slide-right","slide-up","slide-down","zoom-in","zoom-out","flip-x","flip-y","rotate-soft","rotate-in","blur","bounce","scale-up","scale-down","swing","curtain","diagonal","pop","float","random"];
 const SCREEN_THEME_KEYS = ["emerald-night","blue-contrast","violet-stage","sunrise","graphite"];
@@ -1557,6 +1558,26 @@ function buildServerLessonAttendanceSummary(school) {
   };
 }
 // ===== دوال بوابة ولي الأمر المساعدة =====
+// Helper: تحويل PostgreSQL placeholders ($1,$2...) إلى SQLite placeholders (?)
+function dbQuery(text, params = []) {
+  // تحويل $1, $2, ... إلى ?
+  const sqliteText = text.replace(/\$\d+/g, '?');
+  try {
+    const stmt = db.prepare(sqliteText);
+    // تحديد نوع العملية
+    const trimmed = sqliteText.trim().toUpperCase();
+    if (trimmed.startsWith('SELECT')) {
+      return stmt.all(...params);
+    } else {
+      stmt.run(...params);
+      return [];
+    }
+  } catch (err) {
+    console.error('dbQuery error:', err.message, '\nSQL:', sqliteText, '\nParams:', params);
+    throw err;
+  }
+}
+
 async function dbQueryOne(text, params = []) {
   const rows = await dbQuery(text, params);
   return rows[0] || null;
