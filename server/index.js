@@ -204,7 +204,7 @@ async function copyDbBackupIfMissing(filePath) {
 
 async function ensureDailyBackups(reason = 'save', state = null) {
   try {
-    const currentState = state || getSharedState();
+    const currentState = state || await getSharedState();
     const stamp = todayStamp();
     const globalJsonPath = path.join(GLOBAL_BACKUPS_DIR, `platform-${stamp}.json`);
     const globalDbPath = path.join(GLOBAL_BACKUPS_DIR, `platform-${stamp}.db`);
@@ -392,7 +392,7 @@ async function getSharedState() {
 }
 
 async function saveSharedState(state, actor = null) {
-  const current = getSharedState();
+  const current = await getSharedState();
   const hydrated = await normalizeStateForStorage(state, current);
   writeStateRow(hydrated, actor);
   void ensureDailyBackups('save', hydrated);
@@ -834,10 +834,10 @@ function sanitizeUser(user) {
   return safe;
 }
 
-function getUserFromToken(token) {
+async function getUserFromToken(token) {
   const session = getSession(token);
   if (!session) return null;
-  const state = getSharedState();
+  const state = await getSharedState();
   const user = state.users.find((item) => item.id === session.user_id && item.username === session.username && item.status === 'نشط');
   if (!user) return null;
   const school = state.schools.find((item) => item.id === user.schoolId);
@@ -2556,7 +2556,7 @@ async function getParentProfileFromToken(token) {
   const session = await getSession(token);
   if (!session || session.role !== 'parent' || !String(session.username || '').startsWith('parent:')) return null;
   const phone = String(session.username || '').replace(/^parent:/, '');
-  const state = getSharedState();
+  const state = await getSharedState();
   const profile = await buildParentProfile(state, phone);
   if (!profile) return null;
   return profile;
@@ -3484,8 +3484,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/bootstrap' && req.method === 'GET') {
-      const state = getSharedState();
-      const user = getUserFromToken(token);
+      const state = await getSharedState();
+      const user = await getUserFromToken(token);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(state), sessionUser: user });
     }
 
@@ -3493,7 +3493,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const username = String(body.username || '').trim().toLowerCase();
       const password = String(body.password || '');
-      const state = getSharedState();
+      const state = await getSharedState();
       const authSettings = hydrateAuthSettings(state.settings || {});
       if (authSettings.allowPasswordLogin === false) {
         auditAuthEvent('auth_login_blocked', { identifier: username, reason: 'password_login_disabled' });
@@ -3537,7 +3537,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const identifier = String(body.identifier || '').trim();
       const delivery = String(body.delivery || 'email').trim().toLowerCase();
-      const state = getSharedState();
+      const state = await getSharedState();
       const authSettings = hydrateAuthSettings(state.settings || {});
       if (!(authSettings.otpEnabled || authSettings.passwordlessEnabled)) {
         auditAuthEvent('auth_request_otp_blocked', { identifier, delivery, reason: 'otp_disabled' });
@@ -3588,7 +3588,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const identifier = String(body.identifier || '').trim();
       const code = String(body.code || '').trim();
-      const state = getSharedState();
+      const state = await getSharedState();
       const authSettings = hydrateAuthSettings(state.settings || {});
       if (!(authSettings.otpEnabled || authSettings.passwordlessEnabled)) {
         auditAuthEvent('auth_verify_otp_blocked', { identifier, reason: 'otp_disabled' });
@@ -3634,10 +3634,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/auth/test-delivery' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'هذه الصفحة والصلاحية للأدمن الرئيسي فقط.' });
       const body = await readJsonBody(req);
-      const state = getSharedState();
+      const state = await getSharedState();
       try {
         const result = await runAuthDeliveryTest(state, actor, body);
         return sendJson(res, 200, { ok: true, ...result });
@@ -3647,10 +3647,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/auth/test-otp-scenario' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'هذه الصفحة والصلاحية للأدمن الرئيسي فقط.' });
       const body = await readJsonBody(req);
-      const state = getSharedState();
+      const state = await getSharedState();
       try {
         const result = await runAuthOtpScenarioTest(state, actor, body);
         return sendJson(res, 200, { ok: true, ...result });
@@ -3660,14 +3660,14 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/auth/logs' && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'هذه الصفحة والصلاحية للأدمن الرئيسي فقط.' });
       const limit = Number(reqUrl.searchParams.get('limit') || 200);
       return sendJson(res, 200, { ok: true, logs: readAuthLogs(limit) });
     }
 
     if (reqUrl.pathname === '/api/auth/logout' && req.method === 'POST') {
-      const user = getUserFromToken(token);
+      const user = await getUserFromToken(token);
       deleteSession(token);
       auditAuthEvent('logout', {}, user);
       return sendJson(res, 200, { ok: true });
@@ -3679,7 +3679,7 @@ const server = http.createServer(async (req, res) => {
       if (!identifier) {
         return sendJson(res, 400, { ok: false, message: 'أدخل اسم المستخدم أو البريد الإلكتروني.' });
       }
-      const state = getSharedState();
+      const state = await getSharedState();
       const user = (state.users || []).find((item) => String(item.username || '').toLowerCase() === identifier || String(item.email || '').toLowerCase() === identifier);
       if (!user || !String(user.email || '').trim()) {
         return sendJson(res, 200, { ok: true, delivery: 'generic', message: 'إذا كان الحساب موجودًا ومرتبطًا ببريد إلكتروني فسيتم تجهيز إعادة التعيين له.' });
@@ -3699,7 +3699,7 @@ const server = http.createServer(async (req, res) => {
       if (newPassword.trim().length < 6) {
         return sendJson(res, 400, { ok: false, message: 'كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف.' });
       }
-      const state = getSharedState();
+      const state = await getSharedState();
       const user = (state.users || []).find((item) => String(item.username || '').toLowerCase() === identifier || String(item.email || '').toLowerCase() === identifier);
       if (!user) {
         return sendJson(res, 400, { ok: false, message: 'الحساب المطلوب غير موجود.' });
@@ -3716,7 +3716,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/auth/change-password' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       const body = await readJsonBody(req);
       const currentPassword = String(body.currentPassword || '');
@@ -3731,7 +3731,7 @@ const server = http.createServer(async (req, res) => {
       if (newPassword !== confirmPassword) {
         return sendJson(res, 400, { ok: false, message: 'تأكيد كلمة المرور الجديدة غير متطابق.' });
       }
-      const state = getSharedState();
+      const state = await getSharedState();
       const user = (state.users || []).find((item) => Number(item.id) === Number(actor.id));
       if (!user) {
         return sendJson(res, 404, { ok: false, message: 'تعذر العثور على الحساب الحالي.' });
@@ -3754,7 +3754,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/auth/admin-reset-password' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       const body = await readJsonBody(req);
       const targetUserId = Number(body.userId || 0);
@@ -3769,7 +3769,7 @@ const server = http.createServer(async (req, res) => {
       if (newPassword !== confirmPassword) {
         return sendJson(res, 400, { ok: false, message: 'تأكيد كلمة المرور الجديدة غير متطابق.' });
       }
-      const state = getSharedState();
+      const state = await getSharedState();
       const actorFull = (state.users || []).find((item) => Number(item.id) === Number(actor.id));
       const targetUser = (state.users || []).find((item) => Number(item.id) === targetUserId);
       if (!actorFull || !targetUser) {
@@ -3805,19 +3805,19 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/state/save' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (actor.role === 'student') return sendJson(res, 403, { ok: false, message: 'هذا الحساب لا يملك صلاحية حفظ بيانات المنصة.' });
       const body = await readJsonBody(req);
       const incomingState = body.state || body;
-      const currentState = getSharedState();
+      const currentState = await getSharedState();
       const merged = mergeStateByRole(currentState, incomingState, actor);
       const saved = saveSharedState(merged, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved), sessionUser: actor });
     }
 
     if (reqUrl.pathname === '/api/state/reset' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه إعادة تهيئة المنصة.' });
       const fresh = createDefaultSharedState();
       saveSharedState(fresh, actor);
@@ -3825,9 +3825,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/state/export' && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'يلزم تسجيل الدخول أولاً.' });
-      const state = getSharedState();
+      const state = await getSharedState();
       const payload = JSON.stringify(sanitizeStateForClient(state), null, 2);
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -3841,7 +3841,7 @@ const server = http.createServer(async (req, res) => {
 
 
     if (reqUrl.pathname === '/api/backups/status' && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه عرض حالة النسخ الاحتياطي.' });
       const latestPath = path.join(BACKUPS_DIR, 'latest.json');
       let latest = null;
@@ -3853,10 +3853,10 @@ const server = http.createServer(async (req, res) => {
 
     // أخذ نسخة احتياطية فورية الآن
     if (reqUrl.pathname === '/api/backups/create-now' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه إنشاء نسخة احتياطية.' });
       try {
-        const currentState = getSharedState();
+        const currentState = await getSharedState();
         const now = new Date();
         // استخدام طابع زمني دقيق يشمل الساعة والدقيقة لتمييز النسخ اليدوية
         const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
@@ -3893,7 +3893,7 @@ const server = http.createServer(async (req, res) => {
 
     // قائمة النسخ الاحتياطية التلقائية
     if (reqUrl.pathname === '/api/backups/list' && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه عرض النسخ الاحتياطية.' });
       try {
         const { readdir, stat } = await import('node:fs/promises');
@@ -3922,7 +3922,7 @@ const server = http.createServer(async (req, res) => {
     // استيراد (استعادة) نسخة احتياطية محددة من الخادم
     const backupRestoreMatch = reqUrl.pathname.match(/^\/api\/backups\/restore\/(global|school)\/(.+)$/);
     if (backupRestoreMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه استعادة النسخ الاحتياطية.' });
       const backupType = backupRestoreMatch[1];
       const fileName = backupRestoreMatch[2];
@@ -3949,7 +3949,7 @@ const server = http.createServer(async (req, res) => {
     // تحميل نسخة احتياطية محددة
     const backupDownloadMatch = reqUrl.pathname.match(/^\/api\/backups\/download\/(global|school)\/(.+)$/);
     if (backupDownloadMatch && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه تحميل النسخ الاحتياطية.' });
       const backupType = backupDownloadMatch[1];
       const fileName = backupDownloadMatch[2];
@@ -3975,7 +3975,7 @@ const server = http.createServer(async (req, res) => {
 
     // استعادة نسخة من ملف JSON مرفوع من الكمبيوتر
     if (reqUrl.pathname === '/api/backups/restore-from-upload' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه استعادة النسخ الاحتياطية.' });
       try {
         const body = await readJsonBody(req);
@@ -3993,7 +3993,7 @@ const server = http.createServer(async (req, res) => {
     // حذف نسخة احتياطية محددة
     const backupDeleteMatch = reqUrl.pathname.match(/^\/api\/backups\/delete\/(global|school)\/(.+)$/);
     if (backupDeleteMatch && req.method === 'DELETE') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه حذف النسخ الاحتياطية.' });
       const backupType = backupDeleteMatch[1];
       const fileName = backupDeleteMatch[2];
@@ -4013,7 +4013,7 @@ const server = http.createServer(async (req, res) => {
     // استيراد بيانات مدرسة كاملة من ملف JSON
     const schoolImportSnapshotMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/import-snapshot$/);
     if (schoolImportSnapshotMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه استيراد بيانات المدرسة.' });
       const schoolId = Number(schoolImportSnapshotMatch[1]);
       try {
@@ -4023,7 +4023,7 @@ const server = http.createServer(async (req, res) => {
         if (!schoolData || typeof schoolData !== 'object' || !schoolData.name) {
           return sendJson(res, 400, { ok: false, message: 'بنية الملف غير صالحة. تأكد أنه ملف تصدير مدرسة صحيح.' });
         }
-        const current = getSharedState();
+        const current = await getSharedState();
         const next = structuredClone(current);
         const idx = next.schools.findIndex((item) => Number(item.id) === schoolId);
         if (idx === -1) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4051,12 +4051,12 @@ const server = http.createServer(async (req, res) => {
 
     const schoolDeviceMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links$/);
     if (schoolDeviceMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolDeviceMatch[1]);
       if (!canManageSchoolDevices(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة روابط الأجهزة لهذه المدرسة.' });
       const body = await readJsonBody(req);
       const kind = body.kind === 'screen' ? 'screen' : 'gate';
-      const current = getSharedState();
+      const current = await getSharedState();
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4109,12 +4109,12 @@ const server = http.createServer(async (req, res) => {
 
     const schoolDeviceUpdateMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links\/screen\/([^/]+)$/);
     if (schoolDeviceUpdateMatch && req.method === 'PATCH') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolDeviceUpdateMatch[1]);
       const screenId = schoolDeviceUpdateMatch[2];
       if (!canManageSchoolDevices(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تعديل هذا الرابط.' });
       const body = await readJsonBody(req);
-      const current = getSharedState();
+      const current = await getSharedState();
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4152,12 +4152,12 @@ const server = http.createServer(async (req, res) => {
 
     const schoolDeviceDeleteMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links\/(gate|screen)\/([^/]+)$/);
     if (schoolDeviceDeleteMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolDeviceDeleteMatch[1]);
       const kind = schoolDeviceDeleteMatch[2];
       const linkId = schoolDeviceDeleteMatch[3];
       if (!canManageSchoolDevices(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية حذف هذا الرابط.' });
-      const current = getSharedState();
+      const current = await getSharedState();
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4169,11 +4169,11 @@ const server = http.createServer(async (req, res) => {
 
     const schoolImportMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/students\/import$/);
     if (schoolImportMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolImportMatch[1]);
       if (!canManageSchoolDevices(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية استيراد الطلاب لهذه المدرسة.' });
       const body = await readJsonBody(req);
-      const imported = importStudentsIntoSchool(getSharedState(), schoolId, Array.isArray(body.rows) ? body.rows : []);
+      const imported = importStudentsIntoSchool(await getSharedState(), schoolId, Array.isArray(body.rows) ? body.rows : []);
       if (!imported.ok) return sendJson(res, 400, imported);
       const saved = saveSharedState(imported.state, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved), added: imported.added, skipped: imported.skipped, companiesCreated: imported.companiesCreated });
@@ -4181,11 +4181,11 @@ const server = http.createServer(async (req, res) => {
 
     const schoolAttendanceBindingMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/attendance-binding$/);
     if (schoolAttendanceBindingMatch && req.method === 'PATCH') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolAttendanceBindingMatch[1]);
       if (!canManageSchoolDevices(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تعديل مصدر الحضور لهذه المدرسة.' });
       const body = await readJsonBody(req);
-      const current = getSharedState();
+      const current = await getSharedState();
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4200,21 +4200,21 @@ const server = http.createServer(async (req, res) => {
 
     const schoolReportMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/reports\/executive$/);
     if (schoolReportMatch && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolReportMatch[1]);
       if (!canReadSchoolReports(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية عرض التقارير التنفيذية لهذه المدرسة.' });
-      const payload = summarizeSchoolLivePayload(getSharedState(), schoolId);
+      const payload = summarizeSchoolLivePayload(await getSharedState(), schoolId);
       if (!payload) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
       return sendJson(res, 200, { ok: true, report: payload });
     }
 
     const schoolMessagingTestMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/test$/);
     if (schoolMessagingTestMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolMessagingTestMatch[1]);
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
       const body = await readJsonBody(req);
-      const tested = await testSchoolMessagingIntegration(getSharedState(), schoolId, body.channel === 'sms' ? 'sms' : body.channel === 'internal' ? 'internal' : 'whatsapp', body.settings || null);
+      const tested = await testSchoolMessagingIntegration(await getSharedState(), schoolId, body.channel === 'sms' ? 'sms' : body.channel === 'internal' ? 'internal' : 'whatsapp', body.settings || null);
       if (tested.state) {
         const saved = saveSharedState(tested.state, actor);
         return sendJson(res, tested.ok ? 200 : 400, { ok: tested.ok, message: tested.message, providerMessageId: tested.providerMessageId || '', state: sanitizeStateForClient(saved) });
@@ -4224,11 +4224,11 @@ const server = http.createServer(async (req, res) => {
 
     const schoolMessagingSendMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/send$/);
     if (schoolMessagingSendMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolMessagingSendMatch[1]);
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
       const body = await readJsonBody(req);
-      const processed = await processSchoolMessageSend(getSharedState(), schoolId, actor, body || {});
+      const processed = await processSchoolMessageSend(await getSharedState(), schoolId, actor, body || {});
       if (!processed.ok) return sendJson(res, 400, processed);
       const saved = saveSharedState(processed.state, actor);
       return sendJson(res, 200, { ok: true, message: processed.message, log: processed.log, state: sanitizeStateForClient(saved) });
@@ -4236,11 +4236,11 @@ const server = http.createServer(async (req, res) => {
 
     const schoolMessagingSettingsMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/settings$/);
     if (schoolMessagingSettingsMatch && req.method === 'PATCH') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolMessagingSettingsMatch[1]);
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
       const body = await readJsonBody(req);
-      const current = getSharedState();
+      const current = await getSharedState();
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4263,11 +4263,11 @@ const server = http.createServer(async (req, res) => {
 
     const schoolMessagingTemplateSaveMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/templates\/save$/);
     if (schoolMessagingTemplateSaveMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolMessagingTemplateSaveMatch[1]);
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
       const body = await readJsonBody(req);
-      const current = getSharedState();
+      const current = await getSharedState();
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4283,11 +4283,11 @@ const server = http.createServer(async (req, res) => {
 
     const schoolMessagingTemplateDeleteMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/templates\/([^/]+)\/delete$/);
     if (schoolMessagingTemplateDeleteMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolMessagingTemplateDeleteMatch[1]);
       const templateId = schoolMessagingTemplateDeleteMatch[2];
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
-      const current = getSharedState();
+      const current = await getSharedState();
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4299,11 +4299,11 @@ const server = http.createServer(async (req, res) => {
 
     const schoolMessagingRuleSaveMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/rules\/save$/);
     if (schoolMessagingRuleSaveMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolMessagingRuleSaveMatch[1]);
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
       const body = await readJsonBody(req);
-      const current = getSharedState();
+      const current = await getSharedState();
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4319,11 +4319,11 @@ const server = http.createServer(async (req, res) => {
 
     const schoolMessagingRuleToggleMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/rules\/([^/]+)\/toggle$/);
     if (schoolMessagingRuleToggleMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolMessagingRuleToggleMatch[1]);
       const ruleId = schoolMessagingRuleToggleMatch[2];
       if (!canManageSchoolMessages(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية إدارة الرسائل لهذه المدرسة.' });
-      const current = getSharedState();
+      const current = await getSharedState();
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4335,10 +4335,10 @@ const server = http.createServer(async (req, res) => {
 
     const schoolStudentsMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/students$/);
     if (schoolStudentsMatch && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolStudentsMatch[1]);
       if (!canManageSchoolContent(actor, schoolId) && !canReadSchoolReports(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية عرض الطلاب لهذه المدرسة.' });
-      const state = getSharedState();
+      const state = await getSharedState();
       const school = state.schools.find((item) => Number(item.id) === Number(schoolId));
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
       const q = String(reqUrl.searchParams.get('q') || '').trim().toLowerCase();
@@ -4349,12 +4349,12 @@ const server = http.createServer(async (req, res) => {
 
     const schoolStudentFaceMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/students\/(\d+)\/face$/);
     if (schoolStudentFaceMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolStudentFaceMatch[1]);
       const studentId = Number(schoolStudentFaceMatch[2]);
       if (!canManageStudentActions(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تعديل بصمة الوجه لهذه المدرسة.' });
       const body = await readJsonBody(req);
-      const current = getSharedState();
+      const current = await getSharedState();
       const next = structuredClone(current);
       const school = next.schools.find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
@@ -4400,11 +4400,11 @@ const server = http.createServer(async (req, res) => {
 
     const schoolActionApplyMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/actions\/apply$/);
     if (schoolActionApplyMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolActionApplyMatch[1]);
       if (!canManageStudentActions(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تنفيذ إجراءات الطلاب لهذه المدرسة.' });
       const body = await readJsonBody(req);
-      const applied = applyStudentActionToState(getSharedState(), schoolId, body, actor);
+      const applied = applyStudentActionToState(await getSharedState(), schoolId, body, actor);
       if (!applied.ok) return sendJson(res, 400, applied);
       let saved = saveSharedState(applied.state, actor);
       if (applied.logEntry?.actionType === 'violation') {
@@ -4425,11 +4425,11 @@ const server = http.createServer(async (req, res) => {
 
     const schoolProgramApplyMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/programs\/apply$/);
     if (schoolProgramApplyMatch && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       const schoolId = Number(schoolProgramApplyMatch[1]);
       if (!canManageStudentActions(actor, schoolId)) return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية اعتماد البرامج لهذه المدرسة.' });
       const body = await readJsonBody(req);
-      const applied = await applyProgramToState(getSharedState(), schoolId, body, actor);
+      const applied = await applyProgramToState(await getSharedState(), schoolId, body, actor);
       if (!applied.ok) return sendJson(res, 400, applied);
       const saved = saveSharedState(applied.state, actor);
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, state: sanitizeStateForClient(saved) });
@@ -4437,7 +4437,7 @@ const server = http.createServer(async (req, res) => {
 
     const publicGateMatch = reqUrl.pathname.match(/^\/api\/public\/gate\/([^/]+)$/);
     if (publicGateMatch && req.method === 'GET') {
-      const state = getSharedState();
+      const state = await getSharedState();
       const match = findGateConfigByToken(state, publicGateMatch[1]);
       if (!match) return sendJson(res, 404, { ok: false, message: 'رابط البوابة غير صالح.' });
       const live = summarizeSchoolLivePayload(state, match.school.id);
@@ -4470,7 +4470,7 @@ const server = http.createServer(async (req, res) => {
 
     const publicGateScanMatch = reqUrl.pathname.match(/^\/api\/public\/gate\/([^/]+)\/scan$/);
     if (publicGateScanMatch && req.method === 'POST') {
-      const state = getSharedState();
+      const state = await getSharedState();
       const match = findGateConfigByToken(state, publicGateScanMatch[1]);
       if (!match) return sendJson(res, 404, { ok: false, message: 'رابط البوابة غير صالح.' });
       const body = await readJsonBody(req);
@@ -4490,7 +4490,7 @@ const server = http.createServer(async (req, res) => {
 
     const publicScreenMatch = reqUrl.pathname.match(/^\/api\/public\/screen\/([^/]+)$/);
     if (publicScreenMatch && req.method === 'GET') {
-      const state = getSharedState();
+      const state = await getSharedState();
       const match = findScreenConfigByToken(state, publicScreenMatch[1]);
       if (!match) return sendJson(res, 404, { ok: false, message: 'رابط الشاشة غير صالح.' });
       const live = summarizeSchoolLivePayload(state, match.school.id, match.screen);
@@ -4501,10 +4501,10 @@ const server = http.createServer(async (req, res) => {
 
     // جلب إعدادات البوابة والطلبات
     if (reqUrl.pathname === '/api/admin/parent-primary-requests' && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (!['superadmin', 'principal', 'supervisor'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
-      const state = getSharedState();
+      const state = await getSharedState();
       const portalSettings = state.settings?.parentPortal || {};
       return sendJson(res, 200, {
         ok: true,
@@ -4522,11 +4522,11 @@ const server = http.createServer(async (req, res) => {
 
     // حفظ سياسة البوابة
     if (reqUrl.pathname === '/api/admin/parent-primary-requests/policy' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       const body = await readJsonBody(req);
-      const state = getSharedState();
+      const state = await getSharedState();
       const updated = {
         ...state,
         settings: {
@@ -4543,11 +4543,11 @@ const server = http.createServer(async (req, res) => {
 
     // حفظ إعدادات البوابة (تفعيل/تعطيل، طرق الدخول)
     if (reqUrl.pathname === '/api/admin/parent-primary-requests/portal-settings' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       const body = await readJsonBody(req);
-      const state = getSharedState();
+      const state = await getSharedState();
       const currentPortal = state.settings?.parentPortal || {};
       const updatedPortal = { ...currentPortal };
       if (typeof body.enabled === 'boolean') updatedPortal.enabled = body.enabled;
@@ -4571,7 +4571,7 @@ const server = http.createServer(async (req, res) => {
 
     // جلب قائمة أولياء الأمور
     if (reqUrl.pathname === '/api/admin/parents' && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (!['superadmin', 'principal', 'supervisor'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       return sendJson(res, 200, { ok: true, parents: [] });
@@ -4579,7 +4579,7 @@ const server = http.createServer(async (req, res) => {
 
     // سجل أولياء الأمور
     if (reqUrl.pathname === '/api/admin/parents/audit-feed' && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (!['superadmin', 'principal', 'supervisor'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       return sendJson(res, 200, { ok: true, feed: [] });
@@ -4587,7 +4587,7 @@ const server = http.createServer(async (req, res) => {
 
     // إرسال رمز الوصول لولي الأمر
     if (reqUrl.pathname === '/api/admin/parents/send-access-code' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       return sendJson(res, 200, { ok: true, message: 'تم إرسال رمز الوصول.' });
@@ -4595,7 +4595,7 @@ const server = http.createServer(async (req, res) => {
 
     // توليد رابط الوصول
     if (reqUrl.pathname === '/api/admin/parents/generate-link' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       const body = await readJsonBody(req);
@@ -4605,7 +4605,7 @@ const server = http.createServer(async (req, res) => {
 
     // تفاصيل ولي الأمر
     if (reqUrl.pathname === '/api/admin/parents/details' && req.method === 'GET') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (!['superadmin', 'principal', 'supervisor'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       return sendJson(res, 200, { ok: true, parent: null });
@@ -4613,7 +4613,7 @@ const server = http.createServer(async (req, res) => {
 
     // تعليق/رفع تعليق ولي الأمر
     if (reqUrl.pathname === '/api/admin/parents/toggle-suspension' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       return sendJson(res, 200, { ok: true });
@@ -4621,7 +4621,7 @@ const server = http.createServer(async (req, res) => {
 
     // إعادة تعيين طالب لولي أمر
     if (reqUrl.pathname === '/api/admin/parents/reassign-student' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (!['superadmin', 'principal'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       return sendJson(res, 200, { ok: true });
@@ -4629,11 +4629,11 @@ const server = http.createServer(async (req, res) => {
 
     // ===== إضافة مدرسة جديدة =====
     if (reqUrl.pathname === '/api/schools' && req.method === 'POST') {
-      const actor = getUserFromToken(token);
+      const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
       if (actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه إضافة مدارس.' });
       const form = await readJsonBody(req);
-      const currentState = getSharedState();
+      const currentState = await getSharedState();
       // التحقق من البيانات المطلوبة
       const principalUsername = String(form.principalUsername || '').trim().toLowerCase();
       const principalEmail = String(form.principalEmail || '').trim().toLowerCase();
@@ -4701,7 +4701,7 @@ const server = http.createServer(async (req, res) => {
     if (reqUrl.pathname === '/api/parent/debug-whatsapp' && req.method === 'POST') {
       const body = await readJsonBody(req);
       const mobile = normalizePhoneNumber(body.mobile || '');
-      const state = getSharedState();
+      const state = await getSharedState();
       const profile = await buildParentProfile(state, mobile);
       if (!profile) return sendJson(res, 404, { ok: false, message: 'رقم غير مرتبط' });
       const school = state.schools.find((item) => Number(item.id) === Number(profile.students?.[0]?.schoolId));
@@ -4721,7 +4721,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const inputMobile = String(body.mobile || '').trim();
       const normalizedInput = normalizePhoneNumber(inputMobile);
-      const state = getSharedState();
+      const state = await getSharedState();
       const allPhones = [];
       for (const school of state.schools || []) {
         const students = getUnifiedSchoolStudentsForServer(school, { includeArchived: false, preferStructure: true });
@@ -4738,7 +4738,7 @@ const server = http.createServer(async (req, res) => {
     if (reqUrl.pathname === '/api/parent/request-otp' && req.method === 'POST') {
       const body = await readJsonBody(req);
       const mobile = normalizePhoneNumber(body.mobile || '');
-      const state = getSharedState();
+      const state = await getSharedState();
       const profile = await buildParentProfile(state, mobile);
       if (!mobile) return sendJson(res, 400, { ok: false, message: 'أدخل رقم الجوال أولاً.' });
       if (!profile) return sendJson(res, 404, { ok: false, message: 'هذا الرقم غير مرتبط بأي طالب حاليًا.' });
@@ -4770,7 +4770,7 @@ const server = http.createServer(async (req, res) => {
       if (!mobile || !code) return sendJson(res, 400, { ok: false, message: 'أدخل رقم الجوال والرمز.' });
       const verified = await verifyAndConsumeParentOtp(mobile, code);
       if (!verified.ok) return sendJson(res, 400, verified);
-      const state = getSharedState();
+      const state = await getSharedState();
       const profile = await buildParentProfile(state, mobile);
       if (!profile) return sendJson(res, 404, { ok: false, message: 'تعذر العثور على الطلاب المرتبطين بهذا الرقم.' });
       const portalEnabled = await isParentPortalEnabledForProfile(profile);
@@ -4785,7 +4785,7 @@ const server = http.createServer(async (req, res) => {
       const nationalId = String(body.nationalId || '').trim();
       if (!mobile) return sendJson(res, 400, { ok: false, message: 'أدخل رقم الجوال أولاً.' });
       if (!nationalId) return sendJson(res, 400, { ok: false, message: 'أدخل رقم هوية الطالب.' });
-      const state = getSharedState();
+      const state = await getSharedState();
       // البحث عن طالب برقم هويته ورقم جوال ولي الأمر معاً
       let matchedPhone = null;
       for (const school of (state.schools || [])) {
@@ -4849,7 +4849,7 @@ const server = http.createServer(async (req, res) => {
       if (mobile === normalizePhoneNumber(profile.mobile || '')) return sendJson(res, 400, { ok: false, message: 'هذا هو الرقم الأساسي بالفعل.' });
       const existing = await getParentExtraContacts(profile.mobile);
       if (existing.some((item) => normalizePhoneNumber(item.mobile) === mobile)) return sendJson(res, 400, { ok: false, message: 'هذا الرقم مرتبط مسبقًا.' });
-      const state = getSharedState();
+      const state = await getSharedState();
       const school = state.schools.find((item) => Number(item.id) === Number(profile.students?.[0]?.schoolId));
       const messaging = hydrateMessagingSettings(school || {});
       const code = generateOtpCode(6);
@@ -4885,7 +4885,7 @@ const server = http.createServer(async (req, res) => {
         existing.push({ mobile, channel, verifiedAt: nowIso(), status: 'verified', label: 'رقم إضافي' });
         await saveParentExtraContacts(profile.mobile, existing);
       }
-      const state = getSharedState();
+      const state = await getSharedState();
       const updatedProfile = await buildParentProfile(state, profile.mobile);
       return sendJson(res, 200, { ok: true, message: 'تم ربط الرقم الإضافي وسيستقبل التنبيهات القادمة.', profile: updatedProfile });
     }
@@ -4924,7 +4924,7 @@ const server = http.createServer(async (req, res) => {
       const guardianName = String(profile.guardianName || profile.students?.[0]?.guardianName || 'ولي الأمر').trim() || 'ولي الأمر';
       const studentNames = Array.isArray(profile.students) ? profile.students.map((s) => String(s.name || '').trim()).filter(Boolean) : [];
       if (policy.mode === 'auto') {
-        const state = getSharedState();
+        const state = await getSharedState();
         const systemActor = { id: 'system', username: 'system', fullName: 'التنفيذ التلقائي', role: 'system', schoolId };
         const nextState = structuredClone(state);
         const updatedStudents = applyGuardianMobileChange(nextState.schools, normalizePhoneNumber(profile.mobile), mobile);
@@ -4940,7 +4940,7 @@ const server = http.createServer(async (req, res) => {
           note: 'تم اعتماد الطلب تلقائيًا حسب سياسة المدرسة، مع إشعار الإدارة وإمكانية الرفض لاحقًا.',
         });
         await addParentPrimaryChangeAlert(schoolId, { currentPhone: profile.mobile, requestedMobile: mobile, guardianName, studentNames, message: 'تم اعتماد طلب تحديث الرقم الأساسي تلقائيًا، ويمكن للإدارة مراجعته ورفضه لاحقًا عند الحاجة.', createdAt: nowIso(), type: 'auto_approved', status: 'info' });
-        const refreshedProfile = await buildParentProfile(getSharedState(), mobile);
+        const refreshedProfile = await buildParentProfile(await getSharedState(), mobile);
         const newToken = await createParentSession(mobile, refreshedProfile);
         return sendJson(res, 200, { ok: true, token: newToken, autoApproved: true, message: 'تم توثيق الرقم الجديد واعتماده تلقائيًا حسب سياسة المدرسة، مع إشعار الإدارة.', profile: refreshedProfile });
       }
@@ -4961,7 +4961,7 @@ const server = http.createServer(async (req, res) => {
       if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
       const body = await readJsonBody(req);
       await saveParentNotificationSettings(profile.mobile, body || {});
-      const state = getSharedState();
+      const state = await getSharedState();
       const updatedProfile = await buildParentProfile(state, profile.mobile);
       return sendJson(res, 200, { ok: true, message: 'تم حفظ إعدادات التنبيهات.', profile: updatedProfile });
     }
@@ -4979,13 +4979,13 @@ const server = http.createServer(async (req, res) => {
       const note = String(body?.note || '').trim();
       const image = String(body?.image || '').trim();
       if (!schoolId || !title || !quantity) return sendJson(res, 400, { ok: false, message: 'أكمل بيانات المقترح أولًا.' });
-      const state = getSharedState();
+      const state = await getSharedState();
       const school = (state.schools || []).find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة المحددة غير موجودة.' });
       const proposal = { id: `proposal-${Date.now()}`, schoolId, title, quantity, donorName, showDonorName, note, image, mobile: profile.mobile, guardianName: profile.guardianName, status: 'pending', createdAt: nowIso() };
       const nextState = { ...state, schools: (state.schools || []).map((item) => Number(item.id) !== schoolId ? item : ({ ...item, rewardStore: { ...getSchoolRewardStore(item), parentProposals: [proposal, ...getSchoolRewardStore(item).parentProposals] } })) };
       await saveSharedState(nextState, null);
-      const nextProfile = await buildParentProfile(getSharedState(), profile.mobile);
+      const nextProfile = await buildParentProfile(await getSharedState(), profile.mobile);
       return sendJson(res, 200, { ok: true, message: 'تم إرسال مقترح الجائزة لمدير المدرسة لاعتماده.', profile: nextProfile });
     }
 
@@ -4998,7 +4998,7 @@ const server = http.createServer(async (req, res) => {
       const itemId = String(body?.itemId || '').trim();
       const note = String(body?.note || '').trim();
       if (!schoolId || !studentId || !itemId) return sendJson(res, 400, { ok: false, message: 'اختر المدرسة والطالب والجائزة أولًا.' });
-      const state = getSharedState();
+      const state = await getSharedState();
       const school = (state.schools || []).find((item) => Number(item.id) === schoolId);
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة المحددة غير موجودة.' });
       const linkedStudents = getParentLinkedStudents(state, profile.mobile).filter((item) => Number(item.schoolId) === schoolId);
@@ -5046,7 +5046,7 @@ const server = http.createServer(async (req, res) => {
         targetSchool.rewardStore = { ...store, redemptionRequests: [request, ...store.redemptionRequests] };
       }
       await saveSharedState(nextState, null);
-      const nextProfile = await buildParentProfile(getSharedState(), profile.mobile);
+      const nextProfile = await buildParentProfile(await getSharedState(), profile.mobile);
       return sendJson(res, 200, { ok: true, message: `تم استبدال ${pointsCost} نقطة بنجاح! طلبك قيد المعالجة.`, profile: nextProfile });
     }
 
@@ -5064,7 +5064,7 @@ const server = http.createServer(async (req, res) => {
     if (reqUrl.pathname === '/api/parent/portal-config' && req.method === 'GET') {
       // إرجاع إعدادات البوابة العامة بدون الحاجة لتسجيل دخول
       // نبحث عن أول مدرسة نشطة لإرجاع إعداداتها
-      const state = getSharedState();
+      const state = await getSharedState();
       const firstSchool = (state.schools || []).find((s) => s && s.id);
       const schoolId = firstSchool ? Number(firstSchool.id) : 0;
       const settings = schoolId ? await getParentPortalSettings(schoolId) : { enabled: true, altLoginEnabled: true };
@@ -5094,7 +5094,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.on('upgrade', (req, socket) => {
+server.on('upgrade', async (req, socket) => {
   try {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`);
     if (reqUrl.pathname !== '/ws/public') {
@@ -5103,7 +5103,7 @@ server.on('upgrade', (req, socket) => {
     }
     const kind = reqUrl.searchParams.get('kind') === 'gate' ? 'gate' : 'screen';
     const token = String(reqUrl.searchParams.get('token') || '');
-    const state = getSharedState();
+    const state = await getSharedState();
     const match = kind === 'gate' ? findGateConfigByToken(state, token) : findScreenConfigByToken(state, token);
     if (!match) {
       socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
