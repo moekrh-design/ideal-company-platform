@@ -249,10 +249,10 @@ function daysFromNow(days) {
 }
 
 function isHashedPassword(value = '') {
-  return String(value || '').startsWith('scrypt$');
+  const v = String(value || '');
+  return v.startsWith('scrypt$') || v.startsWith('$2a$') || v.startsWith('$2b$') || v.startsWith('$2y$');
 }
-
-function hashPassword(password) {
+async function hashPassword(password) {
   const plain = String(password || '');
   if (!plain) return '';
   if (isHashedPassword(plain)) return plain;
@@ -260,12 +260,19 @@ function hashPassword(password) {
   const derived = crypto.scryptSync(plain, salt, 64).toString('hex');
   return `scrypt$${salt}$${derived}`;
 }
-
-function verifyPassword(plainPassword, storedPassword) {
+async function verifyPassword(plainPassword, storedPassword) {
   const plain = String(plainPassword || '');
   const stored = String(storedPassword || '');
   if (!stored) return false;
   if (!isHashedPassword(stored)) return plain === stored;
+  // bcrypt hash
+  if (stored.startsWith('$2a$') || stored.startsWith('$2b$') || stored.startsWith('$2y$')) {
+    try {
+      const { default: bcrypt } = await import('bcrypt');
+      return await bcrypt.compare(plain, stored);
+    } catch { return false; }
+  }
+  // scrypt hash
   const [, salt, derived] = stored.split('$');
   if (!salt || !derived) return false;
   const calculated = crypto.scryptSync(plain, salt, 64).toString('hex');
@@ -276,22 +283,23 @@ function verifyPassword(plainPassword, storedPassword) {
   }
 }
 
-function normalizeUsersForStorage(users = [], existingUsers = [], schools = []) {
+async function normalizeUsersForStorage(users = [], existingUsers = [], schools = []) {
   const preparedUsers = ensureDemoUsers(users || [], schools || []);
   const existingMap = new Map((existingUsers || []).map((user) => [user.id, user]));
-  return preparedUsers.map((user) => {
+  const results = [];
+  for (const user of preparedUsers) {
     const previous = existingMap.get(user.id);
     const incomingPassword = user.password;
     let password = incomingPassword;
     if (!String(incomingPassword || '').trim() && previous?.password) {
       password = previous.password;
     }
-
     if (String(password || '').trim() && !isHashedPassword(password)) {
-      password = hashPassword(password);
+      password = await hashPassword(password);
     }
-    return { ...user, password: password || '' };
-  });
+    results.push({ ...user, password: password || '' });
+  }
+  return results;
 }
 
 function normalizeStateForStorage(state, existingState = null) {
@@ -723,14 +731,14 @@ async function runAuthOtpScenarioTest(state, actor, body = {}) {
 }
 
 
-function createAuthOtpRequest(user, identifier, delivery, code, authSettings) {
+async function createAuthOtpRequest(user, identifier, delivery, code, authSettings) {
   cleanupExpiredAuthOtps();
   db.prepare('DELETE FROM auth_otps WHERE user_id = ? AND purpose = ?').run(Number(user.id), 'login');
   const id = `otp_${crypto.randomBytes(10).toString('hex')}`;
   const createdAt = nowIso();
   const expiresAt = new Date(Date.now() + (Math.max(1, Number(authSettings.otpExpiryMinutes) || 10) * 60 * 1000)).toISOString();
   db.prepare('INSERT INTO auth_otps (id, user_id, purpose, delivery, identifier, code_hash, destination_preview, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
-    .run(id, Number(user.id), 'login', delivery, String(identifier || '').trim().toLowerCase(), hashPassword(code), '', createdAt, expiresAt);
+    .run(id, Number(user.id), 'login', delivery, String(identifier || '').trim().toLowerCase(), await hashPassword(code), '', createdAt, expiresAt);
   return { id, expiresAt };
 }
 
@@ -738,13 +746,13 @@ function finalizeAuthOtpDestination(id, destinationPreview = '') {
   db.prepare('UPDATE auth_otps SET destination_preview = ? WHERE id = ?').run(destinationPreview, id);
 }
 
-function verifyAndConsumeAuthOtp(user, identifier, code) {
+async function verifyAndConsumeAuthOtp(user, identifier, code) {
   cleanupExpiredAuthOtps();
   const row = db.prepare('SELECT * FROM auth_otps WHERE user_id = ? AND purpose = ? AND identifier = ? ORDER BY created_at DESC LIMIT 1').get(Number(user.id), 'login', String(identifier || '').trim().toLowerCase());
   if (!row) return { ok: false, message: 'لا يوجد طلب رمز تحقق نشط لهذا الحساب.' };
   if (row.consumed_at) return { ok: false, message: 'تم استخدام الرمز مسبقًا.' };
   if (row.expires_at <= nowIso()) return { ok: false, message: 'انتهت صلاحية الرمز. اطلب رمزًا جديدًا.' };
-  if (!verifyPassword(String(code || '').trim(), row.code_hash)) return { ok: false, message: 'رمز التحقق غير صحيح.' };
+  if (!(await verifyPassword(String(code || '').trim(), row.code_hash))) return { ok: false, message: 'رمز التحقق غير صحيح.' };
   db.prepare('UPDATE auth_otps SET consumed_at = ? WHERE id = ?').run(nowIso(), row.id);
   return { ok: true, row };
 }
@@ -1875,7 +1883,7 @@ async function verifyAndConsumeParentContactOtp(primaryPhone, targetPhone, code)
     await appMetaDelete(parentContactOtpKey(primaryPhone, targetPhone));
     return { ok: false, message: 'انتهت صلاحية الرمز. اطلب رمزًا جديدًا.' };
   }
-  if (!verifyPassword(String(code || '').trim(), payload.codeHash)) {
+  if (!(await verifyPassword(String(code || '').trim(), payload.codeHash))) {
     return { ok: false, message: 'رمز التحقق غير صحيح.' };
   }
   payload.consumedAt = nowIso();
@@ -2249,7 +2257,7 @@ async function verifyAndConsumeParentPrimaryChangeOtp(primaryPhone, targetPhone,
     await appMetaDelete(parentPrimaryChangeOtpKey(primaryPhone, targetPhone));
     return { ok: false, message: 'انتهت صلاحية الرمز. اطلب رمزًا جديدًا.' };
   }
-  if (!verifyPassword(String(code || '').trim(), payload.codeHash)) {
+  if (!(await verifyPassword(String(code || '').trim(), payload.codeHash))) {
     return { ok: false, message: 'رمز التحقق غير صحيح.' };
   }
   payload.consumedAt = nowIso();
@@ -2527,7 +2535,7 @@ async function verifyAndConsumeParentOtp(phone, code) {
     await appMetaDelete(parentOtpKey(normalizedPhone));
     return { ok: false, message: 'انتهت صلاحية الرمز. اطلب رمزًا جديدًا.' };
   }
-  if (!verifyPassword(String(code || '').trim(), payload.codeHash)) {
+  if (!(await verifyPassword(String(code || '').trim(), payload.codeHash))) {
     return { ok: false, message: 'رمز التحقق غير صحيح.' };
   }
   payload.consumedAt = nowIso();
@@ -3497,7 +3505,12 @@ const server = http.createServer(async (req, res) => {
         auditAuthEvent('auth_login_blocked', { identifier: username, userId: matchedUser?.id || null, reason: 'temporary_lockout', expiresAt: activePasswordLock.expires_at, scope: activePasswordLock.scope }, matchedUser ? { username: matchedUser.username, role: matchedUser.role } : null);
         return sendJson(res, 423, { ok: false, message: getAuthLockoutMessage(activePasswordLock), lockout: { expiresAt: activePasswordLock.expires_at, scope: activePasswordLock.scope } });
       }
-      const user = state.users.find((item) => item.username.toLowerCase() === username && verifyPassword(password, item.password) && item.status === 'نشط');
+      // لا يمكن استخدام await داخل find - نبحث أولاً بالاسم ثم نتحقق من كلمة المرور
+      const matchedByUsername = state.users.filter((item) => item.username.toLowerCase() === username && item.status === 'نشط');
+      let user = null;
+      for (const candidate of matchedByUsername) {
+        if (await verifyPassword(password, candidate.password)) { user = candidate; break; }
+      }
       if (!user) {
         auditAuthEvent('auth_login_failed', { identifier: username, reason: matchedUser ? 'invalid_password_or_inactive' : 'user_not_found', userId: matchedUser?.id || null, role: matchedUser?.role || '' }, matchedUser ? { username: matchedUser.username, role: matchedUser.role } : null);
         const lockResult = await registerAuthFailureAndMaybeLock(state, 'password', username, matchedUser || null, matchedUser ? { username: matchedUser.username, role: matchedUser.role } : null);
@@ -3723,14 +3736,14 @@ const server = http.createServer(async (req, res) => {
       if (!user) {
         return sendJson(res, 404, { ok: false, message: 'تعذر العثور على الحساب الحالي.' });
       }
-      if (!verifyPassword(currentPassword, user.password)) {
+      if (!(await verifyPassword(currentPassword, user.password))) {
         return sendJson(res, 400, { ok: false, message: 'كلمة المرور الحالية غير صحيحة.' });
       }
-      if (verifyPassword(newPassword, user.password)) {
+      if (await verifyPassword(newPassword, user.password)) {
         return sendJson(res, 400, { ok: false, message: 'اختر كلمة مرور جديدة مختلفة عن الحالية.' });
       }
       const next = structuredClone(state);
-      const hashedNewPassword = hashPassword(newPassword);
+      const hashedNewPassword = await hashPassword(newPassword);
       next.users = (next.users || []).map((item) => Number(item.id) !== Number(user.id) ? item : { ...item, password: hashedNewPassword });
       // نحفظ مباشرة باستخدام writeStateRow لتجنب إعادة تطبيع كلمة المرور المُشفَّرة
       writeStateRow(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
@@ -3777,11 +3790,11 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 403, { ok: false, message: 'لا يمكن إعادة تعيين كلمة مرور الأدمن العام من هذا الحساب.' });
         }
       }
-      if (verifyPassword(newPassword, targetUser.password)) {
+      if (await verifyPassword(newPassword, targetUser.password)) {
         return sendJson(res, 400, { ok: false, message: 'كلمة المرور الجديدة مطابقة لكلمة المرور الحالية لهذا المستخدم.' });
       }
       const next = structuredClone(state);
-      const hashedResetPassword = hashPassword(newPassword);
+      const hashedResetPassword = await hashPassword(newPassword);
       next.users = (next.users || []).map((item) => Number(item.id) !== Number(targetUser.id) ? item : { ...item, password: hashedResetPassword });
       // نحفظ مباشرة باستخدام writeStateRow لتجنب إعادة تطبيع كلمة المرور المُشفَّرة
       writeStateRow(next, { username: actorFull.username, role: actorFull.role, id: actorFull.id, schoolId: actorFull.schoolId ?? null });
