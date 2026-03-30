@@ -1548,6 +1548,1217 @@ function buildServerLessonAttendanceSummary(school) {
     })),
   };
 }
+// ===== دوال بوابة ولي الأمر المساعدة =====
+async function dbQueryOne(text, params = []) {
+  const rows = await dbQuery(text, params);
+  return rows[0] || null;
+}
+
+// Helper: run a query and return all rows (alias for dbQuery)
+
+async function dbQueryAll(text, params = []) {
+  return dbQuery(text, params);
+}
+
+// Helper: run a query with no return value
+
+async function dbRun(text, params = []) {
+  await dbQuery(text, params);
+}
+
+
+function todayIso() {
+  return todayStamp();
+}
+
+
+async function getSharedStateAsync() {
+  const row = await dbQueryOne('SELECT value FROM app_meta WHERE key = $1', ['shared_state']);
+  if (!row) {
+    return await normalizeStateForStorage(createDefaultSharedState());
+  }
+  try {
+    return await normalizeStateForStorage(JSON.parse(row.value), JSON.parse(row.value));
+  } catch {
+    return await normalizeStateForStorage(createDefaultSharedState());
+  }
+}
+
+
+async function refreshStateCache() {
+  _stateCache = await getSharedStateAsync();
+  return _stateCache;
+}
+
+
+function parentOtpKey(phone) {
+  return `parent_otp_${normalizePhoneNumber(phone)}`;
+}
+
+
+function buildParentUsername(phone) {
+  return `parent:${normalizePhoneNumber(phone)}`;
+}
+
+
+function extractClassLabelForParent(student) {
+  return student.classroomName || student.className || student.companyName || '—';
+}
+
+
+function getParentLinkedStudents(state, phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return [];
+  const rows = [];
+  for (const school of state.schools || []) {
+    const students = getUnifiedSchoolStudentsForServer(school, { includeArchived: false, preferStructure: true });
+    for (const student of students) {
+      if (normalizePhoneNumber(student.guardianMobile || '') !== normalizedPhone) continue;
+      // مقارنة studentId مع دعم كلا الصيغتين: composite (structure-X-Y) والخام
+      const studentRawId = String(student.rawId || student.id || '');
+      const studentCompositeId = String(student.id || '');
+      const matchesStudent = (itemStudentId) => {
+        const sid = String(itemStudentId || '');
+        return sid === studentCompositeId || sid === studentRawId;
+      };
+      const studentActions = (state.actionLog || []).filter((item) => Number(item.schoolId) === Number(school.id) && matchesStudent(item.studentId)).slice(0, 12);
+      const studentScans = (state.scanLog || []).filter((item) => Number(item.schoolId) === Number(school.id) && matchesStudent(item.studentId)).slice(0, 20);
+      const schoolLogs = Array.isArray(school.messaging?.logs) ? school.messaging.logs : [];
+      const relatedLogs = schoolLogs.filter((item) => normalizePhoneNumber(item.recipient || '') === normalizedPhone && (!item.studentId || String(item.studentId) === String(student.id))).slice(0, 12);
+      const lastScan = studentScans[0] || null;
+      rows.push({
+        id: `${school.id}:${student.id}`,
+        schoolId: school.id,
+        schoolName: school.name || 'المدرسة',
+        schoolCode: school.code || '',
+        studentId: student.id,
+        name: student.fullName || student.name || 'طالب',
+        guardianName: student.guardianName || '',
+        className: extractClassLabelForParent(student),
+        points: Number(student.points || 0),
+        attendanceRate: Number(student.attendanceRate || 0),
+        status: student.status || 'غير مسجل',
+        studentNumber: String(student.studentNumber || '').trim(),
+        nationalId: String(student.nationalId || '').trim(),
+        barcode: String(student.barcode || '').trim(),
+        lastAttendance: lastScan ? {
+          time: lastScan.time || '',
+          isoDate: lastScan.isoDate || '',
+          method: lastScan.method || '',
+          gateName: lastScan.gateName || '',
+          result: lastScan.result || '',
+        } : null,
+        recentActions: studentActions.map((item) => ({
+          id: item.id,
+          actionType: item.actionType || '',
+          title: item.definitionTitle || item.actionTitle || item.actionType || 'إجراء',
+          note: item.note || '',
+          points: Number(item.points || 0),
+          createdAt: item.createdAt || '',
+          actorName: item.actorName || '',
+        })),
+        recentMessages: relatedLogs.map((item) => ({
+          id: item.id,
+          title: item.templateName || item.eventType || item.channel || 'تنبيه',
+          body: item.message || item.error || '',
+          channel: item.channel || 'internal',
+          recipient: item.recipient || '',
+          sentAt: item.createdAt || item.sentAt || '',
+          status: item.status || '',
+        })),
+      });
+    }
+  }
+  return rows;
+}
+
+
+async function getParentExtraContacts(phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return [];
+  const payload = await appMetaGetJson(`parent_contacts_${normalizedPhone}`);
+  const contacts = Array.isArray(payload?.contacts) ? payload.contacts : [];
+  return contacts
+    .map((item) => ({
+      mobile: normalizePhoneNumber(item.mobile || ''),
+      channel: item.channel === 'sms' ? 'sms' : 'whatsapp',
+      verifiedAt: String(item.verifiedAt || item.linkedAt || '').trim(),
+      status: String(item.status || 'verified').trim() || 'verified',
+      label: String(item.label || 'رقم إضافي').trim() || 'رقم إضافي',
+    }))
+    .filter((item) => item.mobile);
+}
+
+
+async function saveParentExtraContacts(phone, contacts) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  await appMetaSetJson(`parent_contacts_${normalizedPhone}`, {
+    primaryMobile: normalizedPhone,
+    contacts: (contacts || []).map((item) => ({
+      mobile: normalizePhoneNumber(item.mobile || ''),
+      channel: item.channel === 'sms' ? 'sms' : 'whatsapp',
+      verifiedAt: String(item.verifiedAt || item.linkedAt || nowIso()).trim(),
+      status: String(item.status || 'verified').trim() || 'verified',
+      label: String(item.label || 'رقم إضافي').trim() || 'رقم إضافي',
+    })).filter((item) => item.mobile),
+    updatedAt: nowIso(),
+  });
+}
+
+
+
+async function getParentAccountControl(phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return { suspended: false, note: '', updatedAt: '' };
+  const payload = await appMetaGetJson(`parent_control_${normalizedPhone}`);
+  return {
+    suspended: !!payload?.suspended,
+    note: String(payload?.note || '').trim(),
+    updatedAt: String(payload?.updatedAt || '').trim(),
+  };
+}
+
+
+async function setParentAccountSuspension(phone, suspended, note = '', actor = null) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return { suspended: false, note: '', updatedAt: '' };
+  const payload = {
+    suspended: !!suspended,
+    note: String(note || '').trim(),
+    updatedAt: nowIso(),
+    actorName: String(actor?.name || actor?.username || '').trim(),
+    actorRole: String(actor?.role || '').trim(),
+  };
+  await appMetaSetJson(`parent_control_${normalizedPhone}`, payload);
+  return payload;
+}
+
+
+
+async function getParentAuditHistory(phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return [];
+  const payload = await appMetaGetJson(`parent_audit_${normalizedPhone}`);
+  const rows = Array.isArray(payload?.entries) ? payload.entries : [];
+  return rows.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+}
+
+
+async function appendParentAuditHistory(phone, entry = {}) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return [];
+  const existing = await getParentAuditHistory(normalizedPhone);
+  const nextEntry = {
+    id: entry.id || `audit_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+    createdAt: entry.createdAt || nowIso(),
+    action: String(entry.action || 'parent_update').trim() || 'parent_update',
+    title: String(entry.title || 'تحديث على ملف ولي الأمر').trim() || 'تحديث على ملف ولي الأمر',
+    note: String(entry.note || '').trim(),
+    actorName: String(entry.actorName || entry.actor?.name || entry.actor?.username || '').trim(),
+    actorRole: String(entry.actorRole || entry.actor?.role || '').trim(),
+    schoolId: entry.schoolId ?? null,
+    schoolName: String(entry.schoolName || '').trim(),
+    studentId: entry.studentId ?? null,
+    studentName: String(entry.studentName || '').trim(),
+    meta: entry.meta && typeof entry.meta === 'object' ? entry.meta : {},
+  };
+  const payload = {
+    phone: normalizedPhone,
+    updatedAt: nowIso(),
+    entries: [nextEntry, ...existing].slice(0, 250),
+  };
+  await appMetaSetJson(`parent_audit_${normalizedPhone}`, payload);
+  return payload.entries;
+}
+
+
+async function appendParentAuditForPhones(phones = [], entry = {}) {
+  const uniquePhones = [...new Set((phones || []).map((phone) => normalizePhoneNumber(phone)).filter(Boolean))];
+  for (const phone of uniquePhones) {
+    await appendParentAuditHistory(phone, entry);
+  }
+}
+
+
+function defaultParentNotificationSettings() {
+  return {
+    preferredChannel: 'whatsapp',
+    deliveryScope: 'primary_and_extra',
+    events: {
+      late: true,
+      absent: true,
+      positive: true,
+      negative: true,
+      announcements: true,
+    },
+    summaries: {
+      daily: false,
+      weekly: true,
+    },
+  };
+}
+
+
+async function getParentNotificationSettings(phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return defaultParentNotificationSettings();
+  const payload = await appMetaGetJson(`parent_notification_settings_${normalizedPhone}`);
+  const defaults = defaultParentNotificationSettings();
+  return {
+    preferredChannel: ['whatsapp', 'sms', 'both'].includes(String(payload?.preferredChannel || '').trim()) ? String(payload.preferredChannel).trim() : defaults.preferredChannel,
+    deliveryScope: ['primary_only', 'primary_and_extra'].includes(String(payload?.deliveryScope || '').trim()) ? String(payload.deliveryScope).trim() : defaults.deliveryScope,
+    events: {
+      late: payload?.events?.late !== undefined ? !!payload.events.late : defaults.events.late,
+      absent: payload?.events?.absent !== undefined ? !!payload.events.absent : defaults.events.absent,
+      positive: payload?.events?.positive !== undefined ? !!payload.events.positive : defaults.events.positive,
+      negative: payload?.events?.negative !== undefined ? !!payload.events.negative : defaults.events.negative,
+      announcements: payload?.events?.announcements !== undefined ? !!payload.events.announcements : defaults.events.announcements,
+    },
+    summaries: {
+      daily: payload?.summaries?.daily !== undefined ? !!payload.summaries.daily : defaults.summaries.daily,
+      weekly: payload?.summaries?.weekly !== undefined ? !!payload.summaries.weekly : defaults.summaries.weekly,
+    },
+  };
+}
+
+
+async function saveParentNotificationSettings(phone, settings) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  const defaults = defaultParentNotificationSettings();
+  const normalized = {
+    preferredChannel: ['whatsapp', 'sms', 'both'].includes(String(settings?.preferredChannel || '').trim()) ? String(settings.preferredChannel).trim() : defaults.preferredChannel,
+    deliveryScope: ['primary_only', 'primary_and_extra'].includes(String(settings?.deliveryScope || '').trim()) ? String(settings.deliveryScope).trim() : defaults.deliveryScope,
+    events: {
+      late: settings?.events?.late !== undefined ? !!settings.events.late : defaults.events.late,
+      absent: settings?.events?.absent !== undefined ? !!settings.events.absent : defaults.events.absent,
+      positive: settings?.events?.positive !== undefined ? !!settings.events.positive : defaults.events.positive,
+      negative: settings?.events?.negative !== undefined ? !!settings.events.negative : defaults.events.negative,
+      announcements: settings?.events?.announcements !== undefined ? !!settings.events.announcements : defaults.events.announcements,
+    },
+    summaries: {
+      daily: settings?.summaries?.daily !== undefined ? !!settings.summaries.daily : defaults.summaries.daily,
+      weekly: settings?.summaries?.weekly !== undefined ? !!settings.summaries.weekly : defaults.summaries.weekly,
+    },
+    updatedAt: nowIso(),
+  };
+  await appMetaSetJson(`parent_notification_settings_${normalizedPhone}`, normalized);
+  return normalized;
+}
+
+
+function parentContactOtpKey(primaryPhone, targetPhone) {
+  return `parent_contact_otp_${normalizePhoneNumber(primaryPhone)}_${normalizePhoneNumber(targetPhone)}`;
+}
+
+
+async function createParentContactOtpRequest(primaryPhone, targetPhone, channel, code) {
+  const payload = {
+    primaryPhone: normalizePhoneNumber(primaryPhone),
+    targetPhone: normalizePhoneNumber(targetPhone),
+    channel: channel === 'sms' ? 'sms' : 'whatsapp',
+    codeHash: await hashPassword(String(code || '').trim()),
+    codePreview: String(code || '').trim(),
+    requestedAt: nowIso(),
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    consumedAt: null,
+  };
+  await appMetaSetJson(parentContactOtpKey(primaryPhone, targetPhone), payload);
+  return payload;
+}
+
+
+async function verifyAndConsumeParentContactOtp(primaryPhone, targetPhone, code) {
+  const payload = await appMetaGetJson(parentContactOtpKey(primaryPhone, targetPhone));
+  if (!payload) return { ok: false, message: 'لا يوجد طلب تحقق نشط لهذا الرقم.' };
+  if (payload.consumedAt) return { ok: false, message: 'تم استخدام هذا الرمز مسبقًا.' };
+  if (new Date(payload.expiresAt).getTime() < Date.now()) {
+    await appMetaDelete(parentContactOtpKey(primaryPhone, targetPhone));
+    return { ok: false, message: 'انتهت صلاحية الرمز. اطلب رمزًا جديدًا.' };
+  }
+  if (!verifyPassword(String(code || '').trim(), payload.codeHash)) {
+    return { ok: false, message: 'رمز التحقق غير صحيح.' };
+  }
+  payload.consumedAt = nowIso();
+  await appMetaSetJson(parentContactOtpKey(primaryPhone, targetPhone), payload);
+  return { ok: true, payload };
+}
+
+
+async function getParentPrimaryChangeRequest(phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return null;
+  const payload = await appMetaGetJson(`parent_primary_change_${normalizedPhone}`);
+  if (!payload) return null;
+  return {
+    currentPhone: normalizedPhone,
+    requestedMobile: normalizePhoneNumber(payload.requestedMobile || ''),
+    requestedMobileMasked: maskPhone(payload.requestedMobile || ''),
+    status: String(payload.status || 'pending').trim() || 'pending',
+    requestedAt: String(payload.requestedAt || '').trim(),
+    verifiedAt: String(payload.verifiedAt || '').trim(),
+    note: String(payload.note || 'بانتظار اعتماد الإدارة لتحديث الرقم الأساسي.').trim(),
+  };
+}
+
+
+async function saveParentPrimaryChangeRequest(phone, payload = {}) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return null;
+  const record = {
+    currentPhone: normalizedPhone,
+    requestedMobile: normalizePhoneNumber(payload.requestedMobile || ''),
+    status: String(payload.status || 'pending').trim() || 'pending',
+    requestedAt: String(payload.requestedAt || nowIso()).trim() || nowIso(),
+    verifiedAt: String(payload.verifiedAt || nowIso()).trim() || nowIso(),
+    note: String(payload.note || 'بانتظار اعتماد الإدارة لتحديث الرقم الأساسي.').trim() || 'بانتظار اعتماد الإدارة لتحديث الرقم الأساسي.',
+    updatedAt: nowIso(),
+  };
+  await appMetaSetJson(`parent_primary_change_${normalizedPhone}`, record);
+  const log = await appMetaGetJson('parent_primary_change_log');
+  const entries = Array.isArray(log?.entries) ? log.entries : [];
+  const nextEntries = [record, ...entries.filter((item) => !(normalizePhoneNumber(item.currentPhone || '') === normalizedPhone && normalizePhoneNumber(item.requestedMobile || '') === record.requestedMobile && String(item.status || '') === record.status))].slice(0, 300);
+  await appMetaSetJson('parent_primary_change_log', { updatedAt: nowIso(), entries: nextEntries });
+  return record;
+}
+
+
+async function getParentPrimaryChangePolicy(schoolId) {
+  const normalizedSchoolId = Number(schoolId) || 0;
+  const payload = await appMetaGetJson(`parent_primary_change_policy_${normalizedSchoolId}`);
+  return {
+    schoolId: normalizedSchoolId,
+    mode: String(payload?.mode || 'auto').trim() === 'manual' ? 'manual' : 'auto',
+    updatedAt: String(payload?.updatedAt || '').trim(),
+    updatedBy: payload?.updatedBy || null,
+  };
+}
+
+
+async function saveParentPrimaryChangePolicy(schoolId, mode, actorUser = null) {
+  const normalizedSchoolId = Number(schoolId) || 0;
+  const record = {
+    schoolId: normalizedSchoolId,
+    mode: String(mode || 'auto').trim() === 'manual' ? 'manual' : 'auto',
+    updatedAt: nowIso(),
+    updatedBy: actorUser ? { id: actorUser.id, username: actorUser.username, fullName: actorUser.fullName, role: actorUser.role } : null,
+  };
+  await appMetaSetJson(`parent_primary_change_policy_${normalizedSchoolId}`, record);
+  return record;
+}
+
+
+async function getParentPortalSettings(schoolId) {
+  const normalizedSchoolId = Number(schoolId) || 0;
+  const payload = await appMetaGetJson(`parent_portal_settings_${normalizedSchoolId}`);
+  return {
+    schoolId: normalizedSchoolId,
+    enabled: payload?.enabled !== false,
+    altLoginEnabled: payload?.altLoginEnabled !== false,
+    updatedAt: String(payload?.updatedAt || '').trim(),
+    updatedBy: payload?.updatedBy || null,
+  };
+}
+
+
+async function saveParentPortalSettings(schoolId, enabled, actorUser = null, altLoginEnabled = null) {
+  const normalizedSchoolId = Number(schoolId) || 0;
+  // قراءة الإعدادات الحالية للحفاظ على القيم غير المُعدَّلة
+  const existing = await appMetaGetJson(`parent_portal_settings_${normalizedSchoolId}`) || {};
+  const record = {
+    schoolId: normalizedSchoolId,
+    enabled: enabled !== false,
+    altLoginEnabled: altLoginEnabled !== null ? altLoginEnabled !== false : (existing.altLoginEnabled !== false),
+    updatedAt: nowIso(),
+    updatedBy: actorUser ? { id: actorUser.id, username: actorUser.username, fullName: actorUser.fullName, role: actorUser.role } : null,
+  };
+  await appMetaSetJson(`parent_portal_settings_${normalizedSchoolId}`, record);
+  return record;
+}
+
+
+async function isParentPortalEnabledForProfile(profile) {
+  const schoolIds = Array.isArray(profile?.students) ? [...new Set(profile.students.map((s) => Number(s.schoolId) || 0).filter(Boolean))] : [];
+  if (!schoolIds.length) return true;
+  for (const schoolId of schoolIds) {
+    const settings = await getParentPortalSettings(schoolId);
+    if (settings.enabled !== false) return true;
+  }
+  return false;
+}
+
+
+
+async function addParentPrimaryChangeAlert(schoolId, payload = {}) {
+  const normalizedSchoolId = Number(schoolId) || 0;
+  const key = `parent_primary_change_alerts_${normalizedSchoolId}`;
+  const current = await appMetaGetJson(key);
+  const items = Array.isArray(current?.items) ? current.items : [];
+  const record = {
+    id: `ppc_alert_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+    schoolId: normalizedSchoolId,
+    type: String(payload.type || 'auto_approved').trim() || 'auto_approved',
+    status: String(payload.status || 'info').trim() || 'info',
+    currentPhone: normalizePhoneNumber(payload.currentPhone || ''),
+    requestedMobile: normalizePhoneNumber(payload.requestedMobile || ''),
+    guardianName: String(payload.guardianName || 'ولي الأمر').trim() || 'ولي الأمر',
+    studentNames: Array.isArray(payload.studentNames) ? payload.studentNames : [],
+    message: String(payload.message || '').trim(),
+    createdAt: String(payload.createdAt || nowIso()).trim() || nowIso(),
+    read: Boolean(payload.read),
+  };
+  await appMetaSetJson(key, { updatedAt: nowIso(), items: [record, ...items].slice(0, 80) });
+  return record;
+}
+
+
+async function listParentPrimaryChangeAlerts(schoolId) {
+  const normalizedSchoolId = Number(schoolId) || 0;
+  const payload = await appMetaGetJson(`parent_primary_change_alerts_${normalizedSchoolId}`);
+  return Array.isArray(payload?.items) ? payload.items : [];
+}
+
+// alias for listParentPrimaryChangeAlerts
+
+async function getParentPrimaryChangeAlerts(schoolId) {
+  return listParentPrimaryChangeAlerts(schoolId);
+}
+
+
+async function resolveParentPrimaryChangePolicyForProfile(profile) {
+  const schoolId = Number(profile?.students?.[0]?.schoolId) || 0;
+  return getParentPrimaryChangePolicy(schoolId);
+}
+
+
+
+
+async function listParentPrimaryChangeRequests(state, actorUser = null) {
+  const log = await appMetaGetJson('parent_primary_change_log');
+  const rows = Array.isArray(log?.entries) ? log.entries : [];
+  const normalizedRole = String(actorUser?.role || '').trim().toLowerCase();
+  return rows.map((item) => {
+    const currentPhone = normalizePhoneNumber(item.currentPhone || '');
+    const requestedMobile = normalizePhoneNumber(item.requestedMobile || '');
+    const students = getParentLinkedStudents(state, currentPhone);
+    const schoolIds = [...new Set(students.map((student) => Number(student.schoolId)).filter(Boolean))];
+    const schoolNames = [...new Set(students.map((student) => String(student.schoolName || '').trim()).filter(Boolean))];
+    const studentNames = students.map((student) => String(student.name || '').trim()).filter(Boolean);
+    return {
+      currentPhone,
+      currentPhoneMasked: maskPhone(currentPhone),
+      requestedMobile,
+      requestedMobileMasked: maskPhone(requestedMobile),
+      status: String(item.status || 'pending').trim() || 'pending',
+      note: String(item.note || '').trim(),
+      requestedAt: String(item.requestedAt || '').trim(),
+      verifiedAt: String(item.verifiedAt || '').trim(),
+      updatedAt: String(item.updatedAt || '').trim(),
+      schoolsCount: schoolIds.length,
+      schoolIds,
+      schoolNames,
+      studentsCount: students.length,
+      studentNames,
+      guardianName: students.find((student) => String(student.guardianName || '').trim())?.guardianName || 'ولي الأمر',
+    };
+  }).filter((item) => {
+    if (normalizedRole === 'admin') return true;
+    if (!actorUser) return false;
+    if (normalizedRole === 'principal' || normalizedRole === 'supervisor') {
+      return item.schoolIds.some((schoolId) => Number(schoolId) === Number(actorUser.schoolId));
+    }
+    return false;
+  }).sort((a, b) => new Date(b.updatedAt || b.requestedAt || 0).getTime() - new Date(a.updatedAt || a.requestedAt || 0).getTime());
+}
+
+
+function applyGuardianMobileChange(value, fromPhone, toPhone, touched = new Set()) {
+  if (!value) return 0;
+  let count = 0;
+  if (Array.isArray(value)) {
+    for (const item of value) count += applyGuardianMobileChange(item, fromPhone, toPhone, touched);
+    return count;
+  }
+  if (typeof value !== 'object') return 0;
+  if (touched.has(value)) return 0;
+  touched.add(value);
+  if (typeof value.guardianMobile === 'string' && normalizePhoneNumber(value.guardianMobile) === fromPhone) {
+    value.guardianMobile = toPhone;
+    count += 1;
+  }
+  for (const key of Object.keys(value)) {
+    count += applyGuardianMobileChange(value[key], fromPhone, toPhone, touched);
+  }
+  return count;
+}
+
+
+function reassignSingleStudentGuardian(value, criteria, update, touched = new Set()) {
+  if (!value) return 0;
+  let count = 0;
+  if (Array.isArray(value)) {
+    for (const item of value) count += reassignSingleStudentGuardian(item, criteria, update, touched);
+    return count;
+  }
+  if (typeof value !== 'object') return 0;
+  if (touched.has(value)) return 0;
+  touched.add(value);
+  const sameId = String(value.id || value.studentId || '') === String(criteria.studentId || '');
+  const samePhone = normalizePhoneNumber(value.guardianMobile || '') === normalizePhoneNumber(criteria.currentMobile || '');
+  if (sameId && samePhone) {
+    value.guardianMobile = normalizePhoneNumber(update.newMobile || '');
+    if (typeof update.guardianName === 'string' && String(update.guardianName || '').trim()) {
+      value.guardianName = String(update.guardianName || '').trim();
+    }
+    count += 1;
+  }
+  for (const key of Object.keys(value)) {
+    count += reassignSingleStudentGuardian(value[key], criteria, update, touched);
+  }
+  return count;
+}
+
+
+async function migrateParentMetadata(oldPhone, newPhone) {
+  const oldNormalized = normalizePhoneNumber(oldPhone);
+  const newNormalized = normalizePhoneNumber(newPhone);
+  if (!oldNormalized || !newNormalized || oldNormalized === newNormalized) return;
+  const extraContacts = await getParentExtraContacts(oldNormalized);
+  if (extraContacts.length) {
+    await saveParentExtraContacts(newNormalized, extraContacts);
+    await appMetaDelete(`parent_contacts_${oldNormalized}`);
+  }
+  const settings = await getParentNotificationSettings(oldNormalized);
+  await saveParentNotificationSettings(newNormalized, settings);
+  await appMetaDelete(`parent_notification_settings_${oldNormalized}`);
+  const history = await appMetaGetJson(`parent_history_${oldNormalized}`);
+  if (history) {
+    await appMetaSetJson(`parent_history_${newNormalized}`, { ...history, phone: newNormalized, updatedAt: nowIso() });
+    await appMetaDelete(`parent_history_${oldNormalized}`);
+  }
+}
+
+
+async function decideParentPrimaryChange(state, actorUser, currentPhone, requestedMobile, decision, note = '') {
+  const normalizedCurrent = normalizePhoneNumber(currentPhone);
+  const normalizedRequested = normalizePhoneNumber(requestedMobile);
+  if (!normalizedCurrent || !normalizedRequested) {
+    return { ok: false, statusCode: 400, message: 'بيانات الطلب غير مكتملة.' };
+  }
+  const requests = await listParentPrimaryChangeRequests(state, actorUser);
+  const request = requests.find((item) => item.currentPhone === normalizedCurrent && item.requestedMobile === normalizedRequested);
+  if (!request) {
+    return { ok: false, statusCode: 404, message: 'لم يتم العثور على الطلب أو لا تملك صلاحية الوصول إليه.' };
+  }
+  const action = String(decision || '').trim().toLowerCase();
+  if (action === 'approve') {
+    const nextState = structuredClone(state);
+    const updatedStudents = applyGuardianMobileChange(nextState.schools, normalizedCurrent, normalizedRequested);
+    if (!updatedStudents) {
+      return { ok: false, statusCode: 400, message: 'تعذر العثور على طلاب مرتبطين بالرقم الحالي لتحديثهم.' };
+    }
+    await saveSharedState(nextState, actorUser);
+    await migrateParentMetadata(normalizedCurrent, normalizedRequested);
+    await appMetaDelete(`parent_primary_change_${normalizedCurrent}`);
+    await saveParentPrimaryChangeRequest(normalizedCurrent, {
+      requestedMobile: normalizedRequested,
+      status: 'approved',
+      requestedAt: request.requestedAt || nowIso(),
+      verifiedAt: request.verifiedAt || nowIso(),
+      note: String(note || 'تم اعتماد الطلب وتحديث الرقم الأساسي في بيانات الطلاب.').trim(),
+    });
+    await audit(actorUser, 'approve_parent_primary_change', {
+      currentPhone: normalizedCurrent,
+      requestedMobile: normalizedRequested,
+      updatedStudents,
+      note: String(note || '').trim(),
+    });
+    return { ok: true, message: `تم اعتماد الطلب وتحديث الرقم الأساسي لـ ${updatedStudents} سجل/سجلات طالب.`, updatedStudents };
+  }
+  if (action === 'reject' && String(request.status || '') === 'approved') {
+    const nextState = structuredClone(state);
+    const updatedStudents = applyGuardianMobileChange(nextState.schools, normalizedRequested, normalizedCurrent);
+    if (!updatedStudents) {
+      return { ok: false, statusCode: 400, message: 'تعذر التراجع؛ لم يتم العثور على سجلات مرتبطة بالرقم الجديد.' };
+    }
+    await saveSharedState(nextState, actorUser);
+    await migrateParentMetadata(normalizedRequested, normalizedCurrent);
+    await saveParentPrimaryChangeRequest(normalizedCurrent, {
+      requestedMobile: normalizedRequested,
+      status: 'rejected',
+      requestedAt: request.requestedAt || nowIso(),
+      verifiedAt: request.verifiedAt || nowIso(),
+      note: String(note || 'تم رفض الطلب لاحقًا والتراجع عن التحديث الآلي.').trim(),
+    });
+    await audit(actorUser, 'rollback_parent_primary_change', {
+      currentPhone: normalizedCurrent,
+      requestedMobile: normalizedRequested,
+      updatedStudents,
+      note: String(note || '').trim(),
+    });
+    return { ok: true, message: `تم رفض الطلب لاحقًا والتراجع عن التحديث لـ ${updatedStudents} سجل/سجلات طالب.`, updatedStudents };
+  }
+  await appMetaDelete(`parent_primary_change_${normalizedCurrent}`);
+  await saveParentPrimaryChangeRequest(normalizedCurrent, {
+    requestedMobile: normalizedRequested,
+    status: 'rejected',
+    requestedAt: request.requestedAt || nowIso(),
+    verifiedAt: request.verifiedAt || nowIso(),
+    note: String(note || 'تم رفض الطلب من قبل الإدارة.').trim(),
+  });
+  await audit(actorUser, 'reject_parent_primary_change', {
+    currentPhone: normalizedCurrent,
+    requestedMobile: normalizedRequested,
+    note: String(note || '').trim(),
+  });
+  await appendParentAuditForPhones([normalizedCurrent], {
+    action: 'reject_primary_change',
+    title: 'رفض تحديث الرقم الأساسي',
+    note: String(note || 'تم رفض الطلب من قبل الإدارة.').trim(),
+    actor: actorUser,
+    meta: { currentPhone: normalizedCurrent, requestedMobile: normalizedRequested },
+  });
+  return { ok: true, message: 'تم رفض الطلب وتثبيت الحالة في السجل.' };
+}
+
+
+function parentPrimaryChangeOtpKey(primaryPhone, targetPhone) {
+  return `parent_primary_change_otp_${normalizePhoneNumber(primaryPhone)}_${normalizePhoneNumber(targetPhone)}`;
+}
+
+
+async function createParentPrimaryChangeOtpRequest(primaryPhone, targetPhone, code) {
+  const payload = {
+    primaryPhone: normalizePhoneNumber(primaryPhone),
+    targetPhone: normalizePhoneNumber(targetPhone),
+    codeHash: await hashPassword(String(code || '').trim()),
+    codePreview: String(code || '').trim(),
+    requestedAt: nowIso(),
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    consumedAt: null,
+  };
+  await appMetaSetJson(parentPrimaryChangeOtpKey(primaryPhone, targetPhone), payload);
+  return payload;
+}
+
+
+async function verifyAndConsumeParentPrimaryChangeOtp(primaryPhone, targetPhone, code) {
+  const payload = await appMetaGetJson(parentPrimaryChangeOtpKey(primaryPhone, targetPhone));
+  if (!payload) return { ok: false, message: 'لا يوجد طلب تحقق نشط لهذا الرقم.' };
+  if (payload.consumedAt) return { ok: false, message: 'تم استخدام هذا الرمز مسبقًا.' };
+  if (new Date(payload.expiresAt).getTime() < Date.now()) {
+    await appMetaDelete(parentPrimaryChangeOtpKey(primaryPhone, targetPhone));
+    return { ok: false, message: 'انتهت صلاحية الرمز. اطلب رمزًا جديدًا.' };
+  }
+  if (!verifyPassword(String(code || '').trim(), payload.codeHash)) {
+    return { ok: false, message: 'رمز التحقق غير صحيح.' };
+  }
+  payload.consumedAt = nowIso();
+  await appMetaSetJson(parentPrimaryChangeOtpKey(primaryPhone, targetPhone), payload);
+  return { ok: true, payload };
+}
+
+
+async function getParentNotificationHistory(phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return [];
+  const payload = await appMetaGetJson(`parent_history_${normalizedPhone}`);
+  const rows = Array.isArray(payload?.entries) ? payload.entries : [];
+  return rows.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+}
+
+
+async function appendParentNotificationHistory(phone, entry = {}) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return;
+  const existing = await getParentNotificationHistory(normalizedPhone);
+  const nextEntry = {
+    id: entry.id || `${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+    createdAt: entry.createdAt || nowIso(),
+    sentAt: entry.sentAt || entry.createdAt || nowIso(),
+    title: String(entry.title || 'تنبيه').trim() || 'تنبيه',
+    body: String(entry.body || '').trim(),
+    studentId: entry.studentId ?? null,
+    studentName: String(entry.studentName || '').trim(),
+    schoolId: entry.schoolId ?? null,
+    schoolName: String(entry.schoolName || '').trim(),
+    channel: entry.channel === 'sms' ? 'sms' : entry.channel === 'internal' ? 'internal' : 'whatsapp',
+    recipient: normalizePhoneNumber(entry.recipient || ''),
+    recipientMasked: maskPhone(entry.recipient || ''),
+    recipientType: String(entry.recipientType || 'primary').trim(),
+    status: String(entry.status || 'نجاح').trim(),
+    reason: String(entry.reason || '').trim(),
+    eventType: String(entry.eventType || '').trim(),
+    sourceType: String(entry.sourceType || '').trim() || 'manual',
+    deltaPoints: entry.deltaPoints !== undefined ? Number(entry.deltaPoints) : null,
+  };
+  await appMetaSetJson(`parent_history_${normalizedPhone}`, {
+    phone: normalizedPhone,
+    updatedAt: nowIso(),
+    entries: [nextEntry, ...existing].slice(0, 300),
+  });
+}
+
+
+async function recordParentDeliveries(state, deliveries = [], context = {}) {
+  for (const delivery of deliveries || []) {
+    const recipient = normalizePhoneNumber(delivery?.recipient || '');
+    if (!recipient) continue;
+    const studentName = String(delivery?.studentName || context.studentName || '').trim();
+    const schoolName = String(context.schoolName || '').trim();
+    const schoolId = context.schoolId ?? null;
+    let primaryPhone = recipient;
+    let recipientType = String(delivery?.recipientType || 'primary').trim() || 'primary';
+    if (recipientType !== 'primary') {
+      for (const school of state.schools || []) {
+        const students = getUnifiedSchoolStudentsForServer(school, { includeArchived: false, preferStructure: true });
+        const matched = students.find((student) => String(student.id) === String(delivery?.studentId) && normalizePhoneNumber(student.guardianMobile || '') );
+        if (matched) {
+          primaryPhone = normalizePhoneNumber(matched.guardianMobile || '');
+          break;
+        }
+      }
+    }
+    if (!primaryPhone) continue;
+    await appendParentNotificationHistory(primaryPhone, {
+      title: context.title,
+      body: context.body,
+      studentId: delivery?.studentId ?? context.studentId ?? null,
+      studentName,
+      schoolId,
+      schoolName,
+      channel: delivery?.channel || context.channel,
+      recipient,
+      recipientType,
+      status: delivery?.status || 'نجاح',
+      reason: delivery?.reason || '',
+      eventType: context.eventType || delivery?.eventType || '',
+      sourceType: context.sourceType || 'manual',
+      createdAt: context.createdAt || nowIso(),
+      sentAt: context.createdAt || nowIso(),
+    });
+  }
+}
+
+
+function normalizeRewardStoreItem(item = {}) {
+  const quantity = Math.max(0, Number(item.quantity ?? item.stockQuantity ?? item.remainingQuantity ?? 0) || 0);
+  const remainingQuantity = Math.max(0, Number(item.remainingQuantity ?? quantity) || 0);
+  const sourceType = String(item.sourceType || item.source || 'school');
+  const donorName = String(item.donorName || item.createdByName || '').trim();
+  const approvalStatus = String(item.approvalStatus || item.status || (Number(item.pointsCost || 0) > 0 ? 'active' : 'awaiting_receipt'));
+  return { ...item, quantity, remainingQuantity, sourceType, donorName, approvalStatus, showDonorName: item.showDonorName !== false, pointsCost: Number(item.pointsCost || 0) || 0, showOnScreens: item.showOnScreens !== false, featured: item.featured === true, displayPriority: Number(item.displayPriority || 0) || 0 };
+}
+
+
+function getRewardStoreDonorLabel(item = {}) {
+  const normalized = normalizeRewardStoreItem(item);
+  if (normalized.showDonorName && normalized.donorName) return normalized.donorName;
+  if (normalized.sourceType === 'parent') return 'ولي أمر';
+  if (normalized.sourceType === 'external') return 'متبرع خارجي';
+  return 'إدارة المدرسة';
+}
+
+
+
+function getApprovedRewardStoreItemsForScreen(school, screenConfig = null) {
+  const settings = screenConfig?.rewardStoreSettings || {};
+  const mode = String(settings.mode || 'all');
+  const sourceFilter = String(settings.sourceFilter || 'all');
+  const maxItems = Math.max(1, Math.min(24, Number(settings.maxItems || 8) || 8));
+  let items = getSchoolRewardStore(school).items.map((item) => normalizeRewardStoreItem(item)).filter((item) => item.approvalStatus === 'active' && item.remainingQuantity > 0 && item.showOnScreens !== false);
+  if (sourceFilter !== 'all') items = items.filter((item) => String(item.sourceType || '') === sourceFilter);
+  if (mode === 'featured') items = items.filter((item) => item.featured === true);
+  if (mode === 'marked') items = items.filter((item) => item.showOnScreens !== false);
+  return items.sort((a, b) => Number(b.featured === true) - Number(a.featured === true) || Number(b.displayPriority || 0) - Number(a.displayPriority || 0) || String(a.title || '').localeCompare(String(b.title || ''), 'ar')).slice(0, maxItems);
+}
+
+
+function buildRewardStoreExecutiveSummary(state, schoolId, screenConfig = null) {
+  const school = (state.schools || []).find((item) => Number(item.id) === Number(schoolId));
+  if (!school) return null;
+  const store = getSchoolRewardStore(school);
+  const items = store.items.map((item) => normalizeRewardStoreItem(item));
+  const activeItems = items.filter((item) => item.approvalStatus === 'active' && item.remainingQuantity > 0);
+  const donorNames = new Set(items.map((item) => getRewardStoreDonorLabel(item)).filter(Boolean));
+  const redemptionRequests = Array.isArray(store.redemptionRequests) ? store.redemptionRequests : [];
+  return {
+    totalItems: items.length,
+    activeItems: activeItems.length,
+    pendingProposals: (Array.isArray(store.parentProposals) ? store.parentProposals : []).filter((item) => String(item.status || 'pending') === 'pending').length,
+    donorCount: donorNames.size,
+    remainingQuantity: items.reduce((sum, item) => sum + Number(item.remainingQuantity || 0), 0),
+    pendingRedemptions: redemptionRequests.filter((item) => String(item.status || 'pending') === 'pending').length,
+    approvedRedemptions: redemptionRequests.filter((item) => String(item.status || '') === 'approved').length,
+    deliveredRedemptions: redemptionRequests.filter((item) => String(item.status || '') === 'delivered').length,
+    approvedViaParents: items.filter((item) => String(item.sourceType || '') === 'parent').length,
+    schoolSourceCount: items.filter((item) => String(item.sourceType || '') === 'school').reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    parentSourceCount: items.filter((item) => String(item.sourceType || '') === 'parent').reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    externalSourceCount: items.filter((item) => String(item.sourceType || '') === 'external').reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+    mode: String(screenConfig?.rewardStoreSettings?.mode || 'all'),
+    sourceFilter: String(screenConfig?.rewardStoreSettings?.sourceFilter || 'all'),
+    maxItems: Math.max(1, Math.min(24, Number(screenConfig?.rewardStoreSettings?.maxItems || 8) || 8)),
+    items: getApprovedRewardStoreItemsForScreen(school, screenConfig).map((item) => ({
+      id: item.id,
+      title: item.title || 'جائزة',
+      image: item.image || '',
+      pointsCost: Number(item.pointsCost || 0),
+      quantity: Number(item.quantity || 0),
+      remainingQuantity: Number(item.remainingQuantity || 0),
+      donorLabel: getRewardStoreDonorLabel(item),
+      featured: item.featured === true,
+      showOnScreens: item.showOnScreens !== false,
+      displayPriority: Number(item.displayPriority || 0),
+      sourceType: item.sourceType || 'school',
+    })),
+  };
+}
+
+
+async function attachRewardStoreSummaryToLive(state, schoolId, live, screenConfig = null) {
+  try {
+    const rewardStoreSummary = buildRewardStoreExecutiveSummary(state, schoolId, screenConfig);
+    return { ...(live || {}), rewardStoreSummary };
+  } catch {
+    return live;
+  }
+}
+
+
+async function buildParentProfile(state, phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  const students = getParentLinkedStudents(state, normalizedPhone);
+  if (!students.length) return null;
+  const guardianName = students.find((item) => String(item.guardianName || '').trim())?.guardianName || 'ولي الأمر';
+  const totalPoints = students.reduce((sum, item) => sum + Number(item.points || 0), 0);
+  const avgAttendance = students.length ? Math.round(students.reduce((sum, item) => sum + Number(item.attendanceRate || 0), 0) / students.length) : 0;
+  const extraContacts = await getParentExtraContacts(normalizedPhone);
+  const notificationSettings = await getParentNotificationSettings(normalizedPhone);
+  const notificationHistory = await getParentNotificationHistory(normalizedPhone);
+  const primaryChangeRequest = await getParentPrimaryChangeRequest(normalizedPhone);
+  const accountControl = await getParentAccountControl(normalizedPhone);
+  const auditHistory = await getParentAuditHistory(normalizedPhone);
+  const linkedStudentIds = new Set(students.map((item) => String(item.studentId || item.id || '')));
+  const latestMessages = notificationHistory
+    .filter((item) => !item.studentId || linkedStudentIds.has(String(item.studentId)))
+    .slice(0, 12);
+  const schoolIds = [...new Set(students.map((item) => Number(item.schoolId)).filter(Boolean))];
+  const rewardCatalog = schoolIds.flatMap((schoolId) => {
+    const school = (state.schools || []).find((item) => Number(item.id) === Number(schoolId));
+    const store = getSchoolRewardStore(school);
+    return store.items.map((item) => normalizeRewardStoreItem(item)).filter((item) => item && item.isActive !== false && String(item.approvalStatus || '') === 'active' && Number(item.remainingQuantity || 0) > 0).map((item) => ({
+      id: item.id,
+      schoolId,
+      schoolName: school?.name || '',
+      title: item.title || 'جائزة',
+      pointsCost: Number(item.pointsCost || 0),
+      image: item.image || '',
+      note: item.note || '',
+      source: item.sourceType || 'school',
+      donorName: getRewardStoreDonorLabel(item),
+      quantity: Number(item.quantity || 0),
+      remainingQuantity: Number(item.remainingQuantity || 0),
+    }));
+  });
+  const rewardProposals = schoolIds.flatMap((schoolId) => {
+    const school = (state.schools || []).find((item) => Number(item.id) === Number(schoolId));
+    const store = getSchoolRewardStore(school);
+    return store.parentProposals.filter((item) => normalizePhoneNumber(item.mobile || '') === normalizedPhone).map((item) => ({
+      ...item,
+      mobileMasked: maskPhone(item.mobile || normalizedPhone),
+      schoolName: school?.name || '',
+    }));
+  });
+  const rewardRedemptions = schoolIds.flatMap((schoolId) => {
+    const school = (state.schools || []).find((item) => Number(item.id) === Number(schoolId));
+    const store = getSchoolRewardStore(school);
+    const studentIds = new Set(students.filter((entry) => Number(entry.schoolId) === Number(schoolId)).map((entry) => String(entry.studentId || entry.id || '')));
+    return store.redemptionRequests.filter((item) => studentIds.has(String(item.studentId || '')) || normalizePhoneNumber(item.mobile || '') === normalizedPhone).map((item) => ({
+      ...item,
+      schoolName: school?.name || '',
+    }));
+  });
+  return {
+    mobile: normalizedPhone,
+    mobileMasked: maskPhone(normalizedPhone),
+    guardianName,
+    studentsCount: students.length,
+    totalPoints,
+    avgAttendance,
+    schoolsCount: new Set(students.map((item) => item.schoolId)).size,
+    students,
+    latestMessages,
+    extraContacts: extraContacts.map((item) => ({
+      ...item,
+      mobileMasked: maskPhone(item.mobile),
+    })),
+    notificationSettings,
+    notificationHistory,
+    primaryChangeRequest,
+    accountControl,
+    auditHistory,
+    rewardCatalog,
+    rewardProposals,
+    rewardRedemptions,
+  };
+}
+
+
+async function createParentOtpRequest(phone, code) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  const payload = {
+    phone: normalizedPhone,
+    codeHash: await hashPassword(String(code || '').trim()),
+    codePreview: String(code || '').trim(),
+    requestedAt: nowIso(),
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    consumedAt: null,
+  };
+  await appMetaSetJson(parentOtpKey(normalizedPhone), payload);
+  return payload;
+}
+
+
+async function verifyAndConsumeParentOtp(phone, code) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  const payload = await appMetaGetJson(parentOtpKey(normalizedPhone));
+  if (!payload) return { ok: false, message: 'لا يوجد طلب تحقق نشط لهذا الرقم.' };
+  if (payload.consumedAt) return { ok: false, message: 'تم استخدام هذا الرمز مسبقًا.' };
+  if (new Date(payload.expiresAt).getTime() < Date.now()) {
+    await appMetaDelete(parentOtpKey(normalizedPhone));
+    return { ok: false, message: 'انتهت صلاحية الرمز. اطلب رمزًا جديدًا.' };
+  }
+  if (!verifyPassword(String(code || '').trim(), payload.codeHash)) {
+    return { ok: false, message: 'رمز التحقق غير صحيح.' };
+  }
+  payload.consumedAt = nowIso();
+  await appMetaSetJson(parentOtpKey(normalizedPhone), payload);
+  return { ok: true, payload };
+}
+
+
+async function createParentSession(phone, profile) {await cleanupExpiredSessions();
+  const token = crypto.randomBytes(32).toString('hex');
+  await dbRun('INSERT INTO sessions (token, user_id, username, role, school_id, created_at, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)', [token, 0, buildParentUsername(phone), 'parent', profile?.students?.[0]?.schoolId ?? null, nowIso(), daysFromNow(PARENT_SESSION_DAYS)]);
+  await audit({ username: buildParentUsername(phone), role: 'parent' }, 'parent_login', { mobile: normalizePhoneNumber(phone), studentsCount: profile?.studentsCount || 0 });
+  return token;
+}
+
+
+async function getParentProfileFromToken(token) {
+  const session = await getSession(token);
+  if (!session || session.role !== 'parent' || !String(session.username || '').startsWith('parent:')) return null;
+  const phone = String(session.username || '').replace(/^parent:/, '');
+  const state = getSharedState();
+  const profile = await buildParentProfile(state, phone);
+  if (!profile) return null;
+  return profile;
+}
+
+
+async function getParentLatestSessionInfo(phone) {
+  const normalizedPhone = normalizePhoneNumber(phone);
+  if (!normalizedPhone) return null;
+  const row = await dbQueryOne(
+    'SELECT created_at, expires_at FROM sessions WHERE role = $1 AND username = $2 ORDER BY created_at DESC LIMIT 1',
+    ['parent', buildParentUsername(normalizedPhone)]
+  );
+  if (!row) return null;
+  return {
+    lastLoginAt: String(row.created_at || '').trim(),
+    expiresAt: String(row.expires_at || '').trim(),
+    active: row.expires_at ? new Date(String(row.expires_at)).getTime() > Date.now() : false,
+  };
+}
+
+
+
+
+async function buildParentPortalExecutiveSummary(state, schoolId, actorUser = null) {
+  const normalizedSchoolId = Number(schoolId);
+  const scopedActor = actorUser || { role: 'principal', schoolId: normalizedSchoolId };
+  const parents = (await listParentAccounts(state, scopedActor)).filter((parent) => (Array.isArray(parent.schoolIds) ? parent.schoolIds.map((value) => Number(value)).includes(normalizedSchoolId) : false));
+  const schoolStudents = getUnifiedSchoolStudentsForServer((state.schools || []).find((item) => Number(item.id) === normalizedSchoolId) || {}, { includeArchived: false, preferStructure: true });
+  const policy = await getParentPrimaryChangePolicy(normalizedSchoolId);
+  const portal = await getParentPortalSettings(normalizedSchoolId);
+  const alerts = await getParentPrimaryChangeAlerts(normalizedSchoolId);
+  const linkedParents = parents.length;
+  const activeParents = parents.filter((parent) => parent.latestSession?.active).length;
+  const suspendedParents = parents.filter((parent) => parent.accountControl?.suspended).length;
+  const pendingRequests = parents.filter((parent) => String(parent.primaryChangeRequest?.status || '').trim() === 'pending').length;
+  const approvedToday = alerts.filter((entry) => {
+    const eventType = String(entry.eventType || '').trim();
+    const sameDay = String(entry.createdAt || '').slice(0, 10) === todayIso();
+    return sameDay && ['parent_primary_auto_approved', 'parent_primary_approved'].includes(eventType);
+  }).length;
+  const failedDeliveries = alerts.filter((entry) => String(entry.eventType || '').trim() === 'parent_delivery_failed').length;
+  const extraContacts = parents.reduce((total, parent) => total + Number(parent.extraContactsCount || (Array.isArray(parent.extraContacts) ? parent.extraContacts.length : 0) || 0), 0);
+  const WhatsAppPreferred = parents.filter((parent) => ['whatsapp', 'both'].includes(String(parent.notificationSettings?.preferredChannel || '').trim())).length;
+  const studentsWithGuardian = schoolStudents.filter((student) => normalizePhoneNumber(student.guardianMobile || '')).length;
+  return {
+    portalEnabled: portal.enabled !== false,
+    approvalMode: policy.mode === 'manual' ? 'manual' : 'auto',
+    linkedParents,
+    activeParents,
+    suspendedParents,
+    pendingRequests,
+    approvedToday,
+    failedDeliveries,
+    extraContacts,
+    preferredWhatsappCount: WhatsAppPreferred,
+    studentsWithGuardian,
+    coverageRate: schoolStudents.length ? Math.round((linkedParents / schoolStudents.length) * 100) : 0,
+    guardianCoverageRate: schoolStudents.length ? Math.round((studentsWithGuardian / schoolStudents.length) * 100) : 0,
+    alertCount: alerts.length,
+    lastAlertAt: alerts[0]?.createdAt || '',
+  };
+}
+
+async function listParentAuditFeed(state, actorUser = null) {
+  const parents = await listParentAccounts(state, actorUser);
+  const rows = [];
+  for (const parent of parents) {
+    const entries = await getParentAuditHistory(parent.mobile);
+    for (const entry of entries || []) {
+      const schoolId = entry.schoolId == null ? null : Number(entry.schoolId);
+      if (actorUser && ['principal', 'supervisor'].includes(String(actorUser.role || '').trim().toLowerCase())) {
+        const actorSchoolId = Number(actorUser.schoolId);
+        const linkedSchoolIds = Array.isArray(parent.schoolIds) ? parent.schoolIds.map((value) => Number(value)) : [];
+        if (schoolId && schoolId !== actorSchoolId) continue;
+        if (!schoolId && !linkedSchoolIds.includes(actorSchoolId)) continue;
+      }
+      rows.push({
+        id: entry.id || `${parent.mobile}_${Date.now()}`,
+        createdAt: entry.createdAt || '',
+        action: String(entry.action || '').trim(),
+        title: String(entry.title || '').trim(),
+        note: String(entry.note || '').trim(),
+        actorName: String(entry.actorName || '').trim(),
+        actorRole: String(entry.actorRole || '').trim(),
+        schoolId,
+        schoolName: String(entry.schoolName || parent.schoolNames?.[0] || '').trim(),
+        studentId: entry.studentId ?? null,
+        studentName: String(entry.studentName || '').trim(),
+        guardianName: String(parent.guardianName || '').trim() || 'ولي الأمر',
+        mobile: parent.mobile,
+        mobileMasked: parent.mobileMasked || maskPhone(parent.mobile),
+        scope: 'parent',
+      });
+    }
+  }
+  const policyMeta = await getParentPortalPolicyMeta();
+  const globalAlerts = Array.isArray(policyMeta?.alerts) ? policyMeta.alerts : [];
+  for (const entry of globalAlerts) {
+    if (actorUser && ['principal', 'supervisor'].includes(String(actorUser.role || '').trim().toLowerCase())) {
+      const actorSchoolId = Number(actorUser.schoolId);
+      const entrySchoolId = entry?.schoolId == null ? null : Number(entry.schoolId);
+      if (entrySchoolId && entrySchoolId !== actorSchoolId) continue;
+    }
+    rows.push({
+      id: entry.id || `school_alert_${Date.now()}`,
+      createdAt: entry.createdAt || '',
+      action: String(entry.action || 'policy_update').trim(),
+      title: String(entry.message || entry.title || 'إجراء عام على بوابة ولي الأمر').trim(),
+      note: String(entry.note || entry.message || '').trim(),
+      actorName: String(entry.actorName || '').trim(),
+      actorRole: String(entry.actorRole || '').trim(),
+      schoolId: entry.schoolId == null ? null : Number(entry.schoolId),
+      schoolName: String(entry.schoolName || '').trim(),
+      studentId: null,
+      studentName: '',
+      guardianName: '',
+      mobile: '',
+      mobileMasked: '',
+      scope: 'school',
+    });
+  }
+  rows.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  const summary = {
+    total: rows.length,
+    parents: parents.length,
+    schools: new Set(rows.map((item) => item.schoolId).filter((value) => value != null)).size,
+    byAction: rows.reduce((acc, item) => {
+      const key = String(item.action || 'other').trim() || 'other';
+      acc[key] = Number(acc[key] || 0) + 1;
+      return acc;
+    }, {}),
+  };
+  return { entries: rows.slice(0, 1000), summary };
+}
+
+
+async function listParentAccounts(state, actorUser = null) {
+  const normalizedRole = String(actorUser?.role || '').trim().toLowerCase();
+  const scopedSchools = (state.schools || []).filter((school) => {
+    if (normalizedRole === 'superadmin' || normalizedRole === 'admin') return true;
+    if (!actorUser) return false;
+    if (normalizedRole === 'principal' || normalizedRole === 'supervisor') return Number(school.id) === Number(actorUser.schoolId);
+    return false;
+  });
+  const map = new Map();
+  for (const school of scopedSchools) {
+    const students = getUnifiedSchoolStudentsForServer(school, { includeArchived: false, preferStructure: true });
+    for (const student of students) {
+      const phone = normalizePhoneNumber(student.guardianMobile || '');
+      if (!phone) continue;
+      if (!map.has(phone)) {
+        map.set(phone, {
+          mobile: phone,
+          mobileMasked: maskPhone(phone),
+          guardianName: String(student.guardianName || '').trim() || 'ولي الأمر',
+          schoolIds: new Set(),
+          schoolNames: new Set(),
+          students: [],
+        });
+      }
+      const item = map.get(phone);
+      item.schoolIds.add(Number(school.id));
+      item.schoolNames.add(String(school.name || '').trim());
+      item.students.push({
+        schoolId: school.id,
+        schoolName: school.name || 'المدرسة',
+        studentId: student.id,
+        name: student.fullName || student.name || 'طالب',
+        className: extractClassLabelForParent(student),
+        status: student.status || 'غير مسجل',
+        points: Number(student.points || 0),
+      });
+      if (!String(item.guardianName || '').trim() && String(student.guardianName || '').trim()) item.guardianName = String(student.guardianName || '').trim();
+    }
+  }
+  const rows = [];
+  for (const entry of map.values()) {
+    const extraContacts = await getParentExtraContacts(entry.mobile);
+    const notificationSettings = await getParentNotificationSettings(entry.mobile);
+    const latestSession = await getParentLatestSessionInfo(entry.mobile);
+    const primaryChangeRequest = await getParentPrimaryChangeRequest(entry.mobile);
+    const accountControl = await getParentAccountControl(entry.mobile);
+    rows.push({
+      mobile: entry.mobile,
+      mobileMasked: entry.mobileMasked,
+      guardianName: entry.guardianName,
+      studentsCount: entry.students.length,
+      schoolIds: [...entry.schoolIds],
+      schoolNames: [...entry.schoolNames].filter(Boolean),
+      studentNames: entry.students.map((student) => student.name),
+      students: entry.students.slice(0, 12),
+      extraContacts: extraContacts.map((contact) => ({ ...contact, mobileMasked: maskPhone(contact.mobile) })),
+      extraContactsCount: extraContacts.length,
+      notificationSettings,
+      latestSession,
+      primaryChangeRequest,
+      accountControl,
+      status: accountControl?.suspended ? 'suspended' : latestSession?.active ? 'active' : primaryChangeRequest?.status === 'pending' ? 'pending' : 'idle',
+    });
+  }
+  return rows.sort((a, b) => {
+    const aTime = new Date(a.latestSession?.lastLoginAt || a.primaryChangeRequest?.requestedAt || 0).getTime();
+    const bTime = new Date(b.latestSession?.lastLoginAt || b.primaryChangeRequest?.requestedAt || 0).getTime();
+    return bTime - aTime;
+  });
+}
+
+// ===== نهاية دوال بوابة ولي الأمر المساعدة =====
+
 // ===== نهاية الدوال المساعدة =====
 function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
   const school = state.schools.find((item) => Number(item.id) === Number(schoolId));
@@ -6318,7 +7529,7 @@ function render(list){var rows=(list||[]).filter(matches);$('requestsList').inne
   + '<div class="chips"><span class="chip">الحالي: '+(item.currentPhoneMasked||item.currentPhone||'—')+'</span><span class="chip">الجديد: '+(item.requestedMobileMasked||item.requestedMobile||'—')+'</span><span class="chip">وقت الطلب: '+(item.requestedAt||'—')+'</span></div>'
   + '<div style="margin-top:12px;line-height:1.9"><b>الطلاب:</b> '+students+'</div>'
   + '<div class="muted" style="margin-top:8px">'+(item.note||'')+'</div>'
-  + ((item.status==='pending'||item.status==='approved') ? '<div class="grid grid-2" style="margin-top:14px"><div><textarea id="note_'+item.currentPhone+'_'+item.requestedMobile+'" rows="3" placeholder="ملاحظة الإدارة (اختياري)"></textarea></div><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">'+(item.status==='pending'?'<button class="btn" onclick="decide(\''+item.currentPhone+'\',\''+item.requestedMobile+'\',\'approve\')">اعتماد وتحديث الرقم</button>':'')+'<button class="btn reject" onclick="decide(\''+item.currentPhone+'\',\''+item.requestedMobile+'\',\'reject\')">'+(item.status==='approved'?'رفض لاحق / تراجع':'رفض الطلب')+'</button></div></div>' : '')
+  + ((item.status==='pending'||item.status==='approved') ? '<div class="grid grid-2" style="margin-top:14px"><div><textarea id="note_'+item.currentPhone+'_'+item.requestedMobile+'" rows="3" placeholder="ملاحظة الإدارة (اختياري)"></textarea></div><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">'+(item.status==='pending'?'<button class="btn" onclick="decide(''+item.currentPhone+'',''+item.requestedMobile+'','approve')">اعتماد وتحديث الرقم</button>':'')+'<button class="btn reject" onclick="decide(''+item.currentPhone+'',''+item.requestedMobile+'','reject')">'+(item.status==='approved'?'رفض لاحق / تراجع':'رفض الطلب')+'</button></div></div>' : '')
   + '</div>';
 }).join('') || '<div class="item">لا توجد طلبات مطابقة للفلترة الحالية.</div>';
 }
