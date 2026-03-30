@@ -3265,6 +3265,34 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
   const definition = catalog.find((item) => String(item.id) === String(payload.definitionId));
   if (!definition) return { ok: false, message: 'البند المحدد غير موجود.' };
   const deltaPoints = Number(definition.points || 0);
+  // ===== التحقق من سقف نقاط المعلم اليومي (للمكافآت فقط) =====
+  if (actionType === 'reward' && deltaPoints > 0) {
+    const cap = school.teacherPointsCap;
+    if (cap && cap.enabled) {
+      const classroomId = payload.classroomId ? String(payload.classroomId) : null;
+      let dailyCap = Number(cap.defaultCap);
+      if (classroomId && cap.classCaps && cap.classCaps[classroomId] !== undefined && cap.classCaps[classroomId] !== '') {
+        dailyCap = Number(cap.classCaps[classroomId]);
+      }
+      if (!isNaN(dailyCap) && dailyCap > 0) {
+        const todayIso = getTodayIso();
+        const actorName = actor?.name || actor?.username || '';
+        const todayRewardPoints = (next.actionLog || []).filter((entry) => {
+          if (entry.isoDate !== todayIso) return false;
+          if (entry.actionType !== 'reward') return false;
+          if (Number(entry.schoolId) !== Number(school.id)) return false;
+          if (actorName && entry.actorName && entry.actorName !== actorName) return false;
+          if (classroomId && entry.classroomId && String(entry.classroomId) !== classroomId) return false;
+          return true;
+        }).reduce((sum, entry) => sum + Math.abs(Number(entry.deltaPoints || 0)), 0);
+        if (todayRewardPoints + deltaPoints > dailyCap) {
+          const remaining = Math.max(0, dailyCap - todayRewardPoints);
+          return { ok: false, message: `تجاوزت الحد اليومي لنقاط المكافآت (${dailyCap} نقطة لهذا الفصل). المتبقي: ${remaining} نقطة.` };
+        }
+      }
+    }
+  }
+  // ===================================================
   const company = school.companies.find((item) => item.id === student.companyId);
   student.points = Number(student.points || 0) + deltaPoints;
   if (company) {
@@ -3289,6 +3317,7 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
     isoDate: getTodayIso(),
     time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
     deltaPoints,
+    classroomId: payload.classroomId ? String(payload.classroomId) : null,
   };
   next.actionLog = [logEntry, ...next.actionLog].slice(0, 1200);
   return { ok: true, state: hydrateSharedState(next), logEntry, student, message: `تم تنفيذ ${actionType === 'reward' ? 'المكافأة' : 'الخصم'} على ${student.name}.` };
@@ -4419,6 +4448,28 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, student: updatedStudent, state: sanitizeStateForClient(saved) });
     }
 
+    // ===== API سقف نقاط المعلم اليومي =====
+    const teacherPointsCapMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/teacher-points-cap$/);
+    if (teacherPointsCapMatch && req.method === 'PATCH') {
+      const actor = await getUserFromToken(token);
+      const schoolId = Number(teacherPointsCapMatch[1]);
+      if (!actor || (actor.role !== 'superadmin' && (Number(actor.schoolId) !== schoolId || actor.role !== 'principal'))) {
+        return sendJson(res, 403, { ok: false, message: 'ليس لديك صلاحية تعديل إعدادات سقف النقاط.' });
+      }
+      const body = await readJsonBody(req);
+      const current = await getSharedState();
+      const next = structuredClone(current);
+      const school = next.schools.find((item) => Number(item.id) === schoolId);
+      if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      school.teacherPointsCap = {
+        enabled: Boolean(body?.enabled),
+        defaultCap: body?.defaultCap !== undefined ? Number(body.defaultCap) || 150 : 150,
+        classCaps: body?.classCaps && typeof body.classCaps === 'object' ? body.classCaps : {},
+      };
+      const saved = saveSharedState(next, actor);
+      return sendJson(res, 200, { ok: true, message: 'تم حفظ إعدادات سقف النقاط بنجاح.', state: sanitizeStateForClient(saved) });
+    }
+    // =====================================================
     const schoolActionApplyMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/actions\/apply$/);
     if (schoolActionApplyMatch && req.method === 'POST') {
       const actor = await getUserFromToken(token);

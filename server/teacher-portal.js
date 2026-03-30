@@ -829,7 +829,7 @@ function getUnifiedStudents(school) {
       if (!seen.has(st.id)) {
         seen.add(st.id);
         const compositeId = 'structure-' + cls.id + '-' + st.id;
-        students.push({ ...st, id: compositeId, rawId: st.id, name: st.fullName || st.name || '—', companyName: cls.companyName || cls.name || '—', className: cls.name || '—' });
+        students.push({ ...st, id: compositeId, rawId: st.id, name: st.fullName || st.name || '—', companyName: cls.companyName || cls.name || '—', className: cls.name || '—', classroomId: cls.id });
       }
     }
   }
@@ -1317,6 +1317,7 @@ async function submitAction() {
       actionType: actionType,
       note: note,
       method: identifyMethod === 'face' ? 'بصمة وجه' : identifyMethod === 'barcode' ? 'QR مباشر' : 'إدخال يدوي',
+      classroomId: selectedStudent.classroomId || null,
     };
     const data = await api('/api/schools/' + selectedSchool.id + '/actions/apply', { method: 'POST', body });
     if (data.ok) {
