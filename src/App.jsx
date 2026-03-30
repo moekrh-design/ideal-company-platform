@@ -62,6 +62,7 @@ import {
   FolderOpen,
   Info,
   ChevronDown,
+  AlertCircle,
 } from "lucide-react";
 import {
   Bar,
@@ -22836,8 +22837,27 @@ function UserEditor({ editingUser, schools, currentUser, actionLog, settings, on
   const teacherSpecialActiveItems = teacherSpecialItems.filter((item) => item.isActive !== false).length;
   const teacherSpecialSubjectsCount = new Set(teacherSpecialItems.map((item) => item.subject).filter(Boolean)).size;
 
+  const [saveStatus, setSaveStatus] = useState('idle'); // idle | saving | saved | error
+  const [saveMessage, setSaveMessage] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaveStatus('saving');
+    setSaveMessage('');
+    try {
+      await onSave(form);
+      setSaveStatus('saved');
+      setSaveMessage('تم حفظ التعديلات بنجاح');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    } catch (err) {
+      setSaveStatus('error');
+      setSaveMessage(err?.message || 'حدث خطأ أثناء الحفظ');
+      setTimeout(() => setSaveStatus('idle'), 4000);
+    }
+  };
+
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onSave(form); }} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Input label="الاسم" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
       <Input label="البريد الإلكتروني" value={form.email || ''} onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value.toLowerCase() }))} />
       <Input label="رقم الجوال" value={form.mobile || ''} onChange={(e) => setForm((prev) => ({ ...prev, mobile: e.target.value }))} placeholder="9665XXXXXXXX" />
@@ -22938,9 +22958,30 @@ function UserEditor({ editingUser, schools, currentUser, actionLog, settings, on
           <TeacherSpecialItemsEditor subjects={form.subjects || []} items={form.specialItems || []} onChange={(items) => setForm((prev) => ({ ...prev, specialItems: items }))} />
         </div>
       ) : null}
-      <div className="flex flex-wrap gap-3 md:col-span-2">
-        <button type="submit" className="inline-flex items-center gap-2 rounded-2xl bg-sky-700 px-5 py-3 font-bold text-white"><Save className="h-4 w-4" /> حفظ التعديلات</button>
+      <div className="flex flex-wrap items-center gap-3 md:col-span-2">
+        <button
+          type="submit"
+          disabled={saveStatus === 'saving'}
+          className={`inline-flex items-center gap-2 rounded-2xl px-5 py-3 font-bold text-white transition-all duration-300 ${
+            saveStatus === 'saved' ? 'bg-emerald-600 scale-105 shadow-lg shadow-emerald-200' :
+            saveStatus === 'error' ? 'bg-rose-600' :
+            saveStatus === 'saving' ? 'bg-sky-400 cursor-wait' :
+            'bg-sky-700 hover:bg-sky-800 hover:scale-105'
+          }`}
+        >
+          {saveStatus === 'saving' ? <><RefreshCw className="h-4 w-4 animate-spin" /> جارٍ الحفظ...</> :
+           saveStatus === 'saved' ? <><CheckCircle className="h-4 w-4" /> تم الحفظ ✓</> :
+           saveStatus === 'error' ? <><AlertCircle className="h-4 w-4" /> فشل الحفظ</> :
+           <><Save className="h-4 w-4" /> حفظ التعديلات</>}
+        </button>
         <button type="button" onClick={onCancel} className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-5 py-3 font-bold text-slate-700"><RefreshCw className="h-4 w-4" /> إلغاء</button>
+        {saveMessage && (
+          <span className={`text-sm font-bold ${
+            saveStatus === 'saved' || saveStatus === 'idle' && saveMessage.includes('نجاح') ? 'text-emerald-700' : 'text-rose-700'
+          }`}>
+            {saveMessage}
+          </span>
+        )}
       </div>
     </form>
   );
