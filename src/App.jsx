@@ -6271,6 +6271,8 @@ function SchoolStructurePage({ selectedSchool, schoolUsers = [], currentUser, on
   const [importTargetClassroomId, setImportTargetClassroomId] = useState("");
   const [importColumnMap, setImportColumnMap] = useState({});
   const [screenLinkSavingId, setScreenLinkSavingId] = useState("");
+  const [duplicateAlert, setDuplicateAlert] = useState(null); // { student, classroom } أو null
+  const [duplicateConfirmModal, setDuplicateConfirmModal] = useState(null); // { payload, conflictStudent, conflictClassroom }
   const importInputRef = useRef(null);
   const legacyArchive = selectedSchool?.legacyArchive || null;
   const legacyArchiveStudentsCount = Array.isArray(legacyArchive?.students) ? legacyArchive.students.length : 0;
@@ -6457,16 +6459,42 @@ function SchoolStructurePage({ selectedSchool, schoolUsers = [], currentUser, on
     }
   };
 
+  // البحث عن طالب مكرر عبر جميع فصول المدرسة
+  const findDuplicateAcrossClassrooms = (identityNumber, fullName, excludeClassroomId = null) => {
+    const allClassrooms = Array.isArray(selectedSchool?.structure?.classrooms) ? selectedSchool.structure.classrooms : [];
+    const normalizedId = String(identityNumber || "").trim();
+    const normalizedName = String(fullName || "").trim().toLowerCase();
+    for (const classroom of allClassrooms) {
+      if (excludeClassroomId && String(classroom.id) === String(excludeClassroomId)) continue;
+      const students = Array.isArray(classroom.students) ? classroom.students : [];
+      for (const student of students) {
+        if (student.status === 'archived') continue;
+        const sameId = normalizedId && String(student.identityNumber || "").trim() === normalizedId;
+        const sameName = normalizedName && String(student.fullName || "").trim().toLowerCase() === normalizedName;
+        if (sameId || sameName) return { student, classroom };
+      }
+    }
+    return null;
+  };
+
   const handleAddStudent = () => {
     if (!selectedClassroom || !studentForm.fullName.trim()) return;
-    onAddStudentToSchoolStructureClassroom?.(selectedClassroom.id, {
+    const payload = {
       fullName: studentForm.fullName,
       guardianName: studentForm.guardianName,
       guardianMobile: studentForm.guardianMobile,
       identityNumber: studentForm.identityNumber,
       notes: studentForm.notes,
-    });
+    };
+    // فحص التكرار عبر كل الفصول (باستثناء الفصل الحالي)
+    const conflict = findDuplicateAcrossClassrooms(payload.identityNumber, payload.fullName, selectedClassroom.id);
+    if (conflict) {
+      setDuplicateConfirmModal({ payload, conflictStudent: conflict.student, conflictClassroom: conflict.classroom });
+      return;
+    }
+    onAddStudentToSchoolStructureClassroom?.(selectedClassroom.id, payload);
     setStudentForm({ fullName: "", guardianName: "", guardianMobile: "", identityNumber: "", notes: "" });
+    setDuplicateAlert(null);
   };
 
   const startEditStudent = (student) => {
@@ -6992,9 +7020,29 @@ function SchoolStructurePage({ selectedSchool, schoolUsers = [], currentUser, on
                     <Input label="اسم الطالب" value={studentForm.fullName} onChange={(e) => setStudentForm((prev) => ({ ...prev, fullName: e.target.value }))} placeholder="الاسم الرباعي" />
                     <Input label="اسم ولي الأمر" value={studentForm.guardianName} onChange={(e) => setStudentForm((prev) => ({ ...prev, guardianName: e.target.value }))} placeholder="اسم ولي الأمر" />
                     <Input label="رقم جوال ولي الأمر" value={studentForm.guardianMobile} onChange={(e) => setStudentForm((prev) => ({ ...prev, guardianMobile: e.target.value }))} placeholder="05xxxxxxxx أو 9665xxxxxxxx" />
-                    <Input label="رقم الهوية / الإقامة" value={studentForm.identityNumber} onChange={(e) => setStudentForm((prev) => ({ ...prev, identityNumber: e.target.value }))} placeholder="كما يظهر في ملف نور" />
+                    <Input label="رقم الهوية / الإقامة" value={studentForm.identityNumber} onChange={(e) => {
+                      const val = e.target.value;
+                      setStudentForm((prev) => ({ ...prev, identityNumber: val }));
+                      if (val.trim().length >= 5) {
+                        const conflict = findDuplicateAcrossClassrooms(val, studentForm.fullName, selectedClassroom?.id);
+                        setDuplicateAlert(conflict);
+                      } else {
+                        setDuplicateAlert(null);
+                      }
+                    }} placeholder="كما يظهر في ملف نور" />
                     <div className="md:col-span-2"><label className="mb-2 block text-sm font-bold text-slate-700">ملاحظات</label><textarea value={studentForm.notes} onChange={(e) => setStudentForm((prev) => ({ ...prev, notes: e.target.value }))} rows={3} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-sky-500 focus:ring-4 focus:ring-sky-100" placeholder="ملاحظات إضافية إن وجدت" /></div>
                   </div>
+                  {duplicateAlert ? (
+                    <div className="mt-3 flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3">
+                      <ShieldAlert className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+                      <div className="text-sm">
+                        <div className="font-black text-amber-900">تحذير: هذا الطالب موجود بالفعل</div>
+                        <div className="mt-0.5 text-amber-800">الاسم: <span className="font-bold">{duplicateAlert.student.fullName}</span> · الفصل: <span className="font-bold">{duplicateAlert.classroom.name || 'فصل غير مسمى'}</span></div>
+                        {duplicateAlert.student.identityNumber ? <div className="mt-0.5 text-amber-700">رقم الهوية: {duplicateAlert.student.identityNumber}</div> : null}
+                        <div className="mt-1 text-amber-700">سيظهر خيار التأكيد عند الضغط على زر الإضافة.</div>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <button type="button" onClick={handleAddStudent} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700"><Plus className="h-4 w-4" /> إضافة الطالب إلى الفصل</button>
                     <div className="text-sm text-slate-500">صار بالإمكان بعد هذه الخطوة تعديل الطالب ونقله وأرشفته.</div>
@@ -7194,7 +7242,148 @@ function SchoolStructurePage({ selectedSchool, schoolUsers = [], currentUser, on
           ].map((item) => <div key={item} className="rounded-2xl bg-white p-4 text-sm font-bold text-slate-700 ring-1 ring-slate-200">{item}</div>)}
         </div>
       </SectionCard>
+
+      {/* تقرير الطلاب المكررين عبر الفصول */}
+      {(() => {
+        const allClassrooms = Array.isArray(selectedSchool?.structure?.classrooms) ? selectedSchool.structure.classrooms : [];
+        // جمع كل الطلاب مع معرف فصلهم
+        const allStudentsFlat = allClassrooms.flatMap((cls) =>
+          (Array.isArray(cls.students) ? cls.students : [])
+            .filter((s) => s.status !== 'archived')
+            .map((s) => ({ ...s, classroomId: String(cls.id), classroomName: cls.name || 'فصل غير مسمى' }))
+        );
+        // تجميع حسب رقم الهوية
+        const byId = new Map();
+        allStudentsFlat.forEach((s) => {
+          const key = String(s.identityNumber || '').trim();
+          if (!key) return;
+          if (!byId.has(key)) byId.set(key, []);
+          byId.get(key).push(s);
+        });
+        const duplicateGroups = [...byId.entries()]
+          .filter(([, group]) => group.length > 1)
+          .map(([id, group]) => ({ id, group }));
+        if (!duplicateGroups.length) {
+          return (
+            <SectionCard title="الطلاب المكررون عبر الفصول" icon={ShieldCheck}>
+              <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4">
+                <BadgeCheck className="h-6 w-6 flex-shrink-0 text-emerald-600" />
+                <div className="text-sm font-bold text-emerald-800">لا يوجد أي طالب مكرر برقم هوية متطابقة عبر فصول المدرسة. بيانات الطلاب نظيفة.</div>
+              </div>
+            </SectionCard>
+          );
+        }
+        return (
+          <SectionCard title={`تحذير: طلاب مكررون (${duplicateGroups.length} حالة)`} icon={ShieldAlert}>
+            <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+              <span className="font-black">تنبيه:</span> الطلاب التالية أسماؤهم مسجلة في أكثر من فصل بنفس رقم الهوية. استخدم زر النقل لتصحيح الوضع.
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-right text-xs font-black text-slate-500">
+                    <th className="px-4 py-3">رقم الهوية</th>
+                    <th className="px-4 py-3">اسم الطالب</th>
+                    <th className="px-4 py-3">الفصل</th>
+                    <th className="px-4 py-3">إجراء</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {duplicateGroups.flatMap(({ id, group }) =>
+                    group.map((s, idx) => (
+                      <tr key={`${id}-${idx}`} className={idx === 0 ? 'bg-rose-50/60' : 'bg-amber-50/60'}>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-600">{id}</td>
+                        <td className="px-4 py-3 font-bold text-slate-900">{s.fullName}</td>
+                        <td className="px-4 py-3 text-slate-700">{s.classroomName}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedClassroomId(s.classroomId);
+                              setActiveStructureTab('classroomPage');
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-black text-white transition hover:bg-violet-700"
+                          >
+                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                            فتح الفصل
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
+        );
+      })()}
       </> : null}
+
+      {/* مودال تأكيد إضافة طالب مكرر */}
+      {duplicateConfirmModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setDuplicateConfirmModal(null)}>
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl bg-rose-100">
+                <ShieldAlert className="h-6 w-6 text-rose-600" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-slate-900">تنبيه: طالب مكرر</div>
+                <div className="text-sm text-slate-500">هذا الطالب مسجل بالفعل في فصل آخر</div>
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <div className="font-black text-slate-900">الطالب الموجود حاليًا:</div>
+              <div className="mt-1 text-slate-700">الاسم: <span className="font-bold">{duplicateConfirmModal.conflictStudent.fullName}</span></div>
+              <div className="mt-0.5 text-slate-700">الفصل: <span className="font-bold">{duplicateConfirmModal.conflictClassroom.name || 'فصل غير مسمى'}</span></div>
+              {duplicateConfirmModal.conflictStudent.identityNumber ? <div className="mt-0.5 text-slate-600">رقم الهوية: {duplicateConfirmModal.conflictStudent.identityNumber}</div> : null}
+            </div>
+            <div className="mt-5 text-sm font-bold text-slate-700">ماذا تريد أن تفعل?</div>
+            <div className="mt-3 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  // نقل الطالب من فصله الحالي إلى الفصل المختار
+                  onTransferStudentInSchoolStructureClassroom?.(
+                    String(duplicateConfirmModal.conflictClassroom.id),
+                    String(duplicateConfirmModal.conflictStudent.id),
+                    String(selectedClassroom?.id),
+                    'نقل تلقائي بسبب اكتشاف تكرار'
+                  );
+                  setDuplicateConfirmModal(null);
+                  setStudentForm({ fullName: '', guardianName: '', guardianMobile: '', identityNumber: '', notes: '' });
+                  setDuplicateAlert(null);
+                }}
+                className="flex items-center gap-2 rounded-2xl bg-violet-600 px-4 py-3 text-sm font-black text-white transition hover:bg-violet-700"
+              >
+                <ArrowRightLeft className="h-4 w-4" />
+                نقله إلى هذا الفصل (الأفضل)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  // إضافة كسجل مستقل (مع تحذير)
+                  onAddStudentToSchoolStructureClassroom?.(selectedClassroom?.id, duplicateConfirmModal.payload);
+                  setDuplicateConfirmModal(null);
+                  setStudentForm({ fullName: '', guardianName: '', guardianMobile: '', identityNumber: '', notes: '' });
+                  setDuplicateAlert(null);
+                }}
+                className="flex items-center gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-800 transition hover:bg-amber-100"
+              >
+                <Plus className="h-4 w-4" />
+                إضافة كسجل مستقل (سيظهر في تقرير التكرار)
+              </button>
+              <button
+                type="button"
+                onClick={() => setDuplicateConfirmModal(null)}
+                className="rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-700 ring-1 ring-slate-200 transition hover:bg-slate-50"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
