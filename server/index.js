@@ -528,7 +528,7 @@ async function registerAuthFailureAndMaybeLock(state, scope = 'password', identi
   let next = state;
   if (security.notifyAdminOnLock) {
     next = await notifyAuthSecurityAlert(state, { identifier: normalizeIdentifierKey(identifier), userId: user?.id ?? null, scope, message: alertMessage, actor });
-    saveSharedState(next, actor);
+    await saveSharedState(next, actor);
   }
   return { state: next, locked: true, failureCount, lockout: { expires_at: expiresAt, scope, failure_count: failureCount } };
 }
@@ -3760,7 +3760,7 @@ const server = http.createServer(async (req, res) => {
       }
       const next = structuredClone(state);
       next.users = (next.users || []).map((item) => Number(item.id) !== Number(user.id) ? item : { ...item, password: newPassword.trim() });
-      saveSharedState(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
+      await saveSharedState(next, { username: user.username, role: user.role, id: user.id, schoolId: user.schoolId ?? null });
       audit({ username: user.username, role: user.role }, 'confirm_password_reset', { userId: user.id });
       return sendJson(res, 200, { ok: true, message: 'تم تحديث كلمة المرور بنجاح. يمكنك الدخول الآن.' });
     }
@@ -3862,7 +3862,7 @@ const server = http.createServer(async (req, res) => {
       const incomingState = body.state || body;
       const currentState = await getSharedState();
       const merged = mergeStateByRole(currentState, incomingState, actor);
-      const saved = saveSharedState(merged, actor);
+      const saved = await saveSharedState(merged, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved), sessionUser: actor });
     }
 
@@ -3870,7 +3870,7 @@ const server = http.createServer(async (req, res) => {
       const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه إعادة تهيئة المنصة.' });
       const fresh = createDefaultSharedState();
-      saveSharedState(fresh, actor);
+      await saveSharedState(fresh, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(fresh), sessionUser: actor });
     }
 
@@ -3989,7 +3989,7 @@ const server = http.createServer(async (req, res) => {
         if (!stateToRestore || !Array.isArray(stateToRestore.schools)) {
           return sendJson(res, 400, { ok: false, message: 'بنية النسخة الاحتياطية غير صالحة أو لا تحتوي على بيانات مدارس.' });
         }
-        const saved = saveSharedState(stateToRestore, actor);
+        const saved = await saveSharedState(stateToRestore, actor);
         return sendJson(res, 200, { ok: true, message: `تمت استعادة النسخة الاحتياطية "${safeName}" بنجاح.`, state: sanitizeStateForClient(saved), sessionUser: actor });
       } catch (err) {
         return sendJson(res, 500, { ok: false, message: 'تعذر قراءة أو تطبيق النسخة الاحتياطية: ' + (err?.message || '') });
@@ -4033,7 +4033,7 @@ const server = http.createServer(async (req, res) => {
         if (!stateToRestore || !Array.isArray(stateToRestore.schools)) {
           return sendJson(res, 400, { ok: false, message: 'بنية الملف غير صالحة. تأكد أن الملف نسخة احتياطية صحيحة من المنصة.' });
         }
-        const saved = saveSharedState(stateToRestore, actor);
+        const saved = await saveSharedState(stateToRestore, actor);
         return sendJson(res, 200, { ok: true, message: 'تمت استعادة النسخة من الملف بنجاح.', state: sanitizeStateForClient(saved), sessionUser: actor });
       } catch (err) {
         return sendJson(res, 500, { ok: false, message: 'تعذر قراءة أو تطبيق الملف: ' + (err?.message || '') });
@@ -4087,7 +4087,7 @@ const server = http.createServer(async (req, res) => {
           smartLinks: existingSmartLinks || schoolData.smartLinks,
           settings: existingSettings || schoolData.settings,
         };
-        const saved = saveSharedState(next, actor);
+        const saved = await saveSharedState(next, actor);
         return sendJson(res, 200, {
           ok: true,
           message: `تم استيراد بيانات مدرسة "${schoolData.name}" بنجاح.`,
@@ -4121,7 +4121,7 @@ const server = http.createServer(async (req, res) => {
         };
         smartLinks.gates = [...(smartLinks.gates || []), gate];
         school.smartLinks = smartLinks;
-        const saved = saveSharedState(next, actor);
+        const saved = await saveSharedState(next, actor);
         return sendJson(res, 200, { ok: true, link: gate, state: sanitizeStateForClient(saved) });
       }
       const screen = {
@@ -4153,7 +4153,7 @@ const server = http.createServer(async (req, res) => {
       };
       smartLinks.screens = [...(smartLinks.screens || []), screen];
       school.smartLinks = smartLinks;
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, link: screen, state: sanitizeStateForClient(saved) });
     }
 
@@ -4196,7 +4196,7 @@ const server = http.createServer(async (req, res) => {
       if (body.tickerLayout === 'stacked' || body.tickerLayout === 'marquee') screen.tickerLayout = body.tickerLayout;
       if (body.sourceMode === 'school' || body.sourceMode === 'classroom') screen.sourceMode = body.sourceMode;
       if (body.linkedClassroomId !== undefined) screen.linkedClassroomId = body.linkedClassroomId ? String(body.linkedClassroomId) : '';
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, link: screen, state: sanitizeStateForClient(saved) });
     }
 
@@ -4213,7 +4213,7 @@ const server = http.createServer(async (req, res) => {
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
       if (kind === 'gate') school.smartLinks.gates = (school.smartLinks?.gates || []).filter((item) => item.id !== linkId);
       else school.smartLinks.screens = (school.smartLinks?.screens || []).filter((item) => item.id !== linkId);
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
@@ -4225,7 +4225,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const imported = importStudentsIntoSchool(await getSharedState(), schoolId, Array.isArray(body.rows) ? body.rows : []);
       if (!imported.ok) return sendJson(res, 400, imported);
-      const saved = saveSharedState(imported.state, actor);
+      const saved = await saveSharedState(imported.state, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved), added: imported.added, skipped: imported.skipped, companiesCreated: imported.companiesCreated });
     }
 
@@ -4244,7 +4244,7 @@ const server = http.createServer(async (req, res) => {
       const linkedClassroomId = sourceMode === 'structure' && body?.linkedClassroomId ? String(body.linkedClassroomId) : '';
       school.structure = school.structure || {};
       school.structure.attendanceBinding = { sourceMode, linkedClassroomId };
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, attendanceBinding: school.structure.attendanceBinding, state: sanitizeStateForClient(saved) });
     }
 
@@ -4266,7 +4266,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const tested = await testSchoolMessagingIntegration(await getSharedState(), schoolId, body.channel === 'sms' ? 'sms' : body.channel === 'internal' ? 'internal' : 'whatsapp', body.settings || null);
       if (tested.state) {
-        const saved = saveSharedState(tested.state, actor);
+        const saved = await saveSharedState(tested.state, actor);
         return sendJson(res, tested.ok ? 200 : 400, { ok: tested.ok, message: tested.message, providerMessageId: tested.providerMessageId || '', state: sanitizeStateForClient(saved) });
       }
       return sendJson(res, tested.ok ? 200 : 400, tested);
@@ -4280,7 +4280,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const processed = await processSchoolMessageSend(await getSharedState(), schoolId, actor, body || {});
       if (!processed.ok) return sendJson(res, 400, processed);
-      const saved = saveSharedState(processed.state, actor);
+      const saved = await saveSharedState(processed.state, actor);
       return sendJson(res, 200, { ok: true, message: processed.message, log: processed.log, state: sanitizeStateForClient(saved) });
     }
 
@@ -4307,7 +4307,7 @@ const server = http.createServer(async (req, res) => {
           sms: { ...(school.messaging.settings?.integration?.sms || {}), ...(body?.integration?.sms || {}) },
         },
       };
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
@@ -4327,7 +4327,7 @@ const server = http.createServer(async (req, res) => {
       school.messaging.templates = exists
         ? school.messaging.templates.map((item) => String(item.id) !== String(body?.id) ? item : { ...item, ...(body || {}) })
         : [{ ...(body || {}), id: body?.id || Date.now(), active: body?.active !== false }, ...school.messaging.templates];
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
@@ -4343,7 +4343,7 @@ const server = http.createServer(async (req, res) => {
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
       school.messaging = school.messaging || {};
       school.messaging.templates = (school.messaging.templates || []).filter((item) => String(item.id) !== String(templateId));
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
@@ -4363,7 +4363,7 @@ const server = http.createServer(async (req, res) => {
       school.messaging.rules = exists
         ? school.messaging.rules.map((item) => String(item.id) !== String(body?.id) ? item : { ...item, ...(body || {}) })
         : [{ ...(body || {}), id: body?.id || Date.now(), active: body?.active !== false }, ...school.messaging.rules];
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
@@ -4379,7 +4379,7 @@ const server = http.createServer(async (req, res) => {
       if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
       school.messaging = school.messaging || {};
       school.messaging.rules = (school.messaging.rules || []).map((item) => String(item.id) !== String(ruleId) ? item : { ...item, active: item?.active === false });
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
     }
 
@@ -4435,7 +4435,7 @@ const server = http.createServer(async (req, res) => {
       student.faceSignature = signature;
       student.facePhoto = imageUrl || '';
 
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       const updatedSchool = saved.schools.find((item) => Number(item.id) === schoolId);
       // استرجاع الطالب المحدّث من المصدر الصحيح
       let updatedStudent = null;
@@ -4466,7 +4466,7 @@ const server = http.createServer(async (req, res) => {
         defaultCap: body?.defaultCap !== undefined ? Number(body.defaultCap) || 150 : 150,
         classCaps: body?.classCaps && typeof body.classCaps === 'object' ? body.classCaps : {},
       };
-      const saved = saveSharedState(next, actor);
+      const saved = await saveSharedState(next, actor);
       return sendJson(res, 200, { ok: true, message: 'تم حفظ إعدادات سقف النقاط بنجاح.', state: sanitizeStateForClient(saved) });
     }
     // =====================================================
@@ -4478,7 +4478,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const applied = applyStudentActionToState(await getSharedState(), schoolId, body, actor);
       if (!applied.ok) return sendJson(res, 400, applied);
-      let saved = saveSharedState(applied.state, actor);
+      let saved = await saveSharedState(applied.state, actor);
       if (applied.logEntry?.actionType === 'violation') {
         const automated = await runAutomatedMessagingForSchool(saved, schoolId, {
           eventType: 'behavior',
@@ -4490,7 +4490,7 @@ const server = http.createServer(async (req, res) => {
           now: new Date().toISOString(),
           time: applied.logEntry?.time || '—',
         });
-        if (automated?.state) saved = saveSharedState(automated.state, actor);
+        if (automated?.state) saved = await saveSharedState(automated.state, actor);
       }
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, student: applied.student, state: sanitizeStateForClient(saved) });
     }
@@ -4503,7 +4503,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const applied = await applyProgramToState(await getSharedState(), schoolId, body, actor);
       if (!applied.ok) return sendJson(res, 400, applied);
-      const saved = saveSharedState(applied.state, actor);
+      const saved = await saveSharedState(applied.state, actor);
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, state: sanitizeStateForClient(saved) });
     }
 
@@ -4555,7 +4555,7 @@ const server = http.createServer(async (req, res) => {
       }
       const automatedAbsence = await runAutomatedMessagingForSchool(finalState, match.school.id, { eventType: 'absence', isoDate: applied.logEntry?.isoDate, now: new Date().toISOString() });
       finalState = automatedAbsence.state || finalState;
-      const saved = saveSharedState(finalState, { username: `public:${match.gate.name}`, role: 'gate' });
+      const saved = await saveSharedState(finalState, { username: `public:${match.gate.name}`, role: 'gate' });
       const live = summarizeSchoolLivePayload(saved, match.school.id);
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, student: applied.student, live });
     }
@@ -4609,7 +4609,7 @@ const server = http.createServer(async (req, res) => {
           },
         },
       };
-      saveSharedState(updated, actor);
+      await saveSharedState(updated, actor);
       return sendJson(res, 200, { ok: true });
     }
 
@@ -4637,7 +4637,7 @@ const server = http.createServer(async (req, res) => {
           parentPortal: updatedPortal,
         },
       };
-      saveSharedState(updated, actor);
+      await saveSharedState(updated, actor);
       return sendJson(res, 200, { ok: true, portalSettings: updatedPortal });
     }
 
@@ -4751,7 +4751,7 @@ const server = http.createServer(async (req, res) => {
         schools: [...currentState.schools, newSchool],
         users: [...currentState.users, principalUser],
       });
-      const saved = saveSharedState(nextState, actor);
+      const saved = await saveSharedState(nextState, actor);
       return sendJson(res, 200, { ok: true, school: newSchool, state: sanitizeStateForClient(saved) });
     }
     // ===== نهاية إضافة مدرسة جديدة =====
