@@ -2982,7 +2982,44 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
     rewardStoreSummary: buildServerRewardStoreSummary(school, screenConfig),
     parentPortalSummary: buildServerParentPortalSummary(school, state),
     lessonAttendanceSummary: buildServerLessonAttendanceSummary(school),
+    nafisData: buildServerNafisScreenData(state, school),
   };
+}
+
+function buildServerNafisScreenData(state, school) {
+  try {
+    // جلب الأسئلة العشوائية من البنك (5 أسئلة متنوعة لعرض الشاشة)
+    const globalNafisQuestions = Array.isArray(state.globalNafisQuestions) ? state.globalNafisQuestions : [];
+    const allFull = getQuestionsForGradeSubject('p3', 'math', 3, globalNafisQuestions)
+      .concat(getQuestionsForGradeSubject('p3', 'arabic', 2, globalNafisQuestions));
+    const shuffled = [...allFull].sort(() => Math.random() - 0.5).slice(0, 5);
+    const screenQuestions = shuffled.map(q => ({
+      id: q.id,
+      question: q.question,
+      options: q.options,
+      gradeKey: q.gradeKey,
+      subject: q.subject,
+      difficulty: q.difficulty || 'medium',
+      skill: q.skill || '',
+    }));
+    // لوحة المتصدرين من نتائج نافس
+    const nafisAttempts = [];
+    (state.schools || []).forEach(s => {
+      (s.nafisAttempts || []).forEach(a => nafisAttempts.push(a));
+    });
+    const studentPoints = {};
+    nafisAttempts.forEach(a => {
+      if (!studentPoints[a.studentId]) studentPoints[a.studentId] = { studentId: a.studentId, studentName: a.studentName || 'طالب', points: 0, attempts: 0 };
+      studentPoints[a.studentId].points += (a.pointsAwarded || 0);
+      studentPoints[a.studentId].attempts += 1;
+    });
+    const topStudentsNafis = Object.values(studentPoints)
+      .sort((a, b) => b.points - a.points)
+      .slice(0, 10);
+    return { screenQuestions, topStudentsNafis, totalAttempts: nafisAttempts.length };
+  } catch (e) {
+    return { screenQuestions: [], topStudentsNafis: [], totalAttempts: 0 };
+  }
 }
 
 function findGateConfigByToken(state, token) {

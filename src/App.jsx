@@ -4106,6 +4106,8 @@ function ScreenSettingsEditor({ value, onChange, compact = false, classrooms = [
     ["parentPortalSummary", "جاهزية أولياء الأمور"],
     ["lessonAttendanceSummary", "تحضير الحصص"],
     ["rewardStoreSummary", "محتويات متجر النقاط"],
+    ["nafisQuiz", "🏆 اختبارات نافس التجريبي"],
+    ["nafisLeaderboard", "📊 لوحة نافس التجريبي"],
   ];
 
   return (
@@ -6060,17 +6062,96 @@ function PublicScreenPage({ token }) {
       }
     }
 
+    // شريحة اختبارات نافس التجريبي
+    if (widgets.nafisQuiz) {
+      const nafisData = live?.nafisData || {};
+      const screenQs = nafisData.screenQuestions || [];
+      if (screenQs.length > 0) {
+        screenQs.forEach((q, qi) => {
+          items.push({
+            key: `nafisQuiz-${qi}`,
+            title: `🏆 سؤال نافس ${qi + 1}/${screenQs.length}`,
+            render: () => (
+              <div className="flex h-full items-center justify-center p-6">
+                <div className="w-full max-w-3xl">
+                  <div className="mb-6 flex items-center gap-3">
+                    <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500 text-3xl">🏆</span>
+                    <div>
+                      <div className="text-2xl font-black text-white">نافس التجريبي</div>
+                      <div className="text-base font-bold text-white/70">سؤال {qi + 1} من {screenQs.length}</div>
+                    </div>
+                  </div>
+                  <div className="rounded-[2rem] bg-white p-8 shadow-2xl">
+                    <div className="mb-6 text-2xl font-black text-slate-900 leading-relaxed">{q.question}</div>
+                    <div className="grid grid-cols-2 gap-4">
+                      {(q.options || []).map((opt, oi) => (
+                        <div key={oi} className="rounded-[1.4rem] bg-slate-100 px-5 py-4 text-xl font-bold text-slate-800 ring-1 ring-slate-200">
+                          <span className="ml-2 inline-flex h-8 w-8 items-center justify-center rounded-full bg-amber-500 text-sm font-black text-white">{['A','B','C','D'][oi]}</span>
+                          {opt}
+                        </div>
+                      ))}
+                    </div>
+                    {q.skill && <div className="mt-4 text-sm font-bold text-slate-400">المهارة: {q.skill}</div>}
+                  </div>
+                </div>
+              </div>
+            ),
+          });
+        });
+      }
+    }
+
+    // شريحة لوحة نافس التجريبي
+    if (widgets.nafisLeaderboard) {
+      const nafisData = live?.nafisData || {};
+      const topNafis = nafisData.topStudentsNafis || [];
+      items.push({
+        key: 'nafisLeaderboard',
+        title: '📊 لوحة نافس',
+        render: () => (
+          <div className="flex h-full flex-col p-6">
+            <div className="mb-6 flex items-center gap-3">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500 text-3xl">📊</span>
+              <div>
+                <div className="text-3xl font-black text-white">لوحة متصدري نافس</div>
+                <div className="text-base font-bold text-white/70">{nafisData.totalAttempts || 0} محاولة إجمالية</div>
+              </div>
+            </div>
+            {topNafis.length > 0 ? (
+              <div className="grid gap-3 xl:grid-cols-2">
+                {topNafis.slice(0, 8).map((s, index) => (
+                  <div key={s.studentId} className="flex items-center justify-between rounded-[1.6rem] bg-white px-6 py-4 shadow-lg">
+                    <div className="flex items-center gap-4">
+                      <span className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg font-black text-white ${index === 0 ? 'bg-amber-500' : index === 1 ? 'bg-slate-400' : index === 2 ? 'bg-amber-700' : 'bg-slate-200 text-slate-700'}`}>{index + 1}</span>
+                      <div className="text-xl font-black text-slate-900">{s.studentName}</div>
+                    </div>
+                    <div className="rounded-xl bg-violet-600 px-4 py-2 text-xl font-black text-white">{s.points} نقطة</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center rounded-[2rem] bg-white/20 text-2xl font-bold text-white/70">لا توجد نتائج بعد — شجع طلابك على المشاركة!</div>
+            )}
+          </div>
+        ),
+      });
+    }
+
     if (!items.length) {
       return [{ key: 'empty', title: 'الشاشة', render: () => <div className="h-full rounded-[2rem] bg-white p-8 text-slate-950 ring-1 ring-slate-200">لا توجد عناصر مفعلة لهذه الشاشة.</div> }];
     }
     const priorityMap = {
-      executive: ['metrics','attendanceChart','actionStats','teacherActivity','recentActivity','topStudents','topCompanies'],
-      reception: ['metrics','recentActivity','actionStats','teacherActivity','topStudents','attendanceChart','topCompanies'],
-      leaderboard: ['topStudents','topCompanies','teacherActivity','actionStats','metrics','attendanceChart','recentActivity'],
-      news: ['recentActivity','metrics','actionStats','teacherActivity','attendanceChart','topStudents','topCompanies'],
+      executive: ['metrics','attendanceChart','actionStats','teacherActivity','recentActivity','topStudents','topCompanies','nafisQuiz-0','nafisLeaderboard'],
+      reception: ['metrics','recentActivity','actionStats','teacherActivity','topStudents','attendanceChart','topCompanies','nafisQuiz-0','nafisLeaderboard'],
+      leaderboard: ['nafisLeaderboard','nafisQuiz-0','topStudents','topCompanies','teacherActivity','actionStats','metrics','attendanceChart','recentActivity'],
+      news: ['recentActivity','nafisQuiz-0','nafisLeaderboard','metrics','actionStats','teacherActivity','attendanceChart','topStudents','topCompanies'],
     };
     const order = priorityMap[screenTemplate] || priorityMap.executive;
-    return items.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+    return items.sort((a, b) => {
+      const ai = order.findIndex(k => a.key.startsWith(k));
+      const bi = order.findIndex(k => b.key.startsWith(k));
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
     } catch (screenError) {
       console.error('failed to prepare screen slides', screenError);
       return [{
@@ -18428,9 +18509,13 @@ function NafisBankPage({ currentUser }) {
   const [searchText, setSearchText] = React.useState('');
   const [editingQ, setEditingQ] = React.useState(null);
   const [showAddForm, setShowAddForm] = React.useState(false);
-  const [importText, setImportText] = React.useState('');
   const [importResult, setImportResult] = React.useState(null);
   const [saving, setSaving] = React.useState(false);
+  const [importGrade, setImportGrade] = React.useState('p3');
+  const [importSubject, setImportSubject] = React.useState('math');
+  const [importPreview, setImportPreview] = React.useState([]);
+  const [importFile, setImportFile] = React.useState(null);
+  const importFileRef = React.useRef(null);
   const [msg, setMsg] = React.useState(null);
 
   const [form, setForm] = React.useState({
@@ -18528,23 +18613,70 @@ function NafisBankPage({ currentUser }) {
     setEditingQ(q); setShowAddForm(true); setTab('add');
   };
 
+  // تحميل نموذج Excel
+  const handleDownloadTemplate = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['السؤال', 'الخيار أ', 'الخيار ب', 'الخيار ج', 'الخيار د', 'رقم الإجابة الصحيحة (1-4)', 'المهارة', 'الصعوبة (easy/medium/hard)', 'التفسير'],
+      ['كم يساوي 5 + 3؟', '6', '7', '8', '9', '3', 'الجمع', 'easy', '5 + 3 = 8'],
+      ['ما عاصمة المملكة العربية السعودية؟', 'الرياض', 'جدة', 'مكة', 'الدمام', '1', 'جغرافيا', 'easy', 'عاصمة المملكة هي الرياض'],
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'نموذج الأسئلة');
+    XLSX.writeFile(wb, 'نموذج_أسئلة_نافس.xlsx');
+  };
+
+  // معالجة ملف Excel وعرض معاينة
+  const handleExcelFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFile(file);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target.result, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        // تجاهل الصف الأول (العناوين) ومعالجة باقي الصفوف
+        const dataRows = rows.slice(1).filter(r => r[0] && String(r[0]).trim());
+        const preview = dataRows.map((r, i) => ({
+          _row: i + 2,
+          question: String(r[0] || '').trim(),
+          options: [String(r[1]||'').trim(), String(r[2]||'').trim(), String(r[3]||'').trim(), String(r[4]||'').trim()],
+          correct: Math.max(0, Math.min(3, Number(r[5] || 1) - 1)),
+          skill: String(r[6] || '').trim(),
+          difficulty: ['easy','medium','hard'].includes(String(r[7]||'').trim()) ? String(r[7]).trim() : 'medium',
+          explanation: String(r[8] || '').trim(),
+          gradeKey: importGrade,
+          subject: importSubject,
+        }));
+        setImportPreview(preview);
+        showMsg(`تم تحليل ${preview.length} سؤال من الملف`);
+      } catch (err) { showMsg('خطأ في قراءة الملف', 'error'); }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const handleImport = async () => {
+    if (!importPreview.length) { showMsg('يرجى اختيار ملف Excel أولاً', 'error'); return; }
+    // تحديث gradeKey و subject لجميع الأسئلة حسب الاختيار الحالي
+    const questions = importPreview.map(q => ({ ...q, gradeKey: importGrade, subject: importSubject }));
+    setSaving(true);
     try {
-      const parsed = JSON.parse(importText);
-      if (!Array.isArray(parsed)) { showMsg('يجب أن يكون JSON مصفوفة []', 'error'); return; }
-      setSaving(true);
       const res = await fetch('/api/nafis/bank/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ questions: parsed })
+        body: JSON.stringify({ questions })
       });
       const json = await res.json();
       if (json.ok) {
         setImportResult(json);
+        setImportPreview([]);
+        setImportFile(null);
+        if (importFileRef.current) importFileRef.current.value = '';
         showMsg(`تم استيراد ${json.imported} سؤال بنجاح`);
         fetchData();
       } else showMsg(json.error || 'حدث خطأ', 'error');
-    } catch (e) { showMsg('خطأ في تنسيق JSON', 'error'); }
+    } catch (e) { showMsg('خطأ في الاتصال', 'error'); }
     setSaving(false);
   };
 
@@ -18849,31 +18981,94 @@ function NafisBankPage({ currentUser }) {
       )
     ),
 
-    // تبويب: استيراد بالجملة
-    tab === 'import' && React.createElement('div', { className: 'bg-white border rounded-xl p-6 shadow-sm' },
-      React.createElement('h3', { className: 'font-bold text-gray-800 mb-2 text-lg' }, '📥 استيراد أسئلة بالجملة'),
-      React.createElement('p', { className: 'text-gray-500 text-sm mb-4' }, 'الصق مصفوفة JSON تحتوي على الأسئلة. كل سؤال يجب أن يحتوي على الحقول المطلوبة.'),
-      // مثال
-      React.createElement('div', { className: 'bg-gray-50 border rounded-xl p-4 mb-4 text-xs font-mono text-gray-600 overflow-auto' },
-        React.createElement('p', { className: 'font-bold text-gray-700 mb-2' }, '📌 مثال على التنسيق المطلوب:'),
-        React.createElement('pre', null, JSON.stringify([{
-          gradeKey: "p3", subject: "math", skill: "الجمع", difficulty: "easy",
-          question: "كم يساوي 5 + 3؟",
-          options: ["6", "7", "8", "9"], correctIndex: 2,
-          explanation: "5 + 3 = 8"
-        }], null, 2))
+    // تبويب: استيراد بالجملة من Excel
+    tab === 'import' && React.createElement('div', { className: 'bg-white border rounded-xl p-6 shadow-sm space-y-5' },
+      // العنوان
+      React.createElement('div', { className: 'flex items-center justify-between flex-wrap gap-3' },
+        React.createElement('div', null,
+          React.createElement('h3', { className: 'font-bold text-gray-800 text-lg' }, '📥 استيراد أسئلة من Excel'),
+          React.createElement('p', { className: 'text-gray-500 text-sm mt-1' }, 'حمل النموذج واملأه بالأسئلة، ثم حدد الصف والمادة وارفع الملف')
+        ),
+        React.createElement('button', {
+          onClick: handleDownloadTemplate,
+          className: 'flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-colors'
+        }, '⬇️ تحميل نموذج Excel')
       ),
-      React.createElement('textarea', {
-        value: importText,
-        onChange: e => setImportText(e.target.value),
-        rows: 10, placeholder: 'الصق JSON هنا...',
-        className: 'w-full border rounded-xl px-4 py-3 text-sm font-mono mb-4 resize-none'
-      }),
-      React.createElement('button', {
-        onClick: handleImport, disabled: saving || !importText.trim(),
-        className: 'bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-colors disabled:opacity-50'
-      }, saving ? '⏳ جاري الاستيراد...' : '📥 استيراد الأسئلة'),
-      importResult && React.createElement('div', { className: 'mt-4 bg-green-50 border border-green-200 rounded-xl p-4' },
+      // تحديد الصف والمادة
+      React.createElement('div', { className: 'grid grid-cols-2 gap-4 bg-blue-50 border border-blue-200 rounded-xl p-4' },
+        React.createElement('div', null,
+          React.createElement('label', { className: 'block text-sm font-bold text-gray-700 mb-1' }, '🏫 الصف الدراسي'),
+          React.createElement('select', {
+            value: importGrade,
+            onChange: e => { setImportGrade(e.target.value); setImportPreview(prev => prev.map(q => ({ ...q, gradeKey: e.target.value }))); },
+            className: 'w-full border rounded-lg px-3 py-2 text-sm'
+          }, Object.entries(GRADE_LABELS).map(([k,v]) => React.createElement('option', { key: k, value: k }, v)))
+        ),
+        React.createElement('div', null,
+          React.createElement('label', { className: 'block text-sm font-bold text-gray-700 mb-1' }, '📚 المادة الدراسية'),
+          React.createElement('select', {
+            value: importSubject,
+            onChange: e => { setImportSubject(e.target.value); setImportPreview(prev => prev.map(q => ({ ...q, subject: e.target.value }))); },
+            className: 'w-full border rounded-lg px-3 py-2 text-sm'
+          }, Object.entries(SUBJECT_LABELS).map(([k,v]) => React.createElement('option', { key: k, value: k }, v)))
+        )
+      ),
+      // رفع الملف
+      React.createElement('div', { className: 'border-2 border-dashed border-gray-300 rounded-xl p-6 text-center' },
+        React.createElement('input', {
+          ref: importFileRef,
+          type: 'file',
+          accept: '.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel',
+          className: 'hidden',
+          onChange: handleExcelFile
+        }),
+        React.createElement('div', { className: 'text-4xl mb-3' }, '📂'),
+        React.createElement('p', { className: 'text-gray-600 font-bold mb-2' }, importFile ? `✅ تم اختيار: ${importFile.name}` : 'اختر ملف Excel للاستيراد'),
+        React.createElement('button', {
+          onClick: () => importFileRef.current?.click(),
+          className: 'mt-2 bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold text-sm transition-colors'
+        }, '📁 اختيار ملف Excel')
+      ),
+      // معاينة الأسئلة
+      importPreview.length > 0 && React.createElement('div', null,
+        React.createElement('div', { className: 'flex items-center justify-between mb-3' },
+          React.createElement('h4', { className: 'font-bold text-gray-800' }, `👁 معاينة: ${importPreview.length} سؤال`),
+          React.createElement('span', { className: 'text-sm text-gray-500' }, `الصف: ${GRADE_LABELS[importGrade]} | المادة: ${SUBJECT_LABELS[importSubject]}`)
+        ),
+        React.createElement('div', { className: 'max-h-64 overflow-auto border rounded-xl' },
+          React.createElement('table', { className: 'w-full text-xs' },
+            React.createElement('thead', { className: 'bg-gray-50 sticky top-0' },
+              React.createElement('tr', null,
+                React.createElement('th', { className: 'px-3 py-2 text-right' }, '#'),
+                React.createElement('th', { className: 'px-3 py-2 text-right' }, 'السؤال'),
+                React.createElement('th', { className: 'px-3 py-2 text-right' }, 'الخيارات'),
+                React.createElement('th', { className: 'px-3 py-2 text-center' }, 'صحيح'),
+                React.createElement('th', { className: 'px-3 py-2 text-right' }, 'المهارة')
+              )
+            ),
+            React.createElement('tbody', null,
+              importPreview.slice(0, 10).map((q, i) =>
+                React.createElement('tr', { key: i, className: 'border-t' },
+                  React.createElement('td', { className: 'px-3 py-2 text-gray-400' }, q._row),
+                  React.createElement('td', { className: 'px-3 py-2 font-medium text-gray-800 max-w-xs truncate' }, q.question),
+                  React.createElement('td', { className: 'px-3 py-2 text-gray-500' }, q.options.filter(Boolean).join(' / ')),
+                  React.createElement('td', { className: 'px-3 py-2 text-center font-bold text-blue-600' }, ['A','B','C','D'][q.correct]),
+                  React.createElement('td', { className: 'px-3 py-2 text-gray-500' }, q.skill || '—')
+                )
+              ),
+              importPreview.length > 10 && React.createElement('tr', null,
+                React.createElement('td', { className: 'px-3 py-2 text-center text-gray-400 text-xs', colSpan: 5 }, `... و${importPreview.length - 10} سؤال آخر`)
+              )
+            )
+          )
+        ),
+        React.createElement('button', {
+          onClick: handleImport, disabled: saving,
+          className: 'mt-4 w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-bold text-sm transition-colors disabled:opacity-50'
+        }, saving ? '⏳ جاري الاستيراد...' : `✅ استيراد ${importPreview.length} سؤال إلى بنك نافس`)
+      ),
+      // نتيجة الاستيراد
+      importResult && React.createElement('div', { className: 'bg-green-50 border border-green-200 rounded-xl p-4' },
         React.createElement('p', { className: 'text-green-700 font-bold' }, `✅ تم استيراد ${importResult.imported} سؤال بنجاح`),
         importResult.errors?.length > 0 && React.createElement('p', { className: 'text-red-600 text-sm mt-1' }, `⚠️ ${importResult.errors.length} سؤال تم تجاهله بسبب أخطاء`)
       )
