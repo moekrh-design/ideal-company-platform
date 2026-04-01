@@ -11517,10 +11517,15 @@ function AttendancePage({ selectedSchool, currentUser, attendanceMethod, setAtte
 
   const handleManualSubmit = () => {
     if (!manualStudentId) return;
-    const student = attendanceStudents.find((s) => String(s.id) === String(manualStudentId));
-    if (!student) return;
-    // نستخدم الباركود أولاً لضمان العثور على الطالب بشكل صحيح
-    onScan(student.barcode || student.nationalId || student.name);
+    // نبحث في attendanceStudents أولاً ثم effectiveManualStudents كـ fallback
+    const student = attendanceStudents.find((s) => String(s.id) === String(manualStudentId))
+      || effectiveManualStudents.find((s) => String(s.id) === String(manualStudentId));
+    if (!student) {
+      window.alert('لم يتم العثور على بيانات الطالب. حاول مجدداً.');
+      return;
+    }
+    // نمرر skipDeviceCheck=true لأن التحضير اليدوي لا يحتاج تفعيل قارئ QR
+    onScan(student.barcode || student.nationalId || student.name, { skipDeviceCheck: true });
     setManualStudentId("");
   };
 
@@ -21158,10 +21163,6 @@ export default function App() {
   const resolveStudentByManual = (query) => findStudentByKeyword(selectedSchool, query);
 
   const resolveStudentByFaceFile = async (file) => {
-    if (!settings.devices.faceEnabled) {
-      window.alert("بصمة الوجه غير مفعلة من الإعدادات.");
-      return null;
-    }
     const template = await buildFaceTemplateFromFile(file);
     if (!template.faceDetected) return null;
     const candidates = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).filter((student) => getFaceProfileState(student) === "ready");
@@ -21170,10 +21171,6 @@ export default function App() {
   };
 
   const resolveStudentByFaceDataUrl = async (dataUrl) => {
-    if (!settings.devices.faceEnabled) {
-      window.alert("بصمة الوجه غير مفعلة من الإعدادات.");
-      return null;
-    }
     const template = await buildFaceTemplateFromDataUrl(dataUrl);
     if (!template.faceDetected) return null;
     const candidates = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).filter((student) => getFaceProfileState(student) === "ready");
@@ -21251,10 +21248,10 @@ export default function App() {
     }
   };
 
-  const handleScan = (barcodeInput) => {
+  const handleScan = (barcodeInput, { skipDeviceCheck = false } = {}) => {
     const rawValue = String(barcodeInput || '').trim();
     const value = sanitizeBarcodeValue(rawValue);
-    if (!settings.devices.barcodeEnabled) {
+    if (!skipDeviceCheck && !settings.devices.barcodeEnabled) {
       window.alert("قارئ QR غير مفعل من الإعدادات.");
       return;
     }
@@ -21355,30 +21352,22 @@ export default function App() {
   };
 
   const handleFaceScanFile = async (file) => {
-    if (!settings.devices.faceEnabled) {
-      window.alert("بصمة الوجه غير مفعلة من الإعدادات.");
-      return null;
-    }
     const student = await resolveStudentByFaceFile(file);
     if (!student) {
       pushNotification("فشل التحقق", "لم يتم العثور على تطابق كافٍ مع الصور المسجلة في المدرسة الحالية.");
       return null;
     }
-    handleScan(student.barcode);
+    handleScan(student.barcode, { skipDeviceCheck: true });
     return student;
   };
 
   const handleFaceScanDataUrl = async (dataUrl) => {
-    if (!settings.devices.faceEnabled) {
-      window.alert("بصمة الوجه غير مفعلة من الإعدادات.");
-      return null;
-    }
     const student = await resolveStudentByFaceDataUrl(dataUrl);
     if (!student) {
       pushNotification("فشل التحقق", "لم يتم العثور على تطابق كافٍ مع الصور المسجلة في المدرسة الحالية.");
       return null;
     }
-    handleScan(student.barcode);
+    handleScan(student.barcode, { skipDeviceCheck: true });
     return student;
   };
 
