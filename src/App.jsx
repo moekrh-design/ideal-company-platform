@@ -6101,36 +6101,114 @@ function PublicScreenPage({ token }) {
       }
     }
 
-    // شريحة لوحة نافس التجريبي
+    // شريحة لوحة نافس التجريبي - محسّنة بإحصائيات ورسوم بيانية
     if (widgets.nafisLeaderboard) {
       const nafisData = live?.nafisData || {};
       const topNafis = nafisData.topStudentsNafis || [];
+      const subjectData = nafisData.subjectChartData || [];
+      const gradeData = nafisData.gradeChartData || [];
+      const hasData = nafisData.totalAttempts > 0;
+      // ألوان للرسوم البيانية
+      const CHART_COLORS = ['#8b5cf6','#06b6d4','#10b981','#f59e0b','#ef4444','#3b82f6','#ec4899','#84cc16'];
+      // أعلى قيمة لحساب نسبة العرض
+      const maxSubjectCount = subjectData.length > 0 ? Math.max(...subjectData.map(s => s.count)) : 1;
+      const maxGradeCount = gradeData.length > 0 ? Math.max(...gradeData.map(g => g.count)) : 1;
       items.push({
         key: 'nafisLeaderboard',
         title: '📊 لوحة نافس',
         render: () => (
-          <div className="flex h-full flex-col p-6">
-            <div className="mb-6 flex items-center gap-3">
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-500 text-3xl">📊</span>
+          <div className="flex h-full flex-col p-5 gap-4" style={{ minHeight: '720px' }}>
+            {/* العنوان */}
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500 text-2xl">🏆</span>
               <div>
-                <div className="text-3xl font-black text-white">لوحة متصدري نافس</div>
-                <div className="text-base font-bold text-white/70">{nafisData.totalAttempts || 0} محاولة إجمالية</div>
+                <div className="text-2xl font-black text-white">لوحة نافس التجريبي</div>
+                <div className="text-sm font-bold text-white/60">إحصائيات مستمرة لجميع طلاب المدرسة</div>
               </div>
             </div>
-            {topNafis.length > 0 ? (
-              <div className="grid gap-3 xl:grid-cols-2">
-                {topNafis.slice(0, 8).map((s, index) => (
-                  <div key={s.studentId} className="flex items-center justify-between rounded-[1.6rem] bg-white px-6 py-4 shadow-lg">
-                    <div className="flex items-center gap-4">
-                      <span className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg font-black text-white ${index === 0 ? 'bg-amber-500' : index === 1 ? 'bg-slate-400' : index === 2 ? 'bg-amber-700' : 'bg-slate-200 text-slate-700'}`}>{index + 1}</span>
-                      <div className="text-xl font-black text-slate-900">{s.studentName}</div>
+            {/* بطاقات الإحصائيات السريعة */}
+            <div className="grid grid-cols-4 gap-3">
+              {[
+                { label: 'الطلاب المشاركون', value: nafisData.uniqueStudents || 0, icon: '👥', color: 'bg-violet-500' },
+                { label: 'الأسئلة المحلولة', value: nafisData.totalAnswered || 0, icon: '❓', color: 'bg-cyan-500' },
+                { label: 'نسبة الصحة', value: `${nafisData.correctRate || 0}%`, icon: '✅', color: 'bg-emerald-500' },
+                { label: 'إجمالي المحاولات', value: nafisData.totalAttempts || 0, icon: '🔄', color: 'bg-amber-500' },
+              ].map((card, i) => (
+                <div key={i} className="rounded-2xl bg-white/15 px-4 py-3 text-center backdrop-blur-sm">
+                  <div className="text-2xl mb-1">{card.icon}</div>
+                  <div className="text-2xl font-black text-white">{card.value}</div>
+                  <div className="text-xs font-bold text-white/70 mt-1">{card.label}</div>
+                </div>
+              ))}
+            </div>
+            {hasData ? (
+              <div className="grid grid-cols-2 gap-4 flex-1">
+                {/* رسم بياني المواد */}
+                <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
+                  <div className="text-sm font-black text-white mb-3">📚 عدد الأسئلة حسب المادة</div>
+                  {subjectData.length > 0 ? (
+                    <div className="space-y-2">
+                      {subjectData.slice(0, 6).map((s, i) => (
+                        <div key={s.subject}>
+                          <div className="flex justify-between text-xs font-bold text-white/80 mb-1">
+                            <span>{s.label}</span>
+                            <span>{s.count}</span>
+                          </div>
+                          <div className="h-5 rounded-full bg-white/20 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${Math.round((s.count / maxSubjectCount) * 100)}%`, backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}
+                            />
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="rounded-xl bg-violet-600 px-4 py-2 text-xl font-black text-white">{s.points} نقطة</div>
-                  </div>
-                ))}
+                  ) : <div className="text-white/50 text-sm text-center mt-4">لا توجد بيانات</div>}
+                </div>
+                {/* رسم بياني المراحل */}
+                <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
+                  <div className="text-sm font-black text-white mb-3">🏫 عدد الأسئلة حسب المرحلة</div>
+                  {gradeData.length > 0 ? (
+                    <div className="space-y-2">
+                      {gradeData.slice(0, 6).map((g, i) => (
+                        <div key={g.grade}>
+                          <div className="flex justify-between text-xs font-bold text-white/80 mb-1">
+                            <span>{g.label}</span>
+                            <span>{g.count}</span>
+                          </div>
+                          <div className="h-5 rounded-full bg-white/20 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${Math.round((g.count / maxGradeCount) * 100)}%`, backgroundColor: CHART_COLORS[(i + 3) % CHART_COLORS.length] }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <div className="text-white/50 text-sm text-center mt-4">لا توجد بيانات</div>}
+                </div>
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center rounded-[2rem] bg-white/20 text-2xl font-bold text-white/70">لا توجد نتائج بعد — شجع طلابك على المشاركة!</div>
+              <div className="flex flex-1 items-center justify-center rounded-2xl bg-white/10 text-xl font-bold text-white/60">
+                لا توجد نتائج بعد — شجع طلابك على المشاركة!
+              </div>
+            )}
+            {/* لوحة المتصدرين */}
+            {topNafis.length > 0 && (
+              <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-sm">
+                <div className="text-sm font-black text-white mb-3">🏅 المتصدرون</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {topNafis.slice(0, 4).map((s, index) => (
+                    <div key={s.studentId} className="flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2">
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-sm font-black text-white ${index === 0 ? 'bg-amber-500' : index === 1 ? 'bg-slate-400' : index === 2 ? 'bg-amber-700' : 'bg-slate-500'}`}>{index + 1}</span>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-black text-white">{s.studentName}</div>
+                        <div className="text-xs font-bold text-violet-300">{s.points} نقطة</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         ),

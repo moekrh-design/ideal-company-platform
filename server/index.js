@@ -3002,23 +3002,69 @@ function buildServerNafisScreenData(state, school) {
       difficulty: q.difficulty || 'medium',
       skill: q.skill || '',
     }));
-    // لوحة المتصدرين من نتائج نافس
+    // جمع جميع محاولات نافس من جميع المدارس
     const nafisAttempts = [];
     (state.schools || []).forEach(s => {
-      (s.nafisAttempts || []).forEach(a => nafisAttempts.push(a));
+      (s.nafisAttempts || []).forEach(a => nafisAttempts.push({ ...a, schoolId: s.id }));
     });
-    const studentPoints = {};
+    // إحصائيات الطلاب
+    const studentMap = {};
     nafisAttempts.forEach(a => {
-      if (!studentPoints[a.studentId]) studentPoints[a.studentId] = { studentId: a.studentId, studentName: a.studentName || 'طالب', points: 0, attempts: 0 };
-      studentPoints[a.studentId].points += (a.pointsAwarded || 0);
-      studentPoints[a.studentId].attempts += 1;
+      if (!studentMap[a.studentId]) studentMap[a.studentId] = { studentId: a.studentId, studentName: a.studentName || 'طالب', points: 0, attempts: 0 };
+      studentMap[a.studentId].points += (a.pointsAwarded || 0);
+      studentMap[a.studentId].attempts += 1;
     });
-    const topStudentsNafis = Object.values(studentPoints)
-      .sort((a, b) => b.points - a.points)
-      .slice(0, 10);
-    return { screenQuestions, topStudentsNafis, totalAttempts: nafisAttempts.length };
+    const topStudentsNafis = Object.values(studentMap).sort((a, b) => b.points - a.points).slice(0, 10);
+    const uniqueStudents = Object.keys(studentMap).length;
+    // إجمالي الأسئلة والإجابات الصحيحة
+    let totalAnswered = 0;
+    let totalCorrect = 0;
+    nafisAttempts.forEach(a => {
+      const details = a.details || [];
+      totalAnswered += details.length;
+      totalCorrect += details.filter(d => d.correct).length;
+    });
+    const correctRate = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : 0;
+    // إحصائيات حسب المادة
+    const subjectLabels = { math: 'رياضيات', arabic: 'لغة عربية', science: 'علوم', english: 'إنجليزية', social: 'اجتماعيات', islamic: 'تربية إسلامية', physics: 'فيزياء', chemistry: 'كيمياء', biology: 'أحياء' };
+    const subjectStats = {};
+    nafisAttempts.forEach(a => {
+      const subj = a.subject || 'unknown';
+      if (!subjectStats[subj]) subjectStats[subj] = { subject: subj, label: subjectLabels[subj] || subj, count: 0, correct: 0 };
+      const details = a.details || [];
+      subjectStats[subj].count += details.length;
+      subjectStats[subj].correct += details.filter(d => d.correct).length;
+    });
+    const subjectChartData = Object.values(subjectStats)
+      .filter(s => s.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+    // إحصائيات حسب المرحلة
+    const gradeLabels = { p1: 'أول ابت', p2: 'ثاني ابت', p3: 'ثالث ابت', p4: 'رابع ابت', p5: 'خامس ابت', p6: 'سادس ابت', m1: 'أول متو', m2: 'ثاني متو', m3: 'ثالث متو', s1: 'أول ثان', s2: 'ثاني ثان', s3: 'ثالث ثان' };
+    const gradeStats = {};
+    nafisAttempts.forEach(a => {
+      const grade = a.gradeKey || 'unknown';
+      if (!gradeStats[grade]) gradeStats[grade] = { grade, label: gradeLabels[grade] || grade, count: 0, correct: 0 };
+      const details = a.details || [];
+      gradeStats[grade].count += details.length;
+      gradeStats[grade].correct += details.filter(d => d.correct).length;
+    });
+    const gradeChartData = Object.values(gradeStats)
+      .filter(g => g.count > 0)
+      .sort((a, b) => b.count - a.count);
+    return {
+      screenQuestions,
+      topStudentsNafis,
+      totalAttempts: nafisAttempts.length,
+      uniqueStudents,
+      totalAnswered,
+      totalCorrect,
+      correctRate,
+      subjectChartData,
+      gradeChartData,
+    };
   } catch (e) {
-    return { screenQuestions: [], topStudentsNafis: [], totalAttempts: 0 };
+    return { screenQuestions: [], topStudentsNafis: [], totalAttempts: 0, uniqueStudents: 0, totalAnswered: 0, totalCorrect: 0, correctRate: 0, subjectChartData: [], gradeChartData: [] };
   }
 }
 
@@ -4325,6 +4371,17 @@ const server = http.createServer(async (req, res) => {
         screen.widgets.topCompanies = body.widgets.topCompanies !== false;
         screen.widgets.attendanceChart = body.widgets.attendanceChart !== false;
         screen.widgets.recentActivity = body.widgets.recentActivity !== false;
+        // widgets إضافية
+        if (body.widgets.actionStats !== undefined) screen.widgets.actionStats = !!body.widgets.actionStats;
+        if (body.widgets.teacherActivity !== undefined) screen.widgets.teacherActivity = !!body.widgets.teacherActivity;
+        if (body.widgets.rewardStoreSummary !== undefined) screen.widgets.rewardStoreSummary = !!body.widgets.rewardStoreSummary;
+        if (body.widgets.lessonAttendanceSummary !== undefined) screen.widgets.lessonAttendanceSummary = !!body.widgets.lessonAttendanceSummary;
+        if (body.widgets.parentReadiness !== undefined) screen.widgets.parentReadiness = !!body.widgets.parentReadiness;
+        if (body.widgets.rewardCategoryBreakdown !== undefined) screen.widgets.rewardCategoryBreakdown = !!body.widgets.rewardCategoryBreakdown;
+        if (body.widgets.topTeachers !== undefined) screen.widgets.topTeachers = !!body.widgets.topTeachers;
+        // widgets نافس التجريبي
+        if (body.widgets.nafisQuiz !== undefined) screen.widgets.nafisQuiz = !!body.widgets.nafisQuiz;
+        if (body.widgets.nafisLeaderboard !== undefined) screen.widgets.nafisLeaderboard = !!body.widgets.nafisLeaderboard;
       }
       if (body.tickerEnabled !== undefined) screen.tickerEnabled = body.tickerEnabled === true || body.tickerEnabled === 'true';
       if (typeof body.tickerText === 'string') screen.tickerText = body.tickerText;
