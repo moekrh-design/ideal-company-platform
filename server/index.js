@@ -3566,7 +3566,17 @@ function serveStatic(req, res) {
     return;
   }
 
-  res.writeHead(200, { 'Content-Type': mimeTypeFor(filePath) });
+  // ملفات assets (JS/CSS) لها hash في اسمها - تُخزَّن مؤقتاً لمدة طويلة
+  // index.html لا يُخزَّن مؤقتاً لضمان تحميل أحدث نسخة دائماً
+  const isAsset = pathname.startsWith('/assets/');
+  const cacheHeader = isAsset
+    ? 'public, max-age=31536000, immutable'
+    : 'no-cache, no-store, must-revalidate';
+
+  res.writeHead(200, {
+    'Content-Type': mimeTypeFor(filePath),
+    'Cache-Control': cacheHeader,
+  });
   createReadStream(filePath).pipe(res);
 }
 
