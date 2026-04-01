@@ -18451,7 +18451,7 @@ function NafisBankPage({ currentUser }) {
   };
   const DIFFICULTY_LABELS = { easy:'سهل', medium:'متوسط', hard:'صعب' };
 
-  const token = localStorage.getItem('session-token') || localStorage.getItem('auth-token') || '';
+  const token = localStorage.getItem('ideal-company-platform-session-token-v8') || localStorage.getItem('session-token') || localStorage.getItem('auth-token') || '';
 
   const fetchData = async () => {
     setLoading(true);
@@ -18476,7 +18476,7 @@ function NafisBankPage({ currentUser }) {
     }
     setSaving(true);
     try {
-      const payload = { ...form };
+      const payload = { ...form, correct: form.correctIndex };
       let url = '/api/nafis/bank/add';
       let method = 'POST';
       if (editingQ) { url = `/api/nafis/bank/update/${editingQ.id}`; method = 'PUT'; }
@@ -18522,7 +18522,7 @@ function NafisBankPage({ currentUser }) {
     setForm({
       gradeKey: q.gradeKey, subject: q.subject, skill: q.skill || '',
       difficulty: q.difficulty || 'medium', question: q.question,
-      options: [...q.options], correctIndex: q.correctIndex,
+      options: [...q.options], correctIndex: q.correct !== undefined ? q.correct : (q.correctIndex || 0),
       explanation: q.explanation || ''
     });
     setEditingQ(q); setShowAddForm(true); setTab('add');
@@ -18712,7 +18712,7 @@ function NafisBankPage({ currentUser }) {
                       (q.options || []).map((opt, i) =>
                         React.createElement('div', {
                           key: i,
-                          className: `text-xs px-2 py-1 rounded-lg ${i === q.correctIndex ? 'bg-green-100 text-green-700 font-bold' : 'bg-gray-50 text-gray-600'}`
+                          className: `text-xs px-2 py-1 rounded-lg ${i === (q.correct !== undefined ? q.correct : q.correctIndex) ? 'bg-green-100 text-green-700 font-bold' : 'bg-gray-50 text-gray-600'}`
                         }, `${['أ','ب','ج','د'][i]}) ${opt}`)
                       )
                     ),
