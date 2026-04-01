@@ -5576,6 +5576,159 @@ function applyPointsToUnifiedStudent(school, studentId, points, note, actor) {
       });
     }
 
+
+    // ===== إدارة بنك أسئلة نافس - API (للأدمن العام فقط) =====
+
+    // GET /api/nafis/bank - جلب جميع الأسئلة المخصصة
+    if (reqUrl.pathname === '/api/nafis/bank' && req.method === 'GET') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const currentState = await getSharedState();
+      const customQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
+      // نضيف أيضاً إحصائيات من بنك الأسئلة الثابت
+      const { NAFIS_QUESTION_BANK, NAFIS_GRADE_SUBJECTS, NAFIS_SUBJECT_LABELS, getNafisLabel } = await import('./nafis-questions.js');
+      const staticCount = NAFIS_QUESTION_BANK.length;
+      const customCount = customQuestions.length;
+      // إحصائيات حسب الصف والمادة
+      const allQuestions = [...NAFIS_QUESTION_BANK, ...customQuestions];
+      const statsByGrade = {};
+      allQuestions.forEach((q) => {
+        if (!statsByGrade[q.gradeKey]) statsByGrade[q.gradeKey] = { total: 0, bySubject: {}, label: getNafisLabel(q.gradeKey) };
+        statsByGrade[q.gradeKey].total++;
+        if (!statsByGrade[q.gradeKey].bySubject[q.subject]) statsByGrade[q.gradeKey].bySubject[q.subject] = 0;
+        statsByGrade[q.gradeKey].bySubject[q.subject]++;
+      });
+      return sendJson(res, 200, {
+        ok: true,
+        customQuestions,
+        staticCount,
+        customCount,
+        totalCount: staticCount + customCount,
+        statsByGrade,
+        subjectLabels: NAFIS_SUBJECT_LABELS,
+        gradeSubjects: NAFIS_GRADE_SUBJECTS,
+      });
+    }
+
+    // POST /api/nafis/bank/add - إضافة سؤال جديد
+    if (reqUrl.pathname === '/api/nafis/bank/add' && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const body = await readJsonBody(req);
+      const { gradeKey, subject, skill, difficulty, question, options, correct, explanation } = body;
+      // التحقق من البيانات المطلوبة
+      if (!gradeKey || !subject || !question || !Array.isArray(options) || options.length !== 4 || correct === undefined || correct === null) {
+        return sendJson(res, 400, { ok: false, message: 'بيانات ناقصة: يجب توفير gradeKey وsubject وquestion و4 خيارات والإجابة الصحيحة.' });
+      }
+      if (typeof correct !== 'number' || correct < 0 || correct > 3) {
+        return sendJson(res, 400, { ok: false, message: 'رقم الإجابة الصحيحة يجب أن يكون بين 0 و3.' });
+      }
+      const currentState = await getSharedState();
+      const customQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
+      const newQuestion = {
+        id: 'q-custom-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+        gradeKey: String(gradeKey),
+        subject: String(subject),
+        skill: String(skill || ''),
+        difficulty: String(difficulty || 'medium'),
+        question: String(question),
+        options: options.map(String),
+        correct: Number(correct),
+        explanation: String(explanation || ''),
+        isCustom: true,
+        addedBy: actor.name || actor.username,
+        addedAt: new Date().toISOString(),
+      };
+      const updatedState = { ...currentState, globalNafisQuestions: [...customQuestions, newQuestion] };
+      await saveSharedState(updatedState, actor);
+      return sendJson(res, 200, { ok: true, message: 'تم إضافة السؤال بنجاح.', question: newQuestion });
+    }
+
+    // PUT /api/nafis/bank/update/:id - تعديل سؤال مخصص
+    if (reqUrl.pathname.match(/^\/api\/nafis\/bank\/update\/[^/]+$/) && req.method === 'PUT') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const questionId = reqUrl.pathname.split('/').pop();
+      const body = await readJsonBody(req);
+      const currentState = await getSharedState();
+      const customQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
+      const idx = customQuestions.findIndex((q) => q.id === questionId);
+      if (idx === -1) return sendJson(res, 404, { ok: false, message: 'السؤال غير موجود أو هو من بنك الأسئلة الثابت ولا يمكن تعديله.' });
+      const updatedQuestion = {
+        ...customQuestions[idx],
+        ...body,
+        id: questionId, // لا نغير الـ ID
+        isCustom: true,
+        updatedBy: actor.name || actor.username,
+        updatedAt: new Date().toISOString(),
+      };
+      const updatedQuestions = [...customQuestions];
+      updatedQuestions[idx] = updatedQuestion;
+      const updatedState = { ...currentState, globalNafisQuestions: updatedQuestions };
+      await saveSharedState(updatedState, actor);
+      return sendJson(res, 200, { ok: true, message: 'تم تحديث السؤال بنجاح.', question: updatedQuestion });
+    }
+
+    // DELETE /api/nafis/bank/delete/:id - حذف سؤال مخصص
+    if (reqUrl.pathname.match(/^\/api\/nafis\/bank\/delete\/[^/]+$/) && req.method === 'DELETE') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const questionId = reqUrl.pathname.split('/').pop();
+      const currentState = await getSharedState();
+      const customQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
+      const idx = customQuestions.findIndex((q) => q.id === questionId);
+      if (idx === -1) return sendJson(res, 404, { ok: false, message: 'السؤال غير موجود في الأسئلة المخصصة.' });
+      const updatedQuestions = customQuestions.filter((q) => q.id !== questionId);
+      const updatedState = { ...currentState, globalNafisQuestions: updatedQuestions };
+      await saveSharedState(updatedState, actor);
+      return sendJson(res, 200, { ok: true, message: 'تم حذف السؤال بنجاح.' });
+    }
+
+    // POST /api/nafis/bank/import - استيراد أسئلة بالجملة (JSON array)
+    if (reqUrl.pathname === '/api/nafis/bank/import' && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const body = await readJsonBody(req);
+      const { questions } = body;
+      if (!Array.isArray(questions) || questions.length === 0) {
+        return sendJson(res, 400, { ok: false, message: 'يجب إرسال مصفوفة أسئلة.' });
+      }
+      const currentState = await getSharedState();
+      const existingQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
+      const importedQuestions = [];
+      const errors = [];
+      questions.forEach((q, i) => {
+        if (!q.gradeKey || !q.subject || !q.question || !Array.isArray(q.options) || q.options.length !== 4 || q.correct === undefined) {
+          errors.push(`السؤال ${i + 1}: بيانات ناقصة`);
+          return;
+        }
+        importedQuestions.push({
+          id: 'q-import-' + Date.now() + '-' + i + '-' + Math.random().toString(36).slice(2, 5),
+          gradeKey: String(q.gradeKey),
+          subject: String(q.subject),
+          skill: String(q.skill || ''),
+          difficulty: String(q.difficulty || 'medium'),
+          question: String(q.question),
+          options: q.options.map(String),
+          correct: Number(q.correct),
+          explanation: String(q.explanation || ''),
+          isCustom: true,
+          addedBy: actor.name || actor.username,
+          addedAt: new Date().toISOString(),
+        });
+      });
+      const updatedState = { ...currentState, globalNafisQuestions: [...existingQuestions, ...importedQuestions] };
+      await saveSharedState(updatedState, actor);
+      return sendJson(res, 200, {
+        ok: true,
+        message: `تم استيراد ${importedQuestions.length} سؤال بنجاح.`,
+        imported: importedQuestions.length,
+        errors,
+      });
+    }
+
+    // ===== نهاية إدارة بنك أسئلة نافس =====
+
     // ===== نهاية نافس التجريبي - API =====
 
     // ===== تحضير الحصص - حفظ submission ======
