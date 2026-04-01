@@ -2964,7 +2964,10 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
       lateToday: scansToday.filter((item) => String(item.result).includes('تأخر')).length,
       rewardsToday: actionsToday.filter((item) => item.actionType === 'reward').length,
       violationsToday: actionsToday.filter((item) => item.actionType === 'violation').length,
-      programsToday: actionsToday.filter((item) => item.actionType === 'program').length,
+      programsToday: (() => {
+        const programCatalogIds = new Set((state.settings?.actions?.programs || []).map((p) => String(p.id)));
+        return actionsToday.filter((item) => item.actionType === 'program' || (item.actionType === 'reward' && programCatalogIds.has(String(item.definitionId || '')))).length;
+      })(),
     },
     topStudents,
     topCompanies,
@@ -3367,6 +3370,7 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
     method: payload.method || 'يدوي',
     actionType,
     actionTitle: definition.title,
+    definitionId: String(payload.definitionId || ''),
     note: String(payload.note || ''),
     evidence: [],
     date: toArabicDate(now),
