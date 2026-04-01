@@ -21353,6 +21353,15 @@ export default function App() {
       };
     }));
     pushNotification("تسجيل حضور", `${student.name}: ${result}.`);
+    // ===== حفظ فوري في السيرفر وبث التحديث لشاشة العرض =====
+    const _token = getSessionToken();
+    if (_token) {
+      apiRequest('/api/attendance/scan', {
+        method: 'POST',
+        token: _token,
+        body: { scanEntry: logEntry },
+      }).catch((err) => console.warn('حفظ الحضور الفوري فشل:', err));
+    }
   };
 
   const handleFaceScanFile = async (file) => {

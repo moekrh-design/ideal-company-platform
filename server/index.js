@@ -3932,6 +3932,34 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved), sessionUser: actor });
     }
 
+    // ===== Endpoint خاص لحفظ سجل الحضور فوراً (بدون إرسال كل الـ state) =====
+    if (reqUrl.pathname === '/api/attendance/scan' && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      const body = await readJsonBody(req);
+      const scanEntry = body.scanEntry;
+      if (!scanEntry || !scanEntry.studentId || !scanEntry.schoolId) {
+        return sendJson(res, 400, { ok: false, message: 'بيانات التحضير غير مكتملة.' });
+      }
+      const state = await getSharedState();
+      // تحقق من عدم التكرار
+      const alreadyExists = state.scanLog.some(
+        (e) => String(e.studentId) === String(scanEntry.studentId)
+          && Number(e.schoolId) === Number(scanEntry.schoolId)
+          && e.isoDate === scanEntry.isoDate
+      );
+      if (alreadyExists) {
+        return sendJson(res, 200, { ok: true, duplicate: true, message: 'تم تسجيل الحضور مسبقاً لهذا الطالب اليوم.' });
+      }
+      const next = structuredClone(state);
+      next.scanLog = [scanEntry, ...next.scanLog];
+      writeStateRow(next, actor);
+      void ensureDailyBackups('save', next);
+      broadcastAllLive(next);
+      audit(actor, 'attendance_scan', { studentId: scanEntry.studentId, schoolId: scanEntry.schoolId, method: scanEntry.method || 'يدوي' });
+      return sendJson(res, 200, { ok: true, message: 'تم تسجيل الحضور وحفظه فوراً.' });
+    }
+
     if (reqUrl.pathname === '/api/state/reset' && req.method === 'POST') {
       const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه إعادة تهيئة المنصة.' });
