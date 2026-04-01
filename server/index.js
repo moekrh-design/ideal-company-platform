@@ -6761,8 +6761,11 @@ function renderParentPortalHtml() {
           <label style="font-size:13px;font-weight:700;color:#475569;display:block;margin-bottom:6px">اختر الابن للاختبار</label>
           <select id="nafisStudentSelect" class="form-select" style="width:100%"></select>
         </div>
+        <!-- Track Info Banner -->
+        <div id="nafisTrackBanner" style="margin-bottom:16px;display:none"></div>
         <!-- Nafis Subjects -->
         <div id="nafisSubjectsSection">
+          <div style="font-size:13px;font-weight:700;color:#475569;margin-bottom:10px">اختر المادة</div>
           <div id="nafisSubjectsList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px"></div>
         </div>
         <!-- Quiz Area -->
@@ -8228,6 +8231,16 @@ async function loadNafisSubjects() {
     const isOfficial = data.isOfficial;
     const officialBadge = isOfficial ? '<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;margin-right:6px">مسابقة رسمية</span>' : '';
     if ($('nafisPageTitle')) $('nafisPageTitle').innerHTML = 'نافس التجريبي ' + officialBadge + '<span style="font-size:13px;font-weight:500;color:#64748b;margin-right:8px">' + nafisLabel + '</span>';
+    const trackBanner = $('nafisTrackBanner');
+    if (trackBanner) {
+      if (isOfficial) {
+        trackBanner.style.display = '';
+        trackBanner.innerHTML = '<div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:16px;padding:14px 16px;border-right:4px solid #f59e0b;display:flex;align-items:center;gap:12px"><div style="font-size:28px">🏆</div><div><div style="font-size:14px;font-weight:800;color:#92400e">مسار نافس الرسمي</div><div style="font-size:12px;color:#78350f;margin-top:2px">هذا الصف مستهدف رسمياً في مسابقة نافس الوطنية. الأسئلة مطابقة لمستوى المسابقة.</div></div></div>';
+      } else {
+        trackBanner.style.display = '';
+        trackBanner.innerHTML = '<div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border-radius:16px;padding:14px 16px;border-right:4px solid #0284c7;display:flex;align-items:center;gap:12px"><div style="font-size:28px">📚</div><div><div style="font-size:14px;font-weight:800;color:#0c4a6e">مسار التهيئة المهارية</div><div style="font-size:12px;color:#075985;margin-top:2px">أسئلة تنمية المهارات الأساسية. تساعد الطالب على تعزيز فهمه ورفع مستواه.</div></div></div>';
+      }
+    }
     const SUBJECT_ICONS = { math:'➕', arabic:'أ', english:'A', science:'⚡', social:'🌍', islamic:'★', computer:'💻', physics:'⚛️', chemistry:'🧪', biology:'🦠', history:'📜', geography:'🗺️' };
     const SUBJECT_COLORS = { math:'#0ea5e9', arabic:'#8b5cf6', english:'#10b981', science:'#f59e0b', social:'#ef4444', islamic:'#14b8a6', computer:'#6366f1', physics:'#0284c7', chemistry:'#7c3aed', biology:'#16a34a', history:'#dc2626', geography:'#0891b2' };
     if (sl) sl.innerHTML = data.subjects.map(s => {
