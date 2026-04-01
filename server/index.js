@@ -5281,7 +5281,10 @@ const server = http.createServer(async (req, res) => {
       const gradeKey = reqUrl.searchParams.get('gradeKey') || '';
       const subject = reqUrl.searchParams.get('subject') || '';
       if (!gradeKey || !subject) return sendJson(res, 400, { ok: false, message: 'gradeKey و subject مطلوبان.' });
-      const questions = getQuestionsForGradeSubject(gradeKey, subject, 10);
+      // جلب الأسئلة المخصصة (المضافة أو المعدلة) من الحالة المشتركة
+      const currentStateForQuiz = await getSharedState();
+      const globalNafisQuestions = Array.isArray(currentStateForQuiz.globalNafisQuestions) ? currentStateForQuiz.globalNafisQuestions : [];
+      const questions = getQuestionsForGradeSubject(gradeKey, subject, 10, globalNafisQuestions);
       if (!questions.length) return sendJson(res, 404, { ok: false, message: 'لا توجد أسئلة لهذه المرحلة والمادة.' });
       // نخفي الإجابات الصحيحة عن العميل
       const clientQuestions = questions.map(({ id, question, options, skill, difficulty }) => ({ id, question, options, skill, difficulty }));
@@ -5579,18 +5582,25 @@ function applyPointsToUnifiedStudent(school, studentId, points, note, actor) {
 
     // ===== إدارة بنك أسئلة نافس - API (للأدمن العام فقط) =====
 
-    // GET /api/nafis/bank - جلب جميع الأسئلة المخصصة
+    // GET /api/nafis/bank - جلب جميع الأسئلة (الثابتة + المخصصة + المعدلة)
     if (reqUrl.pathname === '/api/nafis/bank' && req.method === 'GET') {
       const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       const currentState = await getSharedState();
-      const customQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
-      // نضيف أيضاً إحصائيات من بنك الأسئلة الثابت
+      const globalNafisQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
       const { NAFIS_QUESTION_BANK, NAFIS_GRADE_SUBJECTS, NAFIS_SUBJECT_LABELS, getNafisLabel } = await import('./nafis-questions.js');
-      const staticCount = NAFIS_QUESTION_BANK.length;
-      const customCount = customQuestions.length;
+      // الأسئلة المعدلة/المحذوفة تحل محل الثابتة
+      const overriddenIds = new Set(globalNafisQuestions.map((q) => q.id));
+      const deletedIds = new Set(globalNafisQuestions.filter((q) => q.deleted).map((q) => q.id));
+      // الأسئلة الثابتة التي لم تُعدَّل ولم تُحذَف
+      const staticQuestions = NAFIS_QUESTION_BANK
+        .filter((q) => !overriddenIds.has(q.id))
+        .map((q) => ({ ...q, isBuiltIn: true, isCustom: false }));
+      // الأسئلة المخصصة (المضافة أو المعدلة) غير المحذوفة
+      const activeCustom = globalNafisQuestions.filter((q) => !q.deleted);
+      // جميع الأسئلة الفعالة
+      const allQuestions = [...staticQuestions, ...activeCustom];
       // إحصائيات حسب الصف والمادة
-      const allQuestions = [...NAFIS_QUESTION_BANK, ...customQuestions];
       const statsByGrade = {};
       allQuestions.forEach((q) => {
         if (!statsByGrade[q.gradeKey]) statsByGrade[q.gradeKey] = { total: 0, bySubject: {}, label: getNafisLabel(q.gradeKey) };
@@ -5598,12 +5608,15 @@ function applyPointsToUnifiedStudent(school, studentId, points, note, actor) {
         if (!statsByGrade[q.gradeKey].bySubject[q.subject]) statsByGrade[q.gradeKey].bySubject[q.subject] = 0;
         statsByGrade[q.gradeKey].bySubject[q.subject]++;
       });
+      const allDeletedQuestions = globalNafisQuestions.filter((q) => q.deleted);
       return sendJson(res, 200, {
         ok: true,
-        customQuestions,
-        staticCount,
-        customCount,
-        totalCount: staticCount + customCount,
+        allQuestions,
+        allDeletedQuestions,
+        staticCount: staticQuestions.length,
+        customCount: activeCustom.length,
+        deletedCount: deletedIds.size,
+        totalCount: allQuestions.length,
         statsByGrade,
         subjectLabels: NAFIS_SUBJECT_LABELS,
         gradeSubjects: NAFIS_GRADE_SUBJECTS,
@@ -5644,44 +5657,108 @@ function applyPointsToUnifiedStudent(school, studentId, points, note, actor) {
       return sendJson(res, 200, { ok: true, message: 'تم إضافة السؤال بنجاح.', question: newQuestion });
     }
 
-    // PUT /api/nafis/bank/update/:id - تعديل سؤال مخصص
+    // PUT /api/nafis/bank/update/:id - تعديل أي سؤال (ثابت أو مخصص)
     if (reqUrl.pathname.match(/^\/api\/nafis\/bank\/update\/[^/]+$/) && req.method === 'PUT') {
       const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       const questionId = reqUrl.pathname.split('/').pop();
       const body = await readJsonBody(req);
       const currentState = await getSharedState();
-      const customQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
-      const idx = customQuestions.findIndex((q) => q.id === questionId);
-      if (idx === -1) return sendJson(res, 404, { ok: false, message: 'السؤال غير موجود أو هو من بنك الأسئلة الثابت ولا يمكن تعديله.' });
-      const updatedQuestion = {
-        ...customQuestions[idx],
-        ...body,
-        id: questionId, // لا نغير الـ ID
-        isCustom: true,
-        updatedBy: actor.name || actor.username,
-        updatedAt: new Date().toISOString(),
-      };
-      const updatedQuestions = [...customQuestions];
-      updatedQuestions[idx] = updatedQuestion;
+      const globalNafisQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
+      // هل السؤال موجود في المخصصة؟
+      const existingIdx = globalNafisQuestions.findIndex((q) => q.id === questionId);
+      let updatedQuestions;
+      if (existingIdx !== -1) {
+        // تعديل سؤال مخصص موجود
+        const updatedQuestion = {
+          ...globalNafisQuestions[existingIdx],
+          ...body,
+          id: questionId,
+          isCustom: true,
+          isBuiltIn: false,
+          updatedBy: actor.name || actor.username,
+          updatedAt: new Date().toISOString(),
+        };
+        updatedQuestions = [...globalNafisQuestions];
+        updatedQuestions[existingIdx] = updatedQuestion;
+      } else {
+        // السؤال ثابت - نضيف نسخة معدلة في globalNafisQuestions (تحل محل الثابت)
+        const { NAFIS_QUESTION_BANK } = await import('./nafis-questions.js');
+        const staticQ = NAFIS_QUESTION_BANK.find((q) => q.id === questionId);
+        if (!staticQ) return sendJson(res, 404, { ok: false, message: 'السؤال غير موجود.' });
+        const updatedQuestion = {
+          ...staticQ,
+          ...body,
+          id: questionId,
+          isCustom: false,
+          isBuiltIn: true,
+          isEdited: true,
+          updatedBy: actor.name || actor.username,
+          updatedAt: new Date().toISOString(),
+        };
+        updatedQuestions = [...globalNafisQuestions, updatedQuestion];
+      }
       const updatedState = { ...currentState, globalNafisQuestions: updatedQuestions };
       await saveSharedState(updatedState, actor);
-      return sendJson(res, 200, { ok: true, message: 'تم تحديث السؤال بنجاح.', question: updatedQuestion });
+      return sendJson(res, 200, { ok: true, message: 'تم تحديث السؤال بنجاح.' });
     }
 
-    // DELETE /api/nafis/bank/delete/:id - حذف سؤال مخصص
+    // DELETE /api/nafis/bank/delete/:id - حذف أي سؤال (ثابت أو مخصص)
     if (reqUrl.pathname.match(/^\/api\/nafis\/bank\/delete\/[^/]+$/) && req.method === 'DELETE') {
       const actor = await getUserFromToken(token);
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       const questionId = reqUrl.pathname.split('/').pop();
       const currentState = await getSharedState();
-      const customQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
-      const idx = customQuestions.findIndex((q) => q.id === questionId);
-      if (idx === -1) return sendJson(res, 404, { ok: false, message: 'السؤال غير موجود في الأسئلة المخصصة.' });
-      const updatedQuestions = customQuestions.filter((q) => q.id !== questionId);
+      const globalNafisQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
+      const existingIdx = globalNafisQuestions.findIndex((q) => q.id === questionId);
+      let updatedQuestions;
+      if (existingIdx !== -1) {
+        // حذف سؤال مخصص أو معدل - نضع علامة deleted
+        updatedQuestions = globalNafisQuestions.map((q) =>
+          q.id === questionId ? { ...q, deleted: true, deletedBy: actor.name || actor.username, deletedAt: new Date().toISOString() } : q
+        );
+      } else {
+        // السؤال ثابت - نضيف سجل حذف في globalNafisQuestions
+        const { NAFIS_QUESTION_BANK } = await import('./nafis-questions.js');
+        const staticQ = NAFIS_QUESTION_BANK.find((q) => q.id === questionId);
+        if (!staticQ) return sendJson(res, 404, { ok: false, message: 'السؤال غير موجود.' });
+        updatedQuestions = [...globalNafisQuestions, {
+          ...staticQ,
+          deleted: true,
+          isBuiltIn: true,
+          deletedBy: actor.name || actor.username,
+          deletedAt: new Date().toISOString(),
+        }];
+      }
       const updatedState = { ...currentState, globalNafisQuestions: updatedQuestions };
       await saveSharedState(updatedState, actor);
       return sendJson(res, 200, { ok: true, message: 'تم حذف السؤال بنجاح.' });
+    }
+    // POST /api/nafis/bank/restore/:id - استعادة سؤال محذوف
+    if (reqUrl.pathname.match(/^\/api\/nafis\/bank\/restore\/[^/]+$/) && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const questionId = reqUrl.pathname.split('/').pop();
+      const currentState = await getSharedState();
+      const globalNafisQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
+      const updatedQuestions = globalNafisQuestions.map((q) =>
+        q.id === questionId ? { ...q, deleted: false, restoredBy: actor.name || actor.username, restoredAt: new Date().toISOString() } : q
+      );
+      const updatedState = { ...currentState, globalNafisQuestions: updatedQuestions };
+      await saveSharedState(updatedState, actor);
+      return sendJson(res, 200, { ok: true, message: 'تم استعادة السؤال بنجاح.' });
+    }
+    // POST /api/nafis/bank/reset-all - استعادة جميع الأسئلة الأصلية
+    if (reqUrl.pathname === '/api/nafis/bank/reset-all' && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const currentState = await getSharedState();
+      const globalNafisQuestions = Array.isArray(currentState.globalNafisQuestions) ? currentState.globalNafisQuestions : [];
+      // نحذف فقط التعديلات والحذوفات على الأسئلة الأصلية، ونبقي المضافة
+      const keptCustom = globalNafisQuestions.filter((q) => q.isCustom && !q.isBuiltIn && !q.deleted);
+      const updatedState = { ...currentState, globalNafisQuestions: keptCustom };
+      await saveSharedState(updatedState, actor);
+      return sendJson(res, 200, { ok: true, message: 'تم استعادة جميع الأسئلة الأصلية بنجاح.' });
     }
 
     // POST /api/nafis/bank/import - استيراد أسئلة بالجملة (JSON array)

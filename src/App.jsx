@@ -18419,500 +18419,468 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
 
 // ===== صفحة إدارة بنك أسئلة نافس (للأدمن العام فقط) =====
 function NafisBankPage({ currentUser }) {
-  const [bankData, setBankData] = React.useState(null);
+  const [tab, setTab] = React.useState('overview');
+  const [data, setData] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
-  const [activeTab, setActiveTab] = React.useState('overview'); // overview | add | list | import
   const [filterGrade, setFilterGrade] = React.useState('');
   const [filterSubject, setFilterSubject] = React.useState('');
-  const [editingQuestion, setEditingQuestion] = React.useState(null);
-  const [deleteConfirm, setDeleteConfirm] = React.useState(null);
+  const [filterType, setFilterType] = React.useState('all'); // all, builtin, custom, deleted
+  const [searchText, setSearchText] = React.useState('');
+  const [editingQ, setEditingQ] = React.useState(null);
+  const [showAddForm, setShowAddForm] = React.useState(false);
   const [importText, setImportText] = React.useState('');
+  const [importResult, setImportResult] = React.useState(null);
   const [saving, setSaving] = React.useState(false);
-  const [toast, setToast] = React.useState(null);
+  const [msg, setMsg] = React.useState(null);
+
   const [form, setForm] = React.useState({
     gradeKey: 'p3', subject: 'math', skill: '', difficulty: 'medium',
-    question: '', options: ['', '', '', ''], correct: 0, explanation: ''
+    question: '', options: ['', '', '', ''], correctIndex: 0, explanation: ''
   });
 
   const GRADE_LABELS = {
-    p1: 'أول ابتدائي', p2: 'ثاني ابتدائي', p3: 'ثالث ابتدائي',
-    p4: 'رابع ابتدائي', p5: 'خامس ابتدائي', p6: 'سادس ابتدائي',
-    m1: 'أول متوسط', m2: 'ثاني متوسط', m3: 'ثالث متوسط',
-    s1: 'أول ثانوي', s2: 'ثاني ثانوي', s3: 'ثالث ثانوي',
+    p1:'أول ابتدائي', p2:'ثاني ابتدائي', p3:'ثالث ابتدائي',
+    p4:'رابع ابتدائي', p5:'خامس ابتدائي', p6:'سادس ابتدائي',
+    m1:'أول متوسط', m2:'ثاني متوسط', m3:'ثالث متوسط',
+    s1:'أول ثانوي', s2:'ثاني ثانوي', s3:'ثالث ثانوي'
   };
   const SUBJECT_LABELS = {
-    math: 'الرياضيات', arabic: 'اللغة العربية', science: 'العلوم',
-    physics: 'الفيزياء', chemistry: 'الكيمياء', biology: 'الأحياء',
-    social: 'الدراسات الاجتماعية', english: 'اللغة الإنجليزية',
-    islamic: 'التربية الإسلامية',
+    math:'رياضيات', arabic:'لغة عربية', science:'علوم',
+    english:'إنجليزية', social:'اجتماعيات', islamic:'تربية إسلامية',
+    physics:'فيزياء', chemistry:'كيمياء', biology:'أحياء'
   };
-  const DIFFICULTY_LABELS = { easy: 'سهل', medium: 'متوسط', hard: 'صعب' };
+  const DIFFICULTY_LABELS = { easy:'سهل', medium:'متوسط', hard:'صعب' };
 
-  const showToast = (msg, type = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
-  };
+  const token = localStorage.getItem('session-token') || localStorage.getItem('auth-token') || '';
 
-  const loadBank = async () => {
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem('auth-token') || sessionStorage.getItem('auth-token') || '';
-      const res = await fetch('/api/nafis/bank', { headers: { Authorization: 'Bearer ' + token } });
-      const data = await res.json();
-      if (data.ok) setBankData(data);
+      const res = await fetch('/api/nafis/bank', { headers: { Authorization: `Bearer ${token}` } });
+      const json = await res.json();
+      if (json.ok) setData(json);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
 
-  React.useEffect(() => { loadBank(); }, []);
+  React.useEffect(() => { fetchData(); }, []);
 
-  const handleAddQuestion = async () => {
-    if (!form.question.trim() || form.options.some((o) => !o.trim())) {
-      showToast('يرجى ملء جميع الحقول المطلوبة', 'error'); return;
+  const showMsg = (text, type = 'success') => {
+    setMsg({ text, type });
+    setTimeout(() => setMsg(null), 3500);
+  };
+
+  const handleSaveQuestion = async () => {
+    if (!form.question.trim() || form.options.some(o => !o.trim())) {
+      showMsg('يرجى ملء جميع الحقول المطلوبة', 'error'); return;
     }
     setSaving(true);
     try {
-      const token = localStorage.getItem('auth-token') || sessionStorage.getItem('auth-token') || '';
-      const res = await fetch('/api/nafis/bank/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify(form),
+      const payload = { ...form };
+      let url = '/api/nafis/bank/add';
+      let method = 'POST';
+      if (editingQ) { url = `/api/nafis/bank/update/${editingQ.id}`; method = 'PUT'; }
+      const res = await fetch(url, {
+        method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      if (data.ok) {
-        showToast('تم إضافة السؤال بنجاح ✅');
-        setForm({ gradeKey: form.gradeKey, subject: form.subject, skill: '', difficulty: 'medium', question: '', options: ['', '', '', ''], correct: 0, explanation: '' });
-        loadBank();
-      } else { showToast(data.message || 'حدث خطأ', 'error'); }
-    } catch (e) { showToast('خطأ في الاتصال', 'error'); }
+      const json = await res.json();
+      if (json.ok) {
+        showMsg(editingQ ? 'تم تحديث السؤال بنجاح' : 'تم إضافة السؤال بنجاح');
+        setEditingQ(null); setShowAddForm(false);
+        setForm({ gradeKey: 'p3', subject: 'math', skill: '', difficulty: 'medium', question: '', options: ['', '', '', ''], correctIndex: 0, explanation: '' });
+        fetchData();
+      } else showMsg(json.error || 'حدث خطأ', 'error');
+    } catch (e) { showMsg('خطأ في الاتصال', 'error'); }
     setSaving(false);
   };
 
-  const handleDeleteQuestion = async (id) => {
-    setSaving(true);
+  const handleDelete = async (q) => {
+    if (!confirm(`هل تريد حذف هذا السؤال؟\n"${q.question.substring(0, 60)}..."`)) return;
     try {
-      const token = localStorage.getItem('auth-token') || sessionStorage.getItem('auth-token') || '';
-      const res = await fetch('/api/nafis/bank/delete/' + id, {
-        method: 'DELETE',
-        headers: { Authorization: 'Bearer ' + token },
+      const res = await fetch(`/api/nafis/bank/delete/${q.id}`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
       });
-      const data = await res.json();
-      if (data.ok) { showToast('تم حذف السؤال ✅'); setDeleteConfirm(null); loadBank(); }
-      else { showToast(data.message || 'حدث خطأ', 'error'); }
-    } catch (e) { showToast('خطأ في الاتصال', 'error'); }
-    setSaving(false);
+      const json = await res.json();
+      if (json.ok) { showMsg('تم حذف السؤال'); fetchData(); }
+      else showMsg(json.error || 'حدث خطأ', 'error');
+    } catch (e) { showMsg('خطأ في الاتصال', 'error'); }
   };
 
-  const handleUpdateQuestion = async () => {
-    if (!editingQuestion) return;
-    setSaving(true);
+  const handleRestore = async (q) => {
     try {
-      const token = localStorage.getItem('auth-token') || sessionStorage.getItem('auth-token') || '';
-      const res = await fetch('/api/nafis/bank/update/' + editingQuestion.id, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify(editingQuestion),
+      const res = await fetch(`/api/nafis/bank/restore/${q.id}`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }
       });
-      const data = await res.json();
-      if (data.ok) { showToast('تم تحديث السؤال ✅'); setEditingQuestion(null); loadBank(); }
-      else { showToast(data.message || 'حدث خطأ', 'error'); }
-    } catch (e) { showToast('خطأ في الاتصال', 'error'); }
-    setSaving(false);
+      const json = await res.json();
+      if (json.ok) { showMsg('تم استعادة السؤال'); fetchData(); }
+      else showMsg(json.error || 'حدث خطأ', 'error');
+    } catch (e) { showMsg('خطأ في الاتصال', 'error'); }
+  };
+
+  const handleEdit = (q) => {
+    setForm({
+      gradeKey: q.gradeKey, subject: q.subject, skill: q.skill || '',
+      difficulty: q.difficulty || 'medium', question: q.question,
+      options: [...q.options], correctIndex: q.correctIndex,
+      explanation: q.explanation || ''
+    });
+    setEditingQ(q); setShowAddForm(true); setTab('add');
   };
 
   const handleImport = async () => {
     try {
       const parsed = JSON.parse(importText);
-      if (!Array.isArray(parsed)) { showToast('يجب أن يكون الملف مصفوفة JSON', 'error'); return; }
+      if (!Array.isArray(parsed)) { showMsg('يجب أن يكون JSON مصفوفة []', 'error'); return; }
       setSaving(true);
-      const token = localStorage.getItem('auth-token') || sessionStorage.getItem('auth-token') || '';
       const res = await fetch('/api/nafis/bank/import', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ questions: parsed }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ questions: parsed })
       });
-      const data = await res.json();
-      if (data.ok) {
-        showToast(`تم استيراد ${data.imported} سؤال بنجاح ✅`);
-        setImportText('');
-        loadBank();
-      } else { showToast(data.message || 'حدث خطأ', 'error'); }
-    } catch (e) { showToast('خطأ في تحليل JSON: ' + e.message, 'error'); }
+      const json = await res.json();
+      if (json.ok) {
+        setImportResult(json);
+        showMsg(`تم استيراد ${json.imported} سؤال بنجاح`);
+        fetchData();
+      } else showMsg(json.error || 'حدث خطأ', 'error');
+    } catch (e) { showMsg('خطأ في تنسيق JSON', 'error'); }
     setSaving(false);
   };
 
-  const filteredCustom = bankData?.customQuestions?.filter((q) => {
-    if (filterGrade && q.gradeKey !== filterGrade) return false;
-    if (filterSubject && q.subject !== filterSubject) return false;
-    return true;
-  }) || [];
+  const getFilteredQuestions = () => {
+    if (!data) return [];
+    let questions = [];
+    if (filterType === 'deleted') {
+      questions = data.allDeletedQuestions || [];
+    } else {
+      questions = data.allQuestions || [];
+      if (filterType === 'builtin') questions = questions.filter(q => q.isBuiltIn);
+      else if (filterType === 'custom') questions = questions.filter(q => !q.isBuiltIn);
+    }
+    if (filterGrade) questions = questions.filter(q => q.gradeKey === filterGrade);
+    if (filterSubject) questions = questions.filter(q => q.subject === filterSubject);
+    if (searchText.trim()) {
+      const s = searchText.trim().toLowerCase();
+      questions = questions.filter(q => q.question.toLowerCase().includes(s) || (q.skill || '').toLowerCase().includes(s));
+    }
+    return questions;
+  };
 
-  if (currentUser?.role !== 'superadmin') {
-    return (
-      <div className="flex items-center justify-center p-12">
-        <div className="rounded-2xl bg-rose-50 p-8 text-center ring-1 ring-rose-200">
-          <div className="text-4xl mb-3">🔒</div>
-          <div className="text-lg font-black text-rose-800">هذه الصفحة للأدمن العام فقط</div>
-        </div>
-      </div>
-    );
-  }
+  const filteredQ = getFilteredQuestions();
 
-  return (
-    <div className="space-y-6">
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-50 rounded-2xl px-6 py-3 text-sm font-bold shadow-xl ${toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'}`}>
-          {toast.msg}
-        </div>
-      )}
+  if (loading) return React.createElement('div', { className: 'flex items-center justify-center h-64' },
+    React.createElement('div', { className: 'text-center' },
+      React.createElement('div', { className: 'text-4xl mb-3' }, '⏳'),
+      React.createElement('p', { className: 'text-gray-500' }, 'جاري تحميل بنك الأسئلة...')
+    )
+  );
 
-      {/* Header */}
-      <div className="rounded-3xl bg-gradient-to-l from-violet-700 via-purple-600 to-indigo-600 p-6 text-white shadow-lg">
-        <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/20 text-3xl">📚</div>
-          <div>
-            <div className="text-2xl font-black">إدارة بنك أسئلة نافس</div>
-            <div className="mt-1 text-sm text-white/80">
-              {loading ? 'جاري التحميل...' : `${bankData?.totalCount || 0} سؤال إجمالاً • ${bankData?.staticCount || 0} ثابت • ${bankData?.customCount || 0} مخصص`}
-            </div>
-          </div>
-        </div>
-      </div>
+  return React.createElement('div', { className: 'p-4 max-w-7xl mx-auto' },
+    // رسالة التنبيه
+    msg && React.createElement('div', {
+      className: `fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${msg.type === 'error' ? 'bg-red-500' : 'bg-green-500'}`
+    }, msg.text),
 
-      {/* Tabs */}
-      <div className="flex gap-2 rounded-2xl bg-white p-2 ring-1 ring-slate-200">
-        {[
-          { key: 'overview', label: '📊 نظرة عامة' },
-          { key: 'add', label: '➕ إضافة سؤال' },
-          { key: 'list', label: '📋 الأسئلة المخصصة' },
-          { key: 'import', label: '📥 استيراد بالجملة' },
-        ].map((tab) => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition-all ${activeTab === tab.key ? 'bg-violet-600 text-white shadow' : 'text-slate-600 hover:bg-slate-100'}`}>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+    // العنوان
+    React.createElement('div', { className: 'mb-6' },
+      React.createElement('h1', { className: 'text-2xl font-bold text-gray-800 mb-1' }, '📚 بنك أسئلة نافس'),
+      React.createElement('p', { className: 'text-gray-500 text-sm' }, 'إدارة شاملة لجميع أسئلة نافس التجريبي والتحصيلي والتهيئة المهارية')
+    ),
 
-      {loading ? (
-        <div className="flex items-center justify-center p-12">
-          <div className="text-slate-500 font-bold">جاري تحميل بنك الأسئلة...</div>
-        </div>
-      ) : (
-        <>
-          {/* نظرة عامة */}
-          {activeTab === 'overview' && bankData && (
-            <div className="space-y-4">
-              {/* بطاقات إحصائية */}
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                {[
-                  { label: 'إجمالي الأسئلة', value: bankData.totalCount, color: 'bg-violet-50 text-violet-700', icon: '📚' },
-                  { label: 'أسئلة ثابتة', value: bankData.staticCount, color: 'bg-slate-50 text-slate-700', icon: '🔒' },
-                  { label: 'أسئلة مخصصة', value: bankData.customCount, color: 'bg-emerald-50 text-emerald-700', icon: '✏️' },
-                  { label: 'الصفوف المغطاة', value: Object.keys(bankData.statsByGrade || {}).length, color: 'bg-amber-50 text-amber-700', icon: '🎓' },
-                ].map((card) => (
-                  <div key={card.label} className={`rounded-2xl p-5 ${card.color} ring-1 ring-black/5`}>
-                    <div className="text-2xl">{card.icon}</div>
-                    <div className="mt-2 text-3xl font-black">{card.value}</div>
-                    <div className="mt-1 text-sm font-bold opacity-70">{card.label}</div>
-                  </div>
-                ))}
-              </div>
+    // بطاقات الإحصائيات السريعة
+    data && React.createElement('div', { className: 'grid grid-cols-2 md:grid-cols-4 gap-3 mb-6' },
+      [
+        { label: 'إجمالي الأسئلة الفعالة', value: data.totalCount, color: 'bg-blue-50 border-blue-200', icon: '📊' },
+        { label: 'أسئلة أصلية', value: data.staticCount, color: 'bg-green-50 border-green-200', icon: '🔒' },
+        { label: 'أسئلة مضافة', value: data.customCount, color: 'bg-purple-50 border-purple-200', icon: '✏️' },
+        { label: 'أسئلة محذوفة', value: data.deletedCount, color: 'bg-red-50 border-red-200', icon: '🗑️' },
+      ].map((card, i) =>
+        React.createElement('div', { key: i, className: `${card.color} border rounded-xl p-4 text-center` },
+          React.createElement('div', { className: 'text-2xl mb-1' }, card.icon),
+          React.createElement('div', { className: 'text-2xl font-bold text-gray-800' }, card.value),
+          React.createElement('div', { className: 'text-xs text-gray-500 mt-1' }, card.label)
+        )
+      )
+    ),
 
-              {/* توزيع حسب الصف */}
-              <div className="rounded-2xl bg-white p-6 ring-1 ring-slate-200">
-                <div className="mb-4 text-base font-black text-slate-800">توزيع الأسئلة حسب الصف والمادة</div>
-                <div className="space-y-3">
-                  {Object.entries(bankData.statsByGrade || {}).map(([gradeKey, stats]) => (
-                    <div key={gradeKey} className="rounded-xl bg-slate-50 p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="font-black text-slate-800">{GRADE_LABELS[gradeKey] || gradeKey}</div>
-                        <div className="rounded-full bg-violet-100 px-3 py-1 text-xs font-black text-violet-700">{stats.total} سؤال</div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {Object.entries(stats.bySubject || {}).map(([sub, count]) => (
-                          <span key={sub} className="rounded-lg bg-white px-2 py-1 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
-                            {SUBJECT_LABELS[sub] || sub}: {count}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+    // التبويبات
+    React.createElement('div', { className: 'flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 flex-wrap' },
+      [
+        { key: 'overview', label: '📊 نظرة عامة' },
+        { key: 'questions', label: '📋 جميع الأسئلة' },
+        { key: 'add', label: editingQ ? '✏️ تعديل سؤال' : '➕ إضافة سؤال' },
+        { key: 'import', label: '📥 استيراد بالجملة' },
+      ].map(t =>
+        React.createElement('button', {
+          key: t.key,
+          onClick: () => { setTab(t.key); if (t.key !== 'add') { setEditingQ(null); setShowAddForm(false); } },
+          className: `flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${tab === t.key ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:text-gray-800'}`
+        }, t.label)
+      )
+    ),
 
-          {/* إضافة سؤال */}
-          {activeTab === 'add' && (
-            <div className="rounded-2xl bg-white p-6 ring-1 ring-slate-200 space-y-5">
-              <div className="text-base font-black text-slate-800">إضافة سؤال جديد لبنك الأسئلة</div>
+    // تبويب: نظرة عامة
+    tab === 'overview' && data && React.createElement('div', null,
+      React.createElement('h3', { className: 'font-bold text-gray-700 mb-4' }, 'توزيع الأسئلة حسب الصف والمادة'),
+      React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' },
+        Object.entries(data.statsByGrade || {}).map(([grade, info]) =>
+          React.createElement('div', { key: grade, className: 'bg-white border rounded-xl p-4 shadow-sm' },
+            React.createElement('div', { className: 'flex justify-between items-center mb-3' },
+              React.createElement('h4', { className: 'font-bold text-gray-800 text-sm' }, GRADE_LABELS[grade] || grade),
+              React.createElement('span', { className: 'bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full' }, `${info.total} سؤال`)
+            ),
+            React.createElement('div', { className: 'space-y-1' },
+              Object.entries(info.bySubject || {}).map(([subj, count]) =>
+                React.createElement('div', { key: subj, className: 'flex justify-between items-center text-xs' },
+                  React.createElement('span', { className: 'text-gray-600' }, SUBJECT_LABELS[subj] || subj),
+                  React.createElement('span', { className: 'font-bold text-gray-800' }, count)
+                )
+              )
+            )
+          )
+        )
+      )
+    ),
 
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <div>
-                  <label className="mb-1 block text-xs font-black text-slate-600">الصف الدراسي *</label>
-                  <select value={form.gradeKey} onChange={(e) => setForm((p) => ({ ...p, gradeKey: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-violet-400">
-                    {Object.entries(GRADE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-black text-slate-600">المادة *</label>
-                  <select value={form.subject} onChange={(e) => setForm((p) => ({ ...p, subject: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-violet-400">
-                    {Object.entries(SUBJECT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-black text-slate-600">المهارة</label>
-                  <input type="text" value={form.skill} onChange={(e) => setForm((p) => ({ ...p, skill: e.target.value }))}
-                    placeholder="مثال: الجمع والطرح"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-black text-slate-600">المستوى</label>
-                  <select value={form.difficulty} onChange={(e) => setForm((p) => ({ ...p, difficulty: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-violet-400">
-                    {Object.entries(DIFFICULTY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
-                </div>
-              </div>
+    // تبويب: جميع الأسئلة
+    tab === 'questions' && React.createElement('div', null,
+      // فلاتر البحث
+      React.createElement('div', { className: 'bg-white border rounded-xl p-4 mb-4 shadow-sm' },
+        React.createElement('div', { className: 'grid grid-cols-2 md:grid-cols-4 gap-3 mb-3' },
+          React.createElement('select', {
+            value: filterGrade, onChange: e => setFilterGrade(e.target.value),
+            className: 'border rounded-lg px-3 py-2 text-sm'
+          },
+            React.createElement('option', { value: '' }, 'كل الصفوف'),
+            Object.entries(GRADE_LABELS).map(([k, v]) => React.createElement('option', { key: k, value: k }, v))
+          ),
+          React.createElement('select', {
+            value: filterSubject, onChange: e => setFilterSubject(e.target.value),
+            className: 'border rounded-lg px-3 py-2 text-sm'
+          },
+            React.createElement('option', { value: '' }, 'كل المواد'),
+            Object.entries(SUBJECT_LABELS).map(([k, v]) => React.createElement('option', { key: k, value: k }, v))
+          ),
+          React.createElement('select', {
+            value: filterType, onChange: e => setFilterType(e.target.value),
+            className: 'border rounded-lg px-3 py-2 text-sm'
+          },
+            React.createElement('option', { value: 'all' }, 'كل الأنواع'),
+            React.createElement('option', { value: 'builtin' }, '🔒 أصلية فقط'),
+            React.createElement('option', { value: 'custom' }, '✏️ مضافة فقط'),
+            React.createElement('option', { value: 'deleted' }, '🗑️ محذوفة')
+          ),
+          React.createElement('input', {
+            type: 'text', placeholder: 'بحث في الأسئلة...',
+            value: searchText, onChange: e => setSearchText(e.target.value),
+            className: 'border rounded-lg px-3 py-2 text-sm'
+          })
+        ),
+        React.createElement('div', { className: 'text-sm text-gray-500' }, `عدد النتائج: ${filteredQ.length} سؤال`)
+      ),
 
-              <div>
-                <label className="mb-1 block text-xs font-black text-slate-600">نص السؤال *</label>
-                <textarea value={form.question} onChange={(e) => setForm((p) => ({ ...p, question: e.target.value }))}
-                  rows={3} placeholder="اكتب نص السؤال هنا..."
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
-              </div>
+      // قائمة الأسئلة
+      React.createElement('div', { className: 'space-y-3' },
+        filteredQ.length === 0
+          ? React.createElement('div', { className: 'text-center py-12 text-gray-400' },
+              React.createElement('div', { className: 'text-4xl mb-2' }, '🔍'),
+              React.createElement('p', null, 'لا توجد أسئلة تطابق الفلتر')
+            )
+          : filteredQ.map((q, idx) =>
+              React.createElement('div', {
+                key: q.id || idx,
+                className: `bg-white border rounded-xl p-4 shadow-sm ${q.deleted ? 'opacity-60 border-red-200 bg-red-50' : ''}`
+              },
+                React.createElement('div', { className: 'flex justify-between items-start gap-3' },
+                  React.createElement('div', { className: 'flex-1' },
+                    // شارات
+                    React.createElement('div', { className: 'flex gap-2 flex-wrap mb-2' },
+                      React.createElement('span', { className: 'bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded-full' }, GRADE_LABELS[q.gradeKey] || q.gradeKey),
+                      React.createElement('span', { className: 'bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full' }, SUBJECT_LABELS[q.subject] || q.subject),
+                      q.difficulty && React.createElement('span', { className: 'bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-full' }, DIFFICULTY_LABELS[q.difficulty] || q.difficulty),
+                      q.skill && React.createElement('span', { className: 'bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded-full' }, q.skill),
+                      q.isBuiltIn && !q.isModified && React.createElement('span', { className: 'bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full' }, '🔒 أصلي'),
+                      q.isModified && React.createElement('span', { className: 'bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full' }, '✏️ معدّل'),
+                      !q.isBuiltIn && !q.deleted && React.createElement('span', { className: 'bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded-full' }, '✨ مضاف'),
+                      q.deleted && React.createElement('span', { className: 'bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full' }, '🗑️ محذوف')
+                    ),
+                    // نص السؤال
+                    React.createElement('p', { className: 'text-gray-800 font-medium text-sm mb-2' }, q.question),
+                    // الخيارات
+                    React.createElement('div', { className: 'grid grid-cols-2 gap-1' },
+                      (q.options || []).map((opt, i) =>
+                        React.createElement('div', {
+                          key: i,
+                          className: `text-xs px-2 py-1 rounded-lg ${i === q.correctIndex ? 'bg-green-100 text-green-700 font-bold' : 'bg-gray-50 text-gray-600'}`
+                        }, `${['أ','ب','ج','د'][i]}) ${opt}`)
+                      )
+                    ),
+                    q.explanation && React.createElement('p', { className: 'text-xs text-gray-500 mt-2 italic' }, `💡 ${q.explanation}`)
+                  ),
+                  // أزرار الإجراءات
+                  React.createElement('div', { className: 'flex flex-col gap-2 shrink-0' },
+                    !q.deleted && React.createElement('button', {
+                      onClick: () => handleEdit(q),
+                      className: 'bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors'
+                    }, '✏️ تعديل'),
+                    !q.deleted && React.createElement('button', {
+                      onClick: () => handleDelete(q),
+                      className: 'bg-red-50 hover:bg-red-100 text-red-700 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors'
+                    }, '🗑️ حذف'),
+                    q.deleted && React.createElement('button', {
+                      onClick: () => handleRestore(q),
+                      className: 'bg-green-50 hover:bg-green-100 text-green-700 text-xs px-3 py-1.5 rounded-lg font-medium transition-colors'
+                    }, '♻️ استعادة')
+                  )
+                )
+              )
+            )
+      )
+    ),
 
-              <div>
-                <label className="mb-2 block text-xs font-black text-slate-600">الخيارات الأربعة * (اختر الإجابة الصحيحة بالضغط على الزر)</label>
-                <div className="space-y-2">
-                  {form.options.map((opt, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <button onClick={() => setForm((p) => ({ ...p, correct: i }))}
-                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-black transition-all ${form.correct === i ? 'bg-emerald-500 text-white shadow-md' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
-                        {String.fromCharCode(65 + i)}
-                      </button>
-                      <input type="text" value={opt} onChange={(e) => {
-                        const newOpts = [...form.options]; newOpts[i] = e.target.value;
-                        setForm((p) => ({ ...p, options: newOpts }));
-                      }} placeholder={`الخيار ${String.fromCharCode(65 + i)}`}
-                        className={`flex-1 rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 ${form.correct === i ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`} />
-                      {form.correct === i && <span className="text-xs font-black text-emerald-600">✓ صحيح</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
+    // تبويب: إضافة / تعديل سؤال
+    tab === 'add' && React.createElement('div', { className: 'bg-white border rounded-xl p-6 shadow-sm' },
+      React.createElement('h3', { className: 'font-bold text-gray-800 mb-4 text-lg' },
+        editingQ ? `✏️ تعديل سؤال: ${editingQ.question.substring(0, 40)}...` : '➕ إضافة سؤال جديد'
+      ),
+      React.createElement('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-4' },
+        // الصف
+        React.createElement('div', null,
+          React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'الصف الدراسي *'),
+          React.createElement('select', {
+            value: form.gradeKey,
+            onChange: e => setForm(f => ({ ...f, gradeKey: e.target.value })),
+            className: 'w-full border rounded-lg px-3 py-2 text-sm'
+          }, Object.entries(GRADE_LABELS).map(([k, v]) => React.createElement('option', { key: k, value: k }, v)))
+        ),
+        // المادة
+        React.createElement('div', null,
+          React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'المادة *'),
+          React.createElement('select', {
+            value: form.subject,
+            onChange: e => setForm(f => ({ ...f, subject: e.target.value })),
+            className: 'w-full border rounded-lg px-3 py-2 text-sm'
+          }, Object.entries(SUBJECT_LABELS).map(([k, v]) => React.createElement('option', { key: k, value: k }, v)))
+        ),
+        // المهارة
+        React.createElement('div', null,
+          React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'المهارة المستهدفة'),
+          React.createElement('input', {
+            type: 'text', value: form.skill,
+            onChange: e => setForm(f => ({ ...f, skill: e.target.value })),
+            placeholder: 'مثال: الجمع والطرح، فهم المقروء...',
+            className: 'w-full border rounded-lg px-3 py-2 text-sm'
+          })
+        ),
+        // المستوى
+        React.createElement('div', null,
+          React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'مستوى الصعوبة'),
+          React.createElement('select', {
+            value: form.difficulty,
+            onChange: e => setForm(f => ({ ...f, difficulty: e.target.value })),
+            className: 'w-full border rounded-lg px-3 py-2 text-sm'
+          },
+            React.createElement('option', { value: 'easy' }, '🟢 سهل'),
+            React.createElement('option', { value: 'medium' }, '🟡 متوسط'),
+            React.createElement('option', { value: 'hard' }, '🔴 صعب')
+          )
+        )
+      ),
+      // نص السؤال
+      React.createElement('div', { className: 'mb-4' },
+        React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'نص السؤال *'),
+        React.createElement('textarea', {
+          value: form.question,
+          onChange: e => setForm(f => ({ ...f, question: e.target.value })),
+          rows: 3, placeholder: 'اكتب نص السؤال هنا...',
+          className: 'w-full border rounded-lg px-3 py-2 text-sm resize-none'
+        })
+      ),
+      // الخيارات
+      React.createElement('div', { className: 'mb-4' },
+        React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-2' },
+          'الخيارات * (اضغط على الخيار الصحيح لتحديده)'
+        ),
+        React.createElement('div', { className: 'space-y-2' },
+          form.options.map((opt, i) =>
+            React.createElement('div', { key: i, className: 'flex gap-2 items-center' },
+              React.createElement('button', {
+                onClick: () => setForm(f => ({ ...f, correctIndex: i })),
+                className: `w-8 h-8 rounded-full text-xs font-bold shrink-0 transition-all ${form.correctIndex === i ? 'bg-green-500 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`
+              }, ['أ','ب','ج','د'][i]),
+              React.createElement('input', {
+                type: 'text', value: opt,
+                onChange: e => {
+                  const newOpts = [...form.options];
+                  newOpts[i] = e.target.value;
+                  setForm(f => ({ ...f, options: newOpts }));
+                },
+                placeholder: `الخيار ${['أ','ب','ج','د'][i]}`,
+                className: `flex-1 border rounded-lg px-3 py-2 text-sm ${form.correctIndex === i ? 'border-green-400 bg-green-50' : ''}`
+              })
+            )
+          )
+        )
+      ),
+      // الشرح
+      React.createElement('div', { className: 'mb-6' },
+        React.createElement('label', { className: 'block text-sm font-medium text-gray-700 mb-1' }, 'شرح الإجابة (اختياري)'),
+        React.createElement('textarea', {
+          value: form.explanation,
+          onChange: e => setForm(f => ({ ...f, explanation: e.target.value })),
+          rows: 2, placeholder: 'اشرح لماذا هذه الإجابة صحيحة...',
+          className: 'w-full border rounded-lg px-3 py-2 text-sm resize-none'
+        })
+      ),
+      // أزرار الحفظ
+      React.createElement('div', { className: 'flex gap-3' },
+        React.createElement('button', {
+          onClick: handleSaveQuestion, disabled: saving,
+          className: 'bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-colors disabled:opacity-50'
+        }, saving ? '⏳ جاري الحفظ...' : (editingQ ? '💾 حفظ التعديلات' : '✅ إضافة السؤال')),
+        (editingQ || form.question) && React.createElement('button', {
+          onClick: () => {
+            setEditingQ(null);
+            setForm({ gradeKey: 'p3', subject: 'math', skill: '', difficulty: 'medium', question: '', options: ['', '', '', ''], correctIndex: 0, explanation: '' });
+          },
+          className: 'bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-2.5 rounded-xl font-bold text-sm transition-colors'
+        }, '🔄 مسح النموذج')
+      )
+    ),
 
-              <div>
-                <label className="mb-1 block text-xs font-black text-slate-600">شرح الإجابة (اختياري)</label>
-                <textarea value={form.explanation} onChange={(e) => setForm((p) => ({ ...p, explanation: e.target.value }))}
-                  rows={2} placeholder="شرح مختصر للإجابة الصحيحة..."
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
-              </div>
-
-              <button onClick={handleAddQuestion} disabled={saving}
-                className="w-full rounded-2xl bg-violet-600 py-3 text-base font-black text-white shadow-md hover:bg-violet-700 disabled:opacity-50 transition-all">
-                {saving ? 'جاري الحفظ...' : '➕ إضافة السؤال لبنك الأسئلة'}
-              </button>
-            </div>
-          )}
-
-          {/* قائمة الأسئلة المخصصة */}
-          {activeTab === 'list' && (
-            <div className="space-y-4">
-              {/* فلاتر */}
-              <div className="flex gap-3 rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-                <select value={filterGrade} onChange={(e) => setFilterGrade(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-violet-400">
-                  <option value="">كل الصفوف</option>
-                  {Object.entries(GRADE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-                <select value={filterSubject} onChange={(e) => setFilterSubject(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-violet-400">
-                  <option value="">كل المواد</option>
-                  {Object.entries(SUBJECT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-                <div className="mr-auto text-sm font-bold text-slate-500 self-center">
-                  {filteredCustom.length} سؤال مخصص
-                </div>
-              </div>
-
-              {filteredCustom.length === 0 ? (
-                <div className="rounded-2xl bg-slate-50 p-10 text-center ring-1 ring-slate-200">
-                  <div className="text-4xl mb-3">📭</div>
-                  <div className="font-black text-slate-600">لا توجد أسئلة مخصصة بعد</div>
-                  <div className="mt-1 text-sm text-slate-400">اضغط على "إضافة سؤال" لإضافة أسئلة جديدة</div>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {filteredCustom.map((q) => (
-                    <div key={q.id} className="rounded-2xl bg-white p-5 ring-1 ring-slate-200">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1">
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            <span className="rounded-lg bg-violet-100 px-2 py-0.5 text-xs font-black text-violet-700">{GRADE_LABELS[q.gradeKey] || q.gradeKey}</span>
-                            <span className="rounded-lg bg-blue-100 px-2 py-0.5 text-xs font-black text-blue-700">{SUBJECT_LABELS[q.subject] || q.subject}</span>
-                            {q.skill && <span className="rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-700">{q.skill}</span>}
-                            <span className={`rounded-lg px-2 py-0.5 text-xs font-black ${q.difficulty === 'easy' ? 'bg-emerald-100 text-emerald-700' : q.difficulty === 'hard' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-700'}`}>
-                              {DIFFICULTY_LABELS[q.difficulty] || q.difficulty}
-                            </span>
-                          </div>
-                          <div className="font-bold text-slate-800 leading-7">{q.question}</div>
-                          <div className="mt-2 grid grid-cols-2 gap-1">
-                            {q.options.map((opt, i) => (
-                              <div key={i} className={`rounded-lg px-2 py-1 text-xs font-bold ${i === q.correct ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'text-slate-500'}`}>
-                                {String.fromCharCode(65 + i)}. {opt}
-                              </div>
-                            ))}
-                          </div>
-                          {q.explanation && <div className="mt-2 text-xs text-slate-500 bg-slate-50 rounded-lg px-2 py-1">💡 {q.explanation}</div>}
-                          <div className="mt-2 text-xs text-slate-400">أضافه: {q.addedBy} • {q.addedAt ? new Date(q.addedAt).toLocaleDateString('ar-SA') : ''}</div>
-                        </div>
-                        <div className="flex gap-2 shrink-0">
-                          <button onClick={() => setEditingQuestion({ ...q })}
-                            className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 hover:bg-amber-100 ring-1 ring-amber-200">
-                            ✏️ تعديل
-                          </button>
-                          <button onClick={() => setDeleteConfirm(q.id)}
-                            className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-black text-rose-700 hover:bg-rose-100 ring-1 ring-rose-200">
-                            🗑️ حذف
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* استيراد بالجملة */}
-          {activeTab === 'import' && (
-            <div className="rounded-2xl bg-white p-6 ring-1 ring-slate-200 space-y-5">
-              <div className="text-base font-black text-slate-800">استيراد أسئلة بالجملة (JSON)</div>
-              <div className="rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-200 text-sm text-amber-800">
-                <div className="font-black mb-2">📌 تنسيق JSON المطلوب:</div>
-                <pre className="text-xs bg-white rounded-xl p-3 overflow-auto ring-1 ring-amber-200 leading-6 text-slate-700">{`[
-  {
-    "gradeKey": "p3",
-    "subject": "math",
-    "skill": "الجمع",
-    "difficulty": "easy",
-    "question": "كم يساوي 5 + 3؟",
-    "options": ["6", "7", "8", "9"],
-    "correct": 2,
-    "explanation": "5 + 3 = 8"
-  }
-]`}</pre>
-                <div className="mt-2 text-xs">
-                  <strong>gradeKey:</strong> p1-p6, m1-m3, s1-s3 | <strong>subject:</strong> math, arabic, science, physics, chemistry, biology, social | <strong>correct:</strong> 0-3
-                </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-black text-slate-600">الصق كود JSON هنا</label>
-                <textarea value={importText} onChange={(e) => setImportText(e.target.value)}
-                  rows={12} placeholder='[{"gradeKey": "p3", "subject": "math", ...}]'
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-400" />
-              </div>
-              <button onClick={handleImport} disabled={saving || !importText.trim()}
-                className="w-full rounded-2xl bg-violet-600 py-3 text-base font-black text-white shadow-md hover:bg-violet-700 disabled:opacity-50 transition-all">
-                {saving ? 'جاري الاستيراد...' : '📥 استيراد الأسئلة'}
-              </button>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Modal تعديل السؤال */}
-      {editingQuestion && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="text-lg font-black text-slate-800">✏️ تعديل السؤال</div>
-              <button onClick={() => setEditingQuestion(null)} className="rounded-xl bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-600 hover:bg-slate-200">✕</button>
-            </div>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-xs font-black text-slate-600">الصف</label>
-                  <select value={editingQuestion.gradeKey} onChange={(e) => setEditingQuestion((p) => ({ ...p, gradeKey: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-violet-400">
-                    {Object.entries(GRADE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-black text-slate-600">المادة</label>
-                  <select value={editingQuestion.subject} onChange={(e) => setEditingQuestion((p) => ({ ...p, subject: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-violet-400">
-                    {Object.entries(SUBJECT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-black text-slate-600">نص السؤال</label>
-                <textarea value={editingQuestion.question} onChange={(e) => setEditingQuestion((p) => ({ ...p, question: e.target.value }))}
-                  rows={3} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
-              </div>
-              <div className="space-y-2">
-                {editingQuestion.options.map((opt, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <button onClick={() => setEditingQuestion((p) => ({ ...p, correct: i }))}
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-black ${editingQuestion.correct === i ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                      {String.fromCharCode(65 + i)}
-                    </button>
-                    <input type="text" value={opt} onChange={(e) => {
-                      const newOpts = [...editingQuestion.options]; newOpts[i] = e.target.value;
-                      setEditingQuestion((p) => ({ ...p, options: newOpts }));
-                    }} className={`flex-1 rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 ${editingQuestion.correct === i ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`} />
-                  </div>
-                ))}
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-black text-slate-600">شرح الإجابة</label>
-                <textarea value={editingQuestion.explanation || ''} onChange={(e) => setEditingQuestion((p) => ({ ...p, explanation: e.target.value }))}
-                  rows={2} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400" />
-              </div>
-              <div className="flex gap-3">
-                <button onClick={handleUpdateQuestion} disabled={saving}
-                  className="flex-1 rounded-2xl bg-violet-600 py-3 text-sm font-black text-white hover:bg-violet-700 disabled:opacity-50">
-                  {saving ? 'جاري الحفظ...' : '💾 حفظ التعديلات'}
-                </button>
-                <button onClick={() => setEditingQuestion(null)}
-                  className="rounded-2xl bg-slate-100 px-6 py-3 text-sm font-black text-slate-600 hover:bg-slate-200">
-                  إلغاء
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal تأكيد الحذف */}
-      {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl text-center">
-            <div className="text-4xl mb-3">🗑️</div>
-            <div className="text-lg font-black text-slate-800">تأكيد الحذف</div>
-            <div className="mt-2 text-sm text-slate-500">هل أنت متأكد من حذف هذا السؤال؟ لا يمكن التراجع.</div>
-            <div className="mt-5 flex gap-3">
-              <button onClick={() => handleDeleteQuestion(deleteConfirm)} disabled={saving}
-                className="flex-1 rounded-2xl bg-rose-600 py-3 text-sm font-black text-white hover:bg-rose-700 disabled:opacity-50">
-                {saving ? 'جاري الحذف...' : 'نعم، احذف'}
-              </button>
-              <button onClick={() => setDeleteConfirm(null)}
-                className="flex-1 rounded-2xl bg-slate-100 py-3 text-sm font-black text-slate-600 hover:bg-slate-200">
-                إلغاء
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    // تبويب: استيراد بالجملة
+    tab === 'import' && React.createElement('div', { className: 'bg-white border rounded-xl p-6 shadow-sm' },
+      React.createElement('h3', { className: 'font-bold text-gray-800 mb-2 text-lg' }, '📥 استيراد أسئلة بالجملة'),
+      React.createElement('p', { className: 'text-gray-500 text-sm mb-4' }, 'الصق مصفوفة JSON تحتوي على الأسئلة. كل سؤال يجب أن يحتوي على الحقول المطلوبة.'),
+      // مثال
+      React.createElement('div', { className: 'bg-gray-50 border rounded-xl p-4 mb-4 text-xs font-mono text-gray-600 overflow-auto' },
+        React.createElement('p', { className: 'font-bold text-gray-700 mb-2' }, '📌 مثال على التنسيق المطلوب:'),
+        React.createElement('pre', null, JSON.stringify([{
+          gradeKey: "p3", subject: "math", skill: "الجمع", difficulty: "easy",
+          question: "كم يساوي 5 + 3؟",
+          options: ["6", "7", "8", "9"], correctIndex: 2,
+          explanation: "5 + 3 = 8"
+        }], null, 2))
+      ),
+      React.createElement('textarea', {
+        value: importText,
+        onChange: e => setImportText(e.target.value),
+        rows: 10, placeholder: 'الصق JSON هنا...',
+        className: 'w-full border rounded-xl px-4 py-3 text-sm font-mono mb-4 resize-none'
+      }),
+      React.createElement('button', {
+        onClick: handleImport, disabled: saving || !importText.trim(),
+        className: 'bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-colors disabled:opacity-50'
+      }, saving ? '⏳ جاري الاستيراد...' : '📥 استيراد الأسئلة'),
+      importResult && React.createElement('div', { className: 'mt-4 bg-green-50 border border-green-200 rounded-xl p-4' },
+        React.createElement('p', { className: 'text-green-700 font-bold' }, `✅ تم استيراد ${importResult.imported} سؤال بنجاح`),
+        importResult.errors?.length > 0 && React.createElement('p', { className: 'text-red-600 text-sm mt-1' }, `⚠️ ${importResult.errors.length} سؤال تم تجاهله بسبب أخطاء`)
+      )
+    )
   );
 }
+
 // ===== نهاية صفحة إدارة بنك أسئلة نافس =====
 
 function NafisStudentWidget({ studentId, schoolId }) {
