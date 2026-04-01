@@ -13743,11 +13743,12 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, sett
     }
   };
 
-  const handleTeacherSubmit = () => {
+  const handleTeacherSubmit = async () => {
     if (!selectedSession) return;
     if (!teacherClassKey) return setTeacherStatus('اختر الفصل أولًا.');
     if (!teacherAcknowledgement) return setTeacherStatus('يلزم إقرار المعلم بصحة التحضير قبل الحفظ.');
-    const result = onSubmitSession({ sessionId: selectedSession.id, classKey: teacherClassKey, acknowledgement: teacherAcknowledgement, absentStudentIds: teacherAbsentIds });
+    setTeacherStatus('جارٍ حفظ التحضير...');
+    const result = await onSubmitSession({ sessionId: selectedSession.id, classKey: teacherClassKey, acknowledgement: teacherAcknowledgement, absentStudentIds: teacherAbsentIds });
     setTeacherStatus(result?.message || (result?.ok ? 'تم الحفظ.' : 'تعذر الحفظ.'));
     if (result?.ok) {
       setSubmitSuccess(true);
@@ -22136,7 +22137,7 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
     }
   };
 
-  const handleSubmitLessonAttendanceSession = ({ sessionId, classKey, acknowledgement, absentStudentIds = [] }) => {
+  const handleSubmitLessonAttendanceSession = async ({ sessionId, classKey, acknowledgement, absentStudentIds = [] }) => {
     if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لم يتم العثور على الجلسة أو المستخدم.' };
     const companyRows = getUnifiedCompanyRows(selectedSchool, { preferStructure: true });
     const classRow = companyRows.find((row) => getClassroomKeyFromCompanyRow(row) === String(classKey));
@@ -22189,6 +22190,17 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
       return schoolWithPoints;
     }));
     pushNotification('تحضير حصة', `أتم ${currentUser.name || currentUser.username} تحضير ${submission.className} في ${selectedSchool.name}.`);
+    // حفظ التحضير على الخادم
+    try {
+      const token = getSessionToken();
+      await apiRequest(`/api/lesson-sessions/${sessionId}/submit`, {
+        method: 'POST',
+        token,
+        body: { schoolId: selectedSchool.id, submission },
+      });
+    } catch (err) {
+      console.error('فشل حفظ التحضير على الخادم:', err);
+    }
     return { ok: true, submission, message: `تم اعتماد التحضير لفصل ${submission.className}.` };
   };
 

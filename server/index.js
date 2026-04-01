@@ -5209,6 +5209,40 @@ const server = http.createServer(async (req, res) => {
     }
     // ===== نهاية مسارات بوابة ولي الأمر =====
     // ===== نهاية مسارات API بوابة ولي الأمر =====
+
+    // ===== تحضير الحصص - حفظ submission =====
+    if (reqUrl.pathname.match(/^\/api\/lesson-sessions\/[^/]+\/submit$/) && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      const sessionId = reqUrl.pathname.split('/')[3];
+      const body = await readJsonBody(req);
+      const { schoolId, submission } = body;
+      if (!sessionId || !submission || !schoolId) return sendJson(res, 400, { ok: false, message: 'بيانات ناقصة.' });
+      const currentState = await getSharedState();
+      const schoolIdx = currentState.schools.findIndex((s) => String(s.id) === String(schoolId));
+      if (schoolIdx === -1) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      const school = currentState.schools[schoolIdx];
+      const sessions = Array.isArray(school.lessonAttendanceSessions) ? school.lessonAttendanceSessions : [];
+      const sessionIdx = sessions.findIndex((s) => String(s.id) === String(sessionId));
+      if (sessionIdx === -1) return sendJson(res, 404, { ok: false, message: 'الجلسة غير موجودة.' });
+      const session = sessions[sessionIdx];
+      const existingSubs = Array.isArray(session.submissions) ? session.submissions : [];
+      // إزالة أي submission سابق من نفس المعلم ونفس الفصل
+      const filtered = existingSubs.filter((item) => !(String(item.teacherId) === String(submission.teacherId) && String(item.classKey) === String(submission.classKey)));
+      const updatedSession = { ...session, submissions: [submission, ...filtered] };
+      const updatedSessions = [...sessions];
+      updatedSessions[sessionIdx] = updatedSession;
+      const updatedSchool = { ...school, lessonAttendanceSessions: updatedSessions };
+      const updatedSchools = [...currentState.schools];
+      updatedSchools[schoolIdx] = updatedSchool;
+      const newState = { ...currentState, schools: updatedSchools };
+      await saveSharedState(newState, actor);
+      // إرسال تحديث فوري لشاشات العرض
+      broadcastAllLive(newState);
+      return sendJson(res, 200, { ok: true, message: 'تم حفظ التحضير بنجاح.' });
+    }
+    // ===== نهاية تحضير الحصص =====
+
     if (reqUrl.pathname.startsWith('/api/')) {
       return notFound(res);
     }
