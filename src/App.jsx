@@ -21255,10 +21255,14 @@ export default function App() {
       window.alert("قارئ QR غير مفعل من الإعدادات.");
       return;
     }
-    const sourceMode = attendanceBinding.sourceMode;
+    // نحسب attendanceBinding وattendanceStudents محلياً داخل الدالة لأنهما غير متاحين في هذا السياق
+    const _attendanceBinding = getSchoolAttendanceBinding(selectedSchool);
+    const _attendanceSource = getAttendanceStudentsSource(selectedSchool);
+    const _attendanceStudents = _attendanceSource.students || [];
+    const sourceMode = _attendanceBinding.sourceMode;
     const normalizedRaw = normalizeSearchToken(rawValue);
     const student = sourceMode === 'structure'
-      ? (attendanceStudents.find((item) => sanitizeBarcodeValue(item.barcode) === value || normalizeSearchToken(item.nationalId || item.identityNumber || '') === normalizedRaw || normalizeSearchToken(item.guardianMobile || '') === normalizedRaw || normalizeSearchToken(item.studentNumber || item.rawId || item.id || '') === normalizedRaw || String(item.name || '').trim() === rawValue || String(item.fullName || '').trim() === rawValue) || findStudentByKeyword(selectedSchool, rawValue))
+      ? (_attendanceStudents.find((item) => sanitizeBarcodeValue(item.barcode) === value || normalizeSearchToken(item.nationalId || item.identityNumber || '') === normalizedRaw || normalizeSearchToken(item.guardianMobile || '') === normalizedRaw || normalizeSearchToken(item.studentNumber || item.rawId || item.id || '') === normalizedRaw || String(item.name || '').trim() === rawValue || String(item.fullName || '').trim() === rawValue) || findStudentByKeyword(selectedSchool, rawValue))
       : (selectedSchool.students.find((item) => sanitizeBarcodeValue(item.barcode) === value) || findStudentByKeyword(selectedSchool, rawValue));
     if (!student) {
       pushNotification("فشل قراءة الحضور", `لم يتم العثور على الطالب المرتبط بالقيمة ${rawValue || value}.`);
