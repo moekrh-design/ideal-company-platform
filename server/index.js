@@ -2797,7 +2797,28 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
   const companyRows = getUnifiedCompanyRowsForServer(school, { preferStructure: true });
   const scansToday = state.scanLog.filter((item) => Number(item.schoolId) === Number(schoolId) && item.isoDate === today && !String(item.result || '').includes('فشل') && !String(item.result || '').includes('مسبق'));
   const actionsToday = state.actionLog.filter((item) => Number(item.schoolId) === Number(schoolId) && item.isoDate === today);
-  const presentToday = new Set(scansToday.map((item) => item.studentId).filter(Boolean)).size;
+  // ===== حساب presentToday الموحد: يجمع البوابة + تحضير الحصص بدون تكرار =====
+  // 1) الطلاب الذين حضروا عبر البوابة (QR / بصمة وجه / يدوي)
+  const gatePresentIds = new Set(scansToday.map((item) => String(item.studentId)).filter(Boolean));
+  // 2) الطلاب الذين حضروا عبر تحضير الحصص (من المعلمين)
+  const lessonSessionsToday = Array.isArray(school.lessonAttendanceSessions)
+    ? school.lessonAttendanceSessions.filter((s) => s.dateIso === today)
+    : [];
+  // نأخذ العدد الأعلى لكل طالب عبر الحصص المتعددة (لو حضر في حصة واحدة يُعدّ حاضراً)
+  const lessonPresentIds = new Set();
+  lessonSessionsToday.forEach((session) => {
+    (session.submissions || []).forEach((sub) => {
+      (sub.presentStudentIds || []).forEach((id) => lessonPresentIds.add(String(id)));
+      // الطلاب الحاضرون = كل طلاب الفصل ناقص الغائبين
+      const absentSet = new Set((sub.absentStudentIds || []).map(String));
+      if (Array.isArray(sub.allStudentIds)) {
+        sub.allStudentIds.forEach((id) => { if (!absentSet.has(String(id))) lessonPresentIds.add(String(id)); });
+      }
+    });
+  });
+  // 3) الدمج: اتحاد المجموعتين (لا تكرار)
+  const unifiedPresentIds = new Set([...gatePresentIds, ...lessonPresentIds]);
+  const presentToday = unifiedPresentIds.size;
   const totalStudents = unifiedStudents.length;
   const attendanceRate = totalStudents ? Math.round((presentToday / totalStudents) * 100) : 0;
   const topStudents = [...unifiedStudents].sort((a, b) => Number(b.points || 0) - Number(a.points || 0)).slice(0, 5).map((student, index) => ({
@@ -2814,7 +2835,39 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
     points: Number(company.points || 0),
     rank: index + 1,
   }));
-  const recentAttendance = scansToday.slice(0, 8);
+  // ===== recentAttendance الموحد: يشمل البوابة + تحضير الحصص مع مصدر التحضير =====
+  const gateRecentEntries = scansToday.map((item) => ({
+    ...item,
+    attendanceSource: item.method === 'إدخال يدوي' ? 'يدوي' : (item.method === 'بصمة وجه' ? 'بصمة وجه' : 'بوابة QR'),
+    attendanceSourceDetail: item.gateName || item.method || 'بوابة',
+  }));
+  const lessonRecentEntries = [];
+  lessonSessionsToday.forEach((session) => {
+    (session.submissions || []).forEach((sub) => {
+      const absentSet = new Set((sub.absentStudentIds || []).map(String));
+      const allIds = Array.isArray(sub.allStudentIds) ? sub.allStudentIds : [];
+      const presentIds = allIds.filter((id) => !absentSet.has(String(id)));
+      presentIds.forEach((id) => {
+        if (!gatePresentIds.has(String(id))) { // لا نضيف من حضر عبر البوابة مرة ثانية
+          const student = unifiedStudents.find((s) => String(s.id) === String(id));
+          lessonRecentEntries.push({
+            id: `lesson-${session.id}-${sub.id || sub.classKey}-${id}`,
+            studentId: id,
+            student: student?.name || student?.fullName || 'طالب',
+            time: sub.submittedAt ? String(sub.submittedAt).slice(11, 16) : '--:--',
+            isoDate: today,
+            result: 'تم تسجيل حضور',
+            method: 'تحضير حصة',
+            attendanceSource: 'معلم',
+            attendanceSourceDetail: `معلم: ${sub.teacherName || 'معلم'} | فصل: ${sub.className || 'فصل'} | ${session.slotLabel || 'حصة'}`,
+          });
+        }
+      });
+    });
+  });
+  const recentAttendance = [...gateRecentEntries, ...lessonRecentEntries]
+    .sort((a, b) => String(b.time || '').localeCompare(String(a.time || '')))
+    .slice(0, 10);
   const attendanceMap = new Map();
   state.scanLog.filter((item) => Number(item.schoolId) === Number(schoolId)).forEach((item) => {
     const existing = attendanceMap.get(item.isoDate) || { day: item.date, attendance: 0, early: 0 };
@@ -3060,7 +3113,7 @@ function getAttendanceStudentsSourceForSchool(school) {
   };
 }
 
-function applyAttendanceScanToState(state, schoolId, barcodeValue, method = 'QR') {
+function applyAttendanceScanToState(state, schoolId, barcodeValue, method = 'QR', gateNameParam = '') {
   const next = structuredClone(state);
   const school = next.schools.find((item) => Number(item.id) === Number(schoolId));
   if (!school) return { ok: false, message: 'المدرسة غير موجودة.' };
@@ -3147,6 +3200,9 @@ function applyAttendanceScanToState(state, schoolId, barcodeValue, method = 'QR'
     isoDate: today,
     time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
     method: attendanceSource.sourceMode === 'structure' ? 'هيكل مدرسي' : method,
+    gateName: gateNameParam || attendanceSource.gateName || attendanceSource.name || 'بوابة',
+    attendanceSource: method === 'بصمة وجه' ? 'بصمة وجه' : (method === 'إدخال يدوي' ? 'يدوي' : 'بوابة QR'),
+    attendanceSourceDetail: `${gateNameParam || attendanceSource.gateName || attendanceSource.name || 'بوابة'} | ${method || 'QR'}`,
     result,
     deltaPoints,
   };
@@ -4546,7 +4602,7 @@ const server = http.createServer(async (req, res) => {
       const match = findGateConfigByToken(state, publicGateScanMatch[1]);
       if (!match) return sendJson(res, 404, { ok: false, message: 'رابط البوابة غير صالح.' });
       const body = await readJsonBody(req);
-      const applied = applyAttendanceScanToState(state, match.school.id, body.barcode, body.method || 'QR');
+      const applied = applyAttendanceScanToState(state, match.school.id, body.barcode, body.method || 'QR', match.gate?.name || 'بوابة');
       if (!applied.ok) return sendJson(res, 400, applied);
       let finalState = applied.state;
       if (String(applied.message || '').includes('تأخر')) {

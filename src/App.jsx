@@ -2469,7 +2469,21 @@ function summarizeSchoolLiveState(school, scanLog = [], actionLog = []) {
   const companyRows = getUnifiedCompanyRows(school, { preferStructure: true });
   const schoolScans = (scanLog || []).filter((item) => item.schoolId === school?.id && item.isoDate === today && !String(item.result || '').includes('فشل') && !String(item.result || '').includes('مسبق'));
   const schoolActions = (actionLog || []).filter((item) => item.schoolId === school?.id && item.isoDate === today);
-  const presentToday = new Set(schoolScans.map((item) => item.studentId).filter(Boolean)).size;
+  // ===== حساب presentToday الموحد: يجمع البوابة + تحضير الحصص بدون تكرار =====
+  const gatePresentIds = new Set(schoolScans.map((item) => String(item.studentId)).filter(Boolean));
+  const lessonSessionsToday = getLessonAttendanceSessions(school).filter((s) => s.dateIso === today);
+  const lessonPresentIds = new Set();
+  lessonSessionsToday.forEach((session) => {
+    (session.submissions || []).forEach((sub) => {
+      (sub.presentStudentIds || []).forEach((id) => lessonPresentIds.add(String(id)));
+      const absentSet = new Set((sub.absentStudentIds || []).map(String));
+      if (Array.isArray(sub.allStudentIds)) {
+        sub.allStudentIds.forEach((id) => { if (!absentSet.has(String(id))) lessonPresentIds.add(String(id)); });
+      }
+    });
+  });
+  const unifiedPresentIds = new Set([...gatePresentIds, ...lessonPresentIds]);
+  const presentToday = unifiedPresentIds.size;
   const totalStudents = unifiedStudents.length;
   const attendanceRate = totalStudents ? Math.round((presentToday / totalStudents) * 100) : 0;
   const topStudents = [...unifiedStudents]
@@ -14155,8 +14169,33 @@ function ReportsPage({ schools, scanLog, actionLog, gateSyncEvents = [], selecte
   const schoolStudents = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true });
   const summary = executiveReport?.summary || {
     totalStudents: schoolStudents.length,
-    presentToday: new Set(schoolLogs.filter((item) => item.isoDate === getTodayIso()).map((item) => item.studentId)).size,
-    attendanceRate: schoolStudents.length ? Math.round((new Set(schoolLogs.filter((item) => item.isoDate === getTodayIso()).map((item) => item.studentId)).size / schoolStudents.length) * 100) : 0,
+    presentToday: (() => {
+      const todayIso = getTodayIso();
+      const gateIds = new Set(schoolLogs.filter((item) => item.isoDate === todayIso).map((item) => String(item.studentId)).filter(Boolean));
+      const lessonIds = new Set();
+      getLessonAttendanceSessions(selectedSchool).filter((s) => s.dateIso === todayIso).forEach((session) => {
+        (session.submissions || []).forEach((sub) => {
+          (sub.presentStudentIds || []).forEach((id) => lessonIds.add(String(id)));
+          const absentSet = new Set((sub.absentStudentIds || []).map(String));
+          if (Array.isArray(sub.allStudentIds)) sub.allStudentIds.forEach((id) => { if (!absentSet.has(String(id))) lessonIds.add(String(id)); });
+        });
+      });
+      return new Set([...gateIds, ...lessonIds]).size;
+    })(),
+    attendanceRate: (() => {
+      const todayIso = getTodayIso();
+      const gateIds = new Set(schoolLogs.filter((item) => item.isoDate === todayIso).map((item) => String(item.studentId)).filter(Boolean));
+      const lessonIds = new Set();
+      getLessonAttendanceSessions(selectedSchool).filter((s) => s.dateIso === todayIso).forEach((session) => {
+        (session.submissions || []).forEach((sub) => {
+          (sub.presentStudentIds || []).forEach((id) => lessonIds.add(String(id)));
+          const absentSet = new Set((sub.absentStudentIds || []).map(String));
+          if (Array.isArray(sub.allStudentIds)) sub.allStudentIds.forEach((id) => { if (!absentSet.has(String(id))) lessonIds.add(String(id)); });
+        });
+      });
+      const unified = new Set([...gateIds, ...lessonIds]).size;
+      return schoolStudents.length ? Math.round((unified / schoolStudents.length) * 100) : 0;
+    })(),
     earlyToday: schoolLogs.filter((item) => item.isoDate === getTodayIso() && item.result.includes('مبكر')).length,
     ontimeToday: schoolLogs.filter((item) => item.isoDate === getTodayIso() && item.result.includes('في الوقت')).length,
     lateToday: schoolLogs.filter((item) => item.isoDate === getTodayIso() && item.result.includes('تأخر')).length,
@@ -21277,6 +21316,9 @@ export default function App() {
       isoDate: today,
       time: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
       method: sourceMode === 'structure' ? 'هيكل مدرسي' : 'QR',
+      gateName: 'بوابة الحضور اليدوي',
+      attendanceSource: 'بوابة',
+      attendanceSourceDetail: 'بوابة الحضور اليدوي',
       result,
       deltaPoints,
     };
@@ -22102,6 +22144,7 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
     if (!classRow || !students.length) return { ok: false, message: 'الفصل المحدد لا يحتوي طلابًا.' };
     const absentSet = new Set((absentStudentIds || []).map((id) => String(id)));
     const absentStudents = students.filter((student) => absentSet.has(String(student.id))).map((student) => ({ id: student.id, name: student.name, studentNumber: student.studentNumber || '' }));
+    const presentStudents = students.filter((student) => !absentSet.has(String(student.id)));
     const submission = {
       id: `submission-${Date.now()}`,
       teacherId: currentUser.id,
@@ -22112,6 +22155,8 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
       absentCount: absentStudents.length,
       presentCount: Math.max(students.length - absentStudents.length, 0),
       absentStudentIds: absentStudents.map((student) => student.id),
+      presentStudentIds: presentStudents.map((student) => student.id),
+      allStudentIds: students.map((student) => student.id),
       absentStudents,
       submittedAt: new Date().toISOString(),
       acknowledged: Boolean(acknowledgement),
