@@ -18513,7 +18513,7 @@ function NafisDashboardPage({ selectedSchool, currentUser }) {
     setError(null);
     try {
       const response = await fetch(`/api/nafis/school-dashboard?schoolId=${selectedSchool.id}`, {
-        headers: { 'X-Session-Token': localStorage.getItem('token') || '' },
+        headers: { 'X-Session-Token': localStorage.getItem('ideal-company-platform-session-token-v8') || '' },
       });
       const data = await response.json();
       if (!data.ok) throw new Error(data.message || 'فشل تحميل البيانات');

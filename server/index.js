@@ -5296,6 +5296,59 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+// ===== دالة مساعدة لإضافة نقاط للطالب من نافس =====
+function applyPointsToUnifiedStudent(school, studentId, points, note, actor) {
+  const next = JSON.parse(JSON.stringify(school));
+  // محاولة تحديث الطالب في school.students (المصدر القديم)
+  const student = (next.students || []).find((s) => String(s.id) === String(studentId));
+  if (student) {
+    student.points = Number(student.points || 0) + points;
+    const now = new Date();
+    const logEntry = {
+      id: Date.now(),
+      schoolId: school.id,
+      studentId: student.id,
+      companyId: student.companyId || null,
+      student: student.fullName || student.name || 'طالب',
+      actorName: actor?.actorName || 'نافس التجريبي',
+      actorRole: actor?.actorRole || 'system',
+      method: 'نافس',
+      actionType: actor?.actionType || 'program',
+      actionTitle: note || 'نافس التجريبي',
+      definitionId: 'nafis-auto',
+      note: actor?.note || note || '',
+      evidence: [],
+      date: now.toLocaleDateString('ar-SA'),
+      isoDate: now.toISOString().slice(0, 10),
+      time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+      deltaPoints: points,
+      classroomId: student.classroomId || null,
+    };
+    // إضافة للـ actionLog في المدرسة
+    if (!next.actionLog) next.actionLog = [];
+    next.actionLog = [logEntry, ...next.actionLog].slice(0, 1200);
+    // تحديث نقاط الشركة إن وجدت
+    if (student.companyId) {
+      const company = (next.companies || []).find((c) => c.id === student.companyId);
+      if (company) company.points = Number(company.points || 0) + points;
+    }
+  } else {
+    // محاولة تحديث الطالب في الهيكل (structure)
+    if (Array.isArray(next.structure)) {
+      for (const classroom of next.structure) {
+        if (!Array.isArray(classroom.students)) continue;
+        const st = classroom.students.find((s) => String(s.id) === String(studentId));
+        if (st) {
+          st.points = Number(st.points || 0) + points;
+          break;
+        }
+      }
+    }
+  }
+  return next;
+}
+// ===== نهاية دالة applyPointsToUnifiedStudent =====
+
     // POST /api/nafis/submit-quiz
     if (reqUrl.pathname === '/api/nafis/submit-quiz' && req.method === 'POST') {
       const body = await readJsonBody(req);
