@@ -847,6 +847,7 @@ const navItems = [
   { key: "pointsRewards", label: "النقاط والمكافآت", icon: Trophy, permission: "points", roles: ["superadmin", "principal", "supervisor"], group: "التحفيز والمتابعة" },
   { key: "rewardStore", label: "متجر النقاط", icon: Gift, permission: "points", roles: ["superadmin", "principal", "supervisor"], group: "التحفيز والمتابعة" },
   { key: "parentsExecutive", label: "المتابعة التنفيذية", icon: BarChart3, permission: "settings", roles: ["superadmin", "principal", "supervisor"], group: "التحفيز والمتابعة" },
+  { key: "nafisAnalytics", label: "لوحة نافس التجريبي", icon: Trophy, permission: "settings", roles: ["superadmin", "principal", "supervisor", "teacher"], group: "التحفيز والمتابعة" },
   // ── الأجهزة والربط ──
   { key: "deviceDisplays", label: "الشاشات والبوابات", icon: ExternalLink, permission: "deviceDisplays", group: "الأجهزة والربط" },
   { key: "students", label: "البصمة والمعرفات", icon: GraduationCap, permission: "students", group: "الأجهزة والربط" },
@@ -15275,6 +15276,7 @@ function ReportsPage({ schools, scanLog, actionLog, gateSyncEvents = [], selecte
         {(selectedStudentReport || selectedTeacherReport || reportTab === 'executive') ? <div className="mt-5 space-y-4">
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
             {selectedStudentReport ? <div className="rounded-3xl bg-sky-50 p-5 ring-1 ring-sky-100"><div className="mb-3 flex items-center justify-between gap-3"><div><div className="font-black text-slate-900">تقرير الطالب المحدد</div><div className="text-sm text-slate-500">{selectedStudentReport.name} • {selectedStudentReport.className}</div></div><Badge tone="blue">{selectedStudentReport.points} نقطة</Badge></div><div className="mb-3 flex flex-wrap gap-2 text-xs"><Badge tone="slate">ولي الأمر: {selectedStudentReport.parentName}</Badge><Badge tone="sky">جوال: {selectedStudentReport.parentMobile}</Badge><Badge tone="green">معدل الحضور {selectedStudentReport.attendanceRate}%</Badge></div><div className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">الحضور</div><div className="mt-1 text-xl font-black text-slate-900">{selectedStudentReport.presentCount}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">التأخر</div><div className="mt-1 text-xl font-black text-amber-700">{selectedStudentReport.lateCount}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">المكافآت</div><div className="mt-1 text-xl font-black text-emerald-700">{selectedStudentReport.rewards}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">الخصومات</div><div className="mt-1 text-xl font-black text-rose-700">{selectedStudentReport.violations}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">البرامج</div><div className="mt-1 text-xl font-black text-violet-700">{selectedStudentReport.programs}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-sky-100"><div className="text-slate-500">جوائز المتجر</div><div className="mt-1 text-xl font-black text-slate-900">{selectedStudentReport.storeDelivered}</div></div></div></div> : null}
+            {selectedStudentReport ? <NafisStudentWidget studentId={selectedStudentReport.id} schoolId={selectedSchool?.id} studentName={selectedStudentReport.name} /> : null}
             {selectedTeacherReport ? <div className="rounded-3xl bg-violet-50 p-5 ring-1 ring-violet-100"><div className="mb-3 flex items-center justify-between gap-3"><div><div className="font-black text-slate-900">تقرير المعلم المحدد</div><div className="text-sm text-slate-500">{selectedTeacherReport.teacherName}</div></div><Badge tone="violet">{selectedTeacherReport.specialPoints} تخصصي</Badge></div><div className="mb-3 flex flex-wrap gap-2 text-xs">{(selectedTeacherReport.classNames || []).slice(0, 3).map((name, index) => <Badge key={`${name}-${index}`} tone="slate">{name}</Badge>)}{(selectedTeacherReport.classNames || []).length > 3 ? <Badge tone="slate">+{selectedTeacherReport.classNames.length - 3}</Badge> : null}</div><div className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">المكافآت</div><div className="mt-1 text-xl font-black text-emerald-700">{selectedTeacherReport.rewards}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">الخصومات</div><div className="mt-1 text-xl font-black text-rose-700">{selectedTeacherReport.violations}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">البرامج</div><div className="mt-1 text-xl font-black text-sky-700">{selectedTeacherReport.programs}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">تحضير الحصص</div><div className="mt-1 text-xl font-black text-slate-900">{selectedTeacherReport.submittedLessons}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">الإنجازات التخصصية</div><div className="mt-1 text-xl font-black text-violet-700">{selectedTeacherReport.specialAchievements}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-violet-100"><div className="text-slate-500">الفصول</div><div className="mt-1 text-xl font-black text-slate-900">{selectedTeacherReport.classesCount}</div></div></div></div> : null}
             {reportTab === 'executive' ? <div className="rounded-3xl bg-emerald-50 p-5 ring-1 ring-emerald-100"><div className="mb-3 flex items-center justify-between gap-3"><div><div className="font-black text-slate-900">ملخص تنفيذي سريع</div><div className="text-sm text-slate-500">{selectedSchool?.name || 'المدرسة'}</div></div><Badge tone="green">جاهز للطباعة</Badge></div><div className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-2xl bg-white p-3 ring-1 ring-emerald-100"><div className="text-slate-500">نسبة المتأخرين</div><div className="mt-1 text-xl font-black text-amber-700">{attendanceRows.length ? Math.round((attendanceRows.filter((row) => row.status === 'late').length / attendanceRows.length) * 100) : 0}%</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-emerald-100"><div className="text-slate-500">إجمالي النقاط</div><div className="mt-1 text-xl font-black text-slate-900">{studentComprehensiveRows.reduce((sum, row) => sum + Number(row.points || 0), 0)}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-emerald-100"><div className="text-slate-500">الجوائز المسلمة</div><div className="mt-1 text-xl font-black text-rose-700">{rewardStoreSummary.deliveredRedemptions || 0}</div></div><div className="rounded-2xl bg-white p-3 ring-1 ring-emerald-100"><div className="text-slate-500">الجلسات المعتمدة</div><div className="mt-1 text-xl font-black text-sky-700">{lessonRows.filter((row) => row.submittedAt).length}</div></div></div></div> : null}
           </div>
@@ -18410,6 +18412,344 @@ function RewardStorePage({ selectedSchool, currentUser, onSaveItem, onDeleteItem
 
   </div>;
 }
+
+// ===== مكون لوحة نافس التحليلية للمعلم والمدير =====
+// ===== مكون نافس للطالب الفردي (يظهر في شاشة المعلم والمدير) =====
+function NafisStudentWidget({ studentId, schoolId }) {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!studentId || !schoolId) { setLoading(false); return; }
+    const token = localStorage.getItem('ideal-company-platform-session-token-v8') || '';
+    fetch('/api/nafis/student-stats?studentId=' + studentId + '&schoolId=' + schoolId, {
+      headers: { 'X-Session-Token': token },
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) { if (d.ok) setData(d); })
+      .catch(function() {})
+      .finally(function() { setLoading(false); });
+  }, [studentId, schoolId]);
+
+  if (loading) return (
+    <div className="rounded-3xl bg-teal-50 p-5 ring-1 ring-teal-100">
+      <div className="text-sm font-black text-teal-800 mb-2">🏆 نافس التجريبي</div>
+      <div className="text-xs text-teal-600">جارِ التحميل...</div>
+    </div>
+  );
+
+  if (!data || !data.totalAttempts) return (
+    <div className="rounded-3xl bg-teal-50 p-5 ring-1 ring-teal-100">
+      <div className="text-sm font-black text-teal-800 mb-2">🏆 نافس التجريبي</div>
+      <div className="text-xs text-teal-600">لم يشارك الطالب في أي اختبار تجريبي بعد.</div>
+    </div>
+  );
+
+  const totalAttempts = data.totalAttempts || 0;
+  const bestScore = data.bestScore || 0;
+  const avgScore = data.avgScore || 0;
+  const totalPoints = data.totalPointsEarned || 0;
+  const bySubject = data.bySubject || {};
+
+  return (
+    <div className="rounded-3xl bg-teal-50 p-5 ring-1 ring-teal-100">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-sm font-black text-teal-800">🏆 نافس التجريبي</div>
+        <div className="rounded-full bg-teal-600 px-3 py-1 text-xs font-black text-white">+{totalPoints} نقطة</div>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-sm mb-3">
+        <div className="rounded-2xl bg-white p-3 ring-1 ring-teal-100 text-center">
+          <div className="text-xl font-black text-teal-700">{totalAttempts}</div>
+          <div className="text-[11px] font-bold text-slate-500">محاولة</div>
+        </div>
+        <div className="rounded-2xl bg-white p-3 ring-1 ring-teal-100 text-center">
+          <div className="text-xl font-black text-emerald-700">{bestScore}%</div>
+          <div className="text-[11px] font-bold text-slate-500">أفضل درجة</div>
+        </div>
+        <div className="rounded-2xl bg-white p-3 ring-1 ring-teal-100 text-center">
+          <div className="text-xl font-black text-sky-700">{avgScore}%</div>
+          <div className="text-[11px] font-bold text-slate-500">متوسط</div>
+        </div>
+      </div>
+      {Object.keys(bySubject).length > 0 && (
+        <div className="space-y-1">
+          <div className="text-xs font-black text-teal-800 mb-2">الأداء حسب المادة</div>
+          {Object.entries(bySubject).map(function([key, sub]) {
+            const barColor = sub.avgScore >= 70 ? 'bg-emerald-500' : sub.avgScore >= 60 ? 'bg-amber-500' : 'bg-red-500';
+            return (
+              <div key={key} className="flex items-center justify-between rounded-xl bg-white px-3 py-2 ring-1 ring-teal-100">
+                <div className="text-xs font-bold text-slate-700">{sub.subjectLabel}</div>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-200">
+                    <div className={"h-full " + barColor} style={{ width: sub.avgScore + '%' }}></div>
+                  </div>
+                  <div className="text-xs font-black text-slate-700">{sub.avgScore}%</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+// ===== نهاية مكون نافس للطالب الفردي =====
+
+function NafisDashboardPage({ selectedSchool, currentUser }) {
+  const [dashboardData, setDashboardData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!selectedSchool?.id) {
+      setLoading(false);
+      return;
+    }
+    loadDashboard();
+  }, [selectedSchool?.id]);
+
+  async function loadDashboard() {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/nafis/school-dashboard?schoolId=${selectedSchool.id}`, {
+        headers: { 'X-Session-Token': localStorage.getItem('token') || '' },
+      });
+      const data = await response.json();
+      if (!data.ok) throw new Error(data.message || 'فشل تحميل البيانات');
+      setDashboardData(data);
+    } catch (e) {
+      setError(e.message || 'حدث خطأ أثناء تحميل البيانات');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-sky-200 border-t-sky-600"></div>
+          <p className="text-sm text-slate-500">جارِ تحميل بيانات نافس التجريبي...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-2xl bg-red-50 p-6 text-center">
+        <p className="text-sm font-semibold text-red-700">⚠️ {error}</p>
+        <button onClick={loadDashboard} className="mt-4 rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700">
+          إعادة المحاولة
+        </button>
+      </div>
+    );
+  }
+
+  if (!dashboardData || !dashboardData.summary) {
+    return (
+      <div className="rounded-2xl bg-slate-50 p-8 text-center">
+        <p className="text-sm text-slate-500">لا توجد بيانات متاحة لنافس التجريبي حالياً.</p>
+      </div>
+    );
+  }
+
+  const { summary, bySubject, classroomStats, topStudents, recentAttempts, dailyStats } = dashboardData;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-black text-slate-900">📊 لوحة نافس التجريبي</h2>
+          <p className="mt-1 text-sm text-slate-500">تحليل شامل لأداء الطلاب في الاختبارات التجريبية</p>
+        </div>
+        <button onClick={loadDashboard} className="rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-700">
+          🔄 تحديث
+        </button>
+      </div>
+
+      {/* Summary Stats */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="text-3xl font-black text-sky-600">{summary.totalAttempts}</div>
+          <div className="mt-1 text-xs font-semibold text-slate-500">إجمالي المحاولات</div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="text-3xl font-black text-violet-600">{summary.uniqueStudents}</div>
+          <div className="mt-1 text-xs font-semibold text-slate-500">طلاب مشاركون</div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="text-3xl font-black text-emerald-600">{summary.avgScore}%</div>
+          <div className="mt-1 text-xs font-semibold text-slate-500">متوسط الدرجات</div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="text-3xl font-black text-amber-600">{summary.correctRate}%</div>
+          <div className="mt-1 text-xs font-semibold text-slate-500">نسبة الإجابات الصحيحة</div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="text-3xl font-black text-teal-600">{summary.totalPointsAwarded}</div>
+          <div className="mt-1 text-xs font-semibold text-slate-500">نقاط نافس الممنوحة</div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+          <div className="text-3xl font-black text-slate-600">{summary.totalStudents}</div>
+          <div className="mt-1 text-xs font-semibold text-slate-500">إجمالي الطلاب</div>
+        </div>
+      </div>
+
+      {/* Daily Trend Chart */}
+      {dailyStats && dailyStats.length > 0 && (
+        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          <h3 className="mb-4 text-lg font-black text-slate-900">📈 التطور اليومي (آخر 7 أيام)</h3>
+          <div className="grid grid-cols-7 gap-2">
+            {dailyStats.map((day, i) => {
+              const maxAttempts = Math.max(...dailyStats.map(d => d.attempts), 1);
+              const height = day.attempts > 0 ? Math.max((day.attempts / maxAttempts) * 100, 10) : 5;
+              return (
+                <div key={i} className="flex flex-col items-center">
+                  <div className="mb-2 flex h-32 w-full items-end justify-center">
+                    <div
+                      className="w-full rounded-t-lg bg-sky-500"
+                      style={{ height: `${height}%` }}
+                      title={`${day.attempts} محاولة`}
+                    ></div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs font-bold text-slate-700">{day.attempts}</div>
+                    <div className="text-[10px] text-slate-400">{day.date.slice(5)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* By Subject */}
+      {bySubject && Object.keys(bySubject).length > 0 && (
+        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          <h3 className="mb-4 text-lg font-black text-slate-900">📚 الأداء حسب المادة</h3>
+          <div className="space-y-3">
+            {Object.entries(bySubject).map(([key, subject]) => {
+              const color = subject.avgScore >= 70 ? 'emerald' : subject.avgScore >= 60 ? 'amber' : 'red';
+              return (
+                <div key={key} className="flex items-center justify-between rounded-xl bg-slate-50 p-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-bold text-slate-900">{subject.subjectLabel}</div>
+                      <div className={`rounded-full bg-${color}-100 px-2 py-0.5 text-xs font-bold text-${color}-700`}>
+                        {subject.avgScore}%
+                      </div>
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {subject.attempts} محاولة • {subject.correct}/{subject.total} إجابة صحيحة ({subject.correctRate}%)
+                    </div>
+                  </div>
+                  <div className="mr-4 h-2 w-32 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className={`h-full bg-${color}-500`}
+                      style={{ width: `${subject.avgScore}%` }}
+                    ></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Classroom Stats */}
+      {classroomStats && classroomStats.length > 0 && (
+        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          <h3 className="mb-4 text-lg font-black text-slate-900">🏫 ترتيب الفصول</h3>
+          <div className="space-y-2">
+            {classroomStats.slice(0, 10).map((classroom, i) => (
+              <div key={i} className="flex items-center justify-between rounded-xl bg-slate-50 p-3">
+                <div className="flex items-center gap-3">
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-black ${i < 3 ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>
+                    {i + 1}
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-slate-900">{classroom.classroomName}</div>
+                    <div className="text-xs text-slate-500">{classroom.uniqueStudents} طالب • {classroom.attempts} محاولة</div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-black text-sky-600">{classroom.avgScore}%</div>
+                  <div className="text-xs text-slate-400">متوسط</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Top Students */}
+      {topStudents && topStudents.length > 0 && (
+        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          <h3 className="mb-4 text-lg font-black text-slate-900">🌟 أفضل الطلاب</h3>
+          <div className="space-y-2">
+            {topStudents.slice(0, 10).map((student, i) => (
+              <div key={i} className="flex items-center justify-between rounded-xl bg-slate-50 p-3">
+                <div className="flex items-center gap-3">
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-black ${i < 3 ? 'bg-violet-100 text-violet-700' : 'bg-slate-200 text-slate-600'}`}>
+                    {i + 1}
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-slate-900">{student.studentName}</div>
+                    <div className="text-xs text-slate-500">{student.classroomName} • {student.attempts} محاولة • {student.pointsEarned} نقطة</div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-black text-emerald-600">{student.bestScore}%</div>
+                  <div className="text-xs text-slate-400">أفضل درجة</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Attempts */}
+      {recentAttempts && recentAttempts.length > 0 && (
+        <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          <h3 className="mb-4 text-lg font-black text-slate-900">🕒 آخر المحاولات</h3>
+          <div className="space-y-2">
+            {recentAttempts.slice(0, 10).map((attempt, i) => {
+              const color = attempt.score >= 70 ? 'emerald' : attempt.score >= 60 ? 'amber' : 'red';
+              return (
+                <div key={i} className="flex items-center justify-between rounded-xl bg-slate-50 p-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-bold text-slate-900">{attempt.studentName}</div>
+                      <div className={`rounded-full bg-${color}-100 px-2 py-0.5 text-xs font-bold text-${color}-700`}>
+                        {attempt.score}%
+                      </div>
+                      {attempt.pointsAwarded > 0 && (
+                        <div className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-bold text-teal-700">
+                          +{attempt.pointsAwarded} نقطة
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {attempt.subjectLabel} • {attempt.classroomName} • {new Date(attempt.createdAt).toLocaleString('ar-SA', { dateStyle: 'short', timeStyle: 'short' })}
+                    </div>
+                  </div>
+                  <div className="mr-4 text-right">
+                    <div className="text-sm font-bold text-slate-700">{attempt.correct}/{attempt.total}</div>
+                    <div className="text-xs text-slate-400">صحيح</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 function ParentExecutiveSummaryPage({ currentUser, selectedSchool, onNavigate }) {
   const [state, setState] = useState({
@@ -22572,6 +22912,8 @@ ${buildLessonSessionLink(sessionId)}
         );
       case "parentsExecutive":
         return <ParentExecutiveSummaryPage currentUser={currentUser} selectedSchool={selectedSchool} onNavigate={setActivePage} />;
+      case "nafisAnalytics":
+        return <NafisDashboardPage selectedSchool={selectedSchool} currentUser={currentUser} />;
       case "parentsAdmin":
         return <ParentAccountsPage currentUser={currentUser} selectedSchool={selectedSchool} onSendMessage={handleSendSchoolMessage} onNavigate={setActivePage} />;
       case "settings":
