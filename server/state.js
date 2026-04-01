@@ -332,6 +332,7 @@ export function hydrateSchools(schools) {
       attendanceRate: safeNumber(student.attendanceRate, 100),
       points: safeNumber(student.points),
     })),
+    nafisAttempts: Array.isArray(school.nafisAttempts) ? school.nafisAttempts : [],
     // معالجة structure.classrooms.students لضمان حفظ facePhoto و faceReady والنقاط
     structure: school.structure ? {
       ...school.structure,
@@ -605,5 +606,7 @@ export function hydrateSharedState(parsed = {}) {
       },
     },
     notifications: Array.isArray(parsed.notifications) ? parsed.notifications : defaults.notifications,
+    globalNafisQuestions: Array.isArray(parsed.globalNafisQuestions) ? parsed.globalNafisQuestions : [],
+    nafisResults: Array.isArray(parsed.nafisResults) ? parsed.nafisResults : [],
   };
 }
