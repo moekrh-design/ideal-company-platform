@@ -7399,7 +7399,7 @@ function initNafisStudentSelect() {
   if (!sel) return;
   const students = profileData.students || [];
   sel.innerHTML = students.map(s =>
-    '<option value="' + (s.studentId || s.id || '') + '" data-school="' + (s.schoolId || '') + '">' +
+    '<option value="' + (s.studentId || s.id || '') + '" data-school-id="' + (s.schoolId || '') + '">' +
     (s.name || 'طالب') + ' - ' + (s.schoolName || '') + '</option>'
   ).join('');
   if (students.length) {
