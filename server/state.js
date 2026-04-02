@@ -283,8 +283,8 @@ export function normalizeSmartLinks(links) {
       teacherActivity: item?.widgets?.teacherActivity !== false,
       rewardCategoryBreakdown: item?.widgets?.rewardCategoryBreakdown !== false,
       topTeachers: item?.widgets?.topTeachers !== false,
-      nafisQuiz: item?.widgets?.nafisQuiz === true,
-      nafisLeaderboard: item?.widgets?.nafisLeaderboard === true,
+      nafisQuiz: item?.widgets?.nafisQuiz !== false,
+      nafisLeaderboard: item?.widgets?.nafisLeaderboard !== false,
     },
     createdAt: item?.createdAt || new Date().toISOString(),
   });

@@ -4297,8 +4297,8 @@ const server = http.createServer(async (req, res) => {
         screen.widgets.teacherActivity = body.widgets.teacherActivity !== false;
         screen.widgets.rewardCategoryBreakdown = body.widgets.rewardCategoryBreakdown !== false;
         screen.widgets.topTeachers = body.widgets.topTeachers !== false;
-        screen.widgets.nafisQuiz = body.widgets.nafisQuiz === true;
-        screen.widgets.nafisLeaderboard = body.widgets.nafisLeaderboard === true;
+        screen.widgets.nafisQuiz = !!body.widgets.nafisQuiz;
+        screen.widgets.nafisLeaderboard = !!body.widgets.nafisLeaderboard;
       }
       if (body.tickerEnabled !== undefined) screen.tickerEnabled = body.tickerEnabled === true || body.tickerEnabled === 'true';
       if (typeof body.tickerText === 'string') screen.tickerText = body.tickerText;
