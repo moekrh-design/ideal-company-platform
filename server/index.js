@@ -5158,7 +5158,7 @@ const server = http.createServer(async (req, res) => {
     if (reqUrl.pathname === '/api/parent/reward-proposals' && req.method === 'POST') {
       const profile = await getParentProfileFromToken(token);
       if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
-      const body = await parseJsonBody(req);
+      const body = await readJsonBody(req);
       const schoolId = Number(body?.schoolId || 0);
       const title = String(body?.title || '').trim();
       const quantity = Math.max(1, Number(body?.quantity || 1));
@@ -5180,7 +5180,7 @@ const server = http.createServer(async (req, res) => {
     if (reqUrl.pathname === '/api/parent/reward-redemptions' && req.method === 'POST') {
       const profile = await getParentProfileFromToken(token);
       if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
-      const body = await parseJsonBody(req);
+      const body = await readJsonBody(req);
       const schoolId = Number(body?.schoolId || 0);
       const studentId = String(body?.studentId || '').trim();
       const itemId = String(body?.itemId || '').trim();
@@ -5267,6 +5267,61 @@ const server = http.createServer(async (req, res) => {
       res.end(renderParentRequestsAdminHtml());
       return;
     }
+
+
+    // ===== نافس: إحصائيات الطالب =====
+    if (reqUrl.pathname === '/api/parent/nafis/student-stats' && req.method === 'GET') {
+      const profile = await getParentProfileFromToken(token);
+      if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
+      const studentId = String(reqUrl.searchParams.get('studentId') || '').trim();
+      const schoolId = Number(reqUrl.searchParams.get('schoolId') || 0);
+      if (!studentId || !schoolId) return sendJson(res, 400, { ok: false, message: 'بيانات ناقصة.' });
+      const state = await getSharedState();
+      const school = (state.schools || []).find((s) => Number(s.id) === schoolId);
+      if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      // استخراج بيانات نافس من app_meta
+      const nafisData = appMetaGetJson(`nafis_school_${schoolId}`) || {};
+      const attempts = (nafisData.attempts || []).filter((a) => String(a.studentId || '') === studentId);
+      const totalAttempts = attempts.length;
+      const totalCorrect = attempts.reduce((sum, a) => sum + Number(a.correct || 0), 0);
+      const totalQuestions = attempts.reduce((sum, a) => sum + Number(a.total || 0), 0);
+      const avgScore = totalAttempts > 0 ? Math.round((totalCorrect / Math.max(totalQuestions, 1)) * 100) : 0;
+      const recentAttempts = attempts.slice(-10).reverse();
+      return sendJson(res, 200, { ok: true, totalAttempts, totalCorrect, totalQuestions, avgScore, recentAttempts });
+    }
+
+    // ===== نافس: إحصائيات المدرسة =====
+    if (reqUrl.pathname === '/api/parent/nafis/school-stats' && req.method === 'GET') {
+      const profile = await getParentProfileFromToken(token);
+      if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
+      const schoolId = Number(reqUrl.searchParams.get('schoolId') || 0);
+      if (!schoolId) return sendJson(res, 400, { ok: false, message: 'بيانات ناقصة.' });
+      const state = await getSharedState();
+      const school = (state.schools || []).find((s) => Number(s.id) === schoolId);
+      if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      const nafisData2 = appMetaGetJson(`nafis_school_${schoolId}`) || {};
+      const attempts = nafisData2.attempts || [];
+      const totalAttempts = attempts.length;
+      const totalCorrect = attempts.reduce((sum, a) => sum + Number(a.correct || 0), 0);
+      const totalQuestions = attempts.reduce((sum, a) => sum + Number(a.total || 0), 0);
+      const avgScore = totalAttempts > 0 ? Math.round((totalCorrect / Math.max(totalQuestions, 1)) * 100) : 0;
+      // ترتيب الطلاب حسب النتائج
+      const studentMap = {};
+      for (const a of attempts) {
+        const sid = String(a.studentId || '');
+        if (!sid) continue;
+        if (!studentMap[sid]) studentMap[sid] = { studentId: sid, studentName: a.studentName || 'طالب', attempts: 0, correct: 0, total: 0 };
+        studentMap[sid].attempts++;
+        studentMap[sid].correct += Number(a.correct || 0);
+        studentMap[sid].total += Number(a.total || 0);
+      }
+      const leaderboard = Object.values(studentMap)
+        .map((s) => ({ ...s, avgScore: s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0 }))
+        .sort((a, b) => b.avgScore - a.avgScore || b.correct - a.correct)
+        .slice(0, 10);
+      return sendJson(res, 200, { ok: true, totalAttempts, totalCorrect, totalQuestions, avgScore, leaderboard });
+    }
+
     // ===== نهاية مسارات بوابة ولي الأمر =====
     // ===== نهاية مسارات API بوابة ولي الأمر =====
 
@@ -6578,6 +6633,47 @@ function renderParentPortalHtml() {
 
       </div>
       <!-- end pageSettings -->
+      <!-- ===== PAGE: NAFIS ===== -->
+      <div id="pageNafis" class="page-section hidden">
+        <div class="page-title">🏆 اختبارات نافس</div>
+
+        <!-- Stats Grid -->
+        <div class="stat-grid" id="nafisStatsGrid">
+          <div class="stat-box"><div class="stat-val" id="nafisStatAttempts">0</div><div class="stat-lbl">إجمالي المحاولات</div></div>
+          <div class="stat-box"><div class="stat-val" id="nafisStatCorrect">0</div><div class="stat-lbl">إجابات صحيحة</div></div>
+          <div class="stat-box"><div class="stat-val" id="nafisStatAvg">0%</div><div class="stat-lbl">متوسط الدرجات</div></div>
+        </div>
+
+        <!-- Student Selector -->
+        <div style="margin-bottom:14px">
+          <label class="form-label">اختر الابن</label>
+          <select id="nafisStudentSelect" class="form-select" onchange="loadNafisStats()"></select>
+        </div>
+
+        <!-- Loading / Empty State -->
+        <div id="nafisLoading" class="empty-state hidden">
+          <div class="empty-icon">⏳</div>
+          <p>جارٍ التحميل...</p>
+        </div>
+        <div id="nafisEmpty" class="empty-state hidden">
+          <div class="empty-icon">🏆</div>
+          <p>لا توجد محاولات في اختبارات نافس حتى الآن.</p>
+          <p style="font-size:12px;color:var(--muted);margin-top:8px">شجّع ابنك على المشاركة في اختبارات نافس التجريبية!</p>
+        </div>
+
+        <!-- Recent Attempts -->
+        <div id="nafisAttemptsList"></div>
+
+        <!-- School Leaderboard -->
+        <div id="nafisLeaderboardSection" class="hidden">
+          <div class="card" style="margin-top:16px">
+            <div class="card-title"><span class="icon">🥇</span> ترتيب المدرسة</div>
+            <div id="nafisLeaderboard"></div>
+          </div>
+        </div>
+      </div>
+
+
 
     </div>
     <!-- end pageContent -->
@@ -6621,6 +6717,14 @@ function renderParentPortalHtml() {
           </svg>
         </span>
         <span>الإعدادات</span>
+      </button>
+      <button class="nav-item" data-page="nafis">
+        <span class="nav-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+          </svg>
+        </span>
+        <span>نافس</span>
       </button>
     </div>
 
@@ -6672,7 +6776,7 @@ function navigateTo(page) {
   activeNavPage = page;
   document.querySelectorAll('.page-section').forEach(el => el.classList.add('hidden'));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  const pageMap = { points: 'pagePoints', store: 'pageStore', notifications: 'pageNotifications', settings: 'pageSettings' };
+  const pageMap = { points: 'pagePoints', store: 'pageStore', notifications: 'pageNotifications', settings: 'pageSettings' , nafis: 'pageNafis' };
   const pageEl = $(pageMap[page]);
   if (pageEl) pageEl.classList.remove('hidden');
   const navEl = document.querySelector('[data-page="' + page + '"]');
@@ -7059,7 +7163,95 @@ function renderProfile(profile) {
   $('mainApp').style.display = 'flex';
   // تشغيل فحص التنبيهات الفورية
   if (typeof startNotificationPolling === 'function') startNotificationPolling();
+  if (typeof initNafisStudentSelect === 'function') initNafisStudentSelect();
 }
+/* ===== NAFIS ===== */
+let nafisStudentData = null;
+
+function initNafisStudentSelect() {
+  if (!profileData) return;
+  const sel = $('nafisStudentSelect');
+  if (!sel) return;
+  const students = profileData.students || [];
+  sel.innerHTML = students.map(s =>
+    '<option value="' + (s.studentId || s.id || '') + '" data-school="' + (s.schoolId || '') + '">' +
+    (s.name || 'طالب') + ' - ' + (s.schoolName || '') + '</option>'
+  ).join('');
+  if (students.length) loadNafisStats();
+}
+
+async function loadNafisStats() {
+  const sel = $('nafisStudentSelect');
+  if (!sel || !sel.value) return;
+  const studentId = sel.value;
+  const schoolId = sel.options[sel.selectedIndex]?.dataset?.school || '';
+  const loading = $('nafisLoading');
+  const empty = $('nafisEmpty');
+  const list = $('nafisAttemptsList');
+  const lbSection = $('nafisLeaderboardSection');
+  if (loading) loading.classList.remove('hidden');
+  if (empty) empty.classList.add('hidden');
+  if (list) list.innerHTML = '';
+  if (lbSection) lbSection.classList.add('hidden');
+  try {
+    const data = await api('/api/parent/nafis/student-stats?studentId=' + studentId + '&schoolId=' + schoolId, {
+      headers: { 'X-Session-Token': getToken() }
+    });
+    nafisStudentData = data;
+    // Update stats
+    const sa = $('nafisStatAttempts'); if (sa) sa.textContent = data.totalAttempts || 0;
+    const sc = $('nafisStatCorrect'); if (sc) sc.textContent = data.totalCorrect || 0;
+    const savg = $('nafisStatAvg'); if (savg) savg.textContent = (data.avgScore || 0) + '%';
+    if (loading) loading.classList.add('hidden');
+    if (!data.totalAttempts) {
+      if (empty) empty.classList.remove('hidden');
+      return;
+    }
+    // Render attempts
+    if (list) {
+      list.innerHTML = '<div class="card"><div class="card-title"><span class="icon">📝</span> آخر المحاولات</div>'
+        + (data.recentAttempts || []).map(a => {
+            const pct = a.total > 0 ? Math.round((a.correct / a.total) * 100) : 0;
+            const color = pct >= 80 ? '#15803d' : pct >= 60 ? '#b45309' : '#be123c';
+            const bg = pct >= 80 ? '#dcfce7' : pct >= 60 ? '#fef3c7' : '#fff1f2';
+            return '<div class="action-item">'
+              + '<div><div class="action-title">' + (a.subject || 'اختبار نافس') + (a.grade ? ' - ' + a.grade : '') + '</div>'
+              + '<div class="action-meta">' + formatDate(a.createdAt || a.date) + (a.note ? ' • ' + a.note : '') + '</div></div>'
+              + '<span style="background:' + bg + ';color:' + color + ';font-weight:900;font-size:13px;padding:3px 10px;border-radius:20px">'
+              + a.correct + '/' + a.total + ' (' + pct + '%)</span>'
+              + '</div>';
+          }).join('')
+        + '</div>';
+    }
+    // Load school leaderboard
+    if (schoolId) {
+      try {
+        const lbData = await api('/api/parent/nafis/school-stats?schoolId=' + schoolId, {
+          headers: { 'X-Session-Token': getToken() }
+        });
+        if (lbData.leaderboard && lbData.leaderboard.length) {
+          if (lbSection) lbSection.classList.remove('hidden');
+          const lb = $('nafisLeaderboard');
+          if (lb) {
+            lb.innerHTML = lbData.leaderboard.map((s, i) => {
+              const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.';
+              return '<div class="action-item">'
+                + '<div><div class="action-title">' + medal + ' ' + (s.studentName || 'طالب') + '</div>'
+                + '<div class="action-meta">' + s.attempts + ' محاولة • ' + s.correct + ' صحيحة</div></div>'
+                + '<span class="pill pill-teal">' + s.avgScore + '%</span>'
+                + '</div>';
+            }).join('');
+          }
+        }
+      } catch(e) {}
+    }
+  } catch(e) {
+    if (loading) loading.classList.add('hidden');
+    if (empty) empty.classList.remove('hidden');
+  }
+}
+
+
 
 /* ===== BOOTSTRAP ===== */
 async function bootstrapParent() {
