@@ -7768,55 +7768,6 @@ $('logoutBtn').onclick = async function() {
   location.reload();
 };
 
-/* ===== نافس: أزرار الاختبار ===== */
-.nafis-option {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 14px 16px;
-  background: var(--surface);
-  border: 2px solid var(--border);
-  border-radius: 12px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  cursor: pointer;
-  text-align: right;
-  transition: border-color 0.15s, background 0.15s;
-}
-.nafis-option:active { opacity: 0.85; }
-.nafis-option.selected {
-  border-color: var(--primary);
-  background: rgba(var(--primary-rgb, 16,185,129), 0.08);
-  color: var(--primary);
-}
-.nafis-option.correct {
-  border-color: #15803d;
-  background: #dcfce7;
-  color: #15803d;
-}
-.nafis-option.wrong {
-  border-color: #dc2626;
-  background: #fff1f2;
-  color: #dc2626;
-}
-.nafis-option-letter {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  border-radius: 50%;
-  background: var(--border);
-  font-size: 13px;
-  font-weight: 900;
-}
-.nafis-option.selected .nafis-option-letter {
-  background: var(--primary);
-  color: white;
-}
 /* ===== BOTTOM NAV ===== */
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => navigateTo(btn.dataset.page));
