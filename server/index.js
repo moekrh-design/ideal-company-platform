@@ -7437,8 +7437,7 @@ async function showNafisSubjectPicker() {
     if (btns) {
       btns.innerHTML = nafisCurrentSubjects.map((s) => {
         const icons = { math: '🔢', arabic: '📖', science: '🔬', physics: '⚡', chemistry: '🧪', biology: '🌿', social: '🌍' };
-        return '<button class="btn btn-outline" onclick="startNafisQuiz('' + s.key + '')" style="width:100%;font-size:16px;padding:14px">'
-          + (icons[s.key] || '📚') + ' ' + s.label + '</button>';
+        return '<button class="btn btn-outline" onclick="startNafisQuiz(' + JSON.stringify(s.key) + ')" style="width:100%;font-size:16px;padding:14px">' + (icons[s.key] || '\u{1F4DA}') + ' ' + s.label + '</button>';
       }).join('');
     }
     if (loading) loading.classList.add('hidden');
