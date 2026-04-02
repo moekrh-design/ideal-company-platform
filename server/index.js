@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import { createDefaultSharedState, hydrateSharedState, isRoleEnabledForSchool, defaultSettings, ensureDemoUsers } from './state.js';
+import { getQuestionsForGradeSubject, getSubjectsForGrade, calculateQuizScore, NAFIS_SUBJECT_LABELS, getNafisLabel } from './nafis-questions.js';
 import nodemailer from 'nodemailer';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -5322,6 +5323,99 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, totalAttempts, totalCorrect, totalQuestions, avgScore, leaderboard });
     }
 
+    // ===== نافس: بدء اختبار جديد =====
+    if (reqUrl.pathname === '/api/parent/nafis/start-quiz' && req.method === 'POST') {
+      const profile = await getParentProfileFromToken(token);
+      if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
+      const body = await readJsonBody(req);
+      const studentId = String(body?.studentId || '').trim();
+      const schoolId = Number(body?.schoolId || 0);
+      const subject = String(body?.subject || '').trim();
+      if (!studentId || !schoolId || !subject) return sendJson(res, 400, { ok: false, message: 'بيانات ناقصة.' });
+      const state = await getSharedState();
+      const school = (state.schools || []).find((s) => Number(s.id) === schoolId);
+      if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      // إيجاد الطالب وتحديد صفه
+      const linkedStudents = getParentLinkedStudents(state, profile.mobile);
+      const student = linkedStudents.find((s) => String(s.studentId || s.id || '') === studentId && Number(s.schoolId) === schoolId);
+      if (!student) return sendJson(res, 403, { ok: false, message: 'الطالب غير مرتبط بحساب ولي الأمر.' });
+      // استخراج gradeKey من بنية المدرسة
+      const classrooms = Array.isArray(school.structure?.classrooms) ? school.structure.classrooms : [];
+      const studentClassroom = classrooms.find((c) => Array.isArray(c.students) && c.students.some((s) => String(s.id || s.studentId || '') === studentId));
+      const gradeKey = studentClassroom?.gradeKey || 'p3';
+      // جلب الأسئلة
+      const questions = getQuestionsForGradeSubject(gradeKey, subject, 10);
+      if (!questions || questions.length === 0) return sendJson(res, 404, { ok: false, message: 'لا توجد أسئلة لهذا الصف والمادة.' });
+      // حفظ جلسة الاختبار مؤقتاً
+      const quizSessionId = `quiz_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const sessionData = {
+        quizSessionId,
+        studentId,
+        schoolId,
+        gradeKey,
+        subject,
+        studentName: student.studentName || student.name || 'طالب',
+        questions: questions.map((q) => ({ id: q.id, question: q.question, options: q.options, correct: q.correct, skill: q.skill, difficulty: q.difficulty, explanation: q.explanation })),
+        createdAt: nowIso(),
+      };
+      appMetaSetJson(`nafis_quiz_session_${quizSessionId}`, sessionData);
+      // إرسال الأسئلة بدون الإجابات الصحيحة
+      const questionsForClient = questions.map((q) => ({ id: q.id, question: q.question, options: q.options, skill: q.skill, difficulty: q.difficulty }));
+      return sendJson(res, 200, { ok: true, quizSessionId, gradeKey, subject, subjectLabel: NAFIS_SUBJECT_LABELS[subject] || subject, nafisLabel: getNafisLabel(gradeKey), questions: questionsForClient });
+    }
+    // ===== نافس: إرسال إجابات الاختبار =====
+    if (reqUrl.pathname === '/api/parent/nafis/submit-quiz' && req.method === 'POST') {
+      const profile = await getParentProfileFromToken(token);
+      if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
+      const body = await readJsonBody(req);
+      const quizSessionId = String(body?.quizSessionId || '').trim();
+      const answers = Array.isArray(body?.answers) ? body.answers : [];
+      if (!quizSessionId || answers.length === 0) return sendJson(res, 400, { ok: false, message: 'بيانات ناقصة.' });
+      // استرجاع جلسة الاختبار
+      const sessionData = appMetaGetJson(`nafis_quiz_session_${quizSessionId}`);
+      if (!sessionData) return sendJson(res, 404, { ok: false, message: 'جلسة الاختبار غير موجودة أو انتهت.' });
+      // حساب النتيجة
+      const result = calculateQuizScore(sessionData.questions, answers);
+      // حفظ المحاولة في سجل نافس
+      const nafisKey = `nafis_school_${sessionData.schoolId}`;
+      const nafisData = appMetaGetJson(nafisKey) || { attempts: [] };
+      const attempt = {
+        id: quizSessionId,
+        studentId: sessionData.studentId,
+        studentName: sessionData.studentName,
+        gradeKey: sessionData.gradeKey,
+        subject: sessionData.subject,
+        subjectLabel: NAFIS_SUBJECT_LABELS[sessionData.subject] || sessionData.subject,
+        correct: result.correct,
+        total: result.total,
+        score: result.score,
+        skillStats: result.skillStats,
+        createdAt: nowIso(),
+      };
+      nafisData.attempts = [attempt, ...(nafisData.attempts || [])].slice(0, 500);
+      appMetaSetJson(nafisKey, nafisData);
+      // حذف جلسة الاختبار المؤقتة
+      appMetaDelete(`nafis_quiz_session_${quizSessionId}`);
+      return sendJson(res, 200, { ok: true, correct: result.correct, total: result.total, score: result.score, details: result.details, skillStats: result.skillStats });
+    }
+    // ===== نافس: جلب المواد المتاحة للطالب =====
+    if (reqUrl.pathname === '/api/parent/nafis/subjects' && req.method === 'GET') {
+      const profile = await getParentProfileFromToken(token);
+      if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
+      const studentId = String(reqUrl.searchParams.get('studentId') || '').trim();
+      const schoolId = Number(reqUrl.searchParams.get('schoolId') || 0);
+      if (!studentId || !schoolId) return sendJson(res, 400, { ok: false, message: 'بيانات ناقصة.' });
+      const state = await getSharedState();
+      const school = (state.schools || []).find((s) => Number(s.id) === schoolId);
+      if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      const classrooms = Array.isArray(school.structure?.classrooms) ? school.structure.classrooms : [];
+      const studentClassroom = classrooms.find((c) => Array.isArray(c.students) && c.students.some((s) => String(s.id || s.studentId || '') === studentId));
+      const gradeKey = studentClassroom?.gradeKey || 'p3';
+      const subjects = getSubjectsForGrade(gradeKey);
+      const nafisLabel = getNafisLabel(gradeKey);
+      const subjectsWithLabels = subjects.map((s) => ({ key: s, label: NAFIS_SUBJECT_LABELS[s] || s }));
+      return sendJson(res, 200, { ok: true, gradeKey, nafisLabel, subjects: subjectsWithLabels });
+    }
     // ===== نهاية مسارات بوابة ولي الأمر =====
     // ===== نهاية مسارات API بوابة ولي الأمر =====
 
@@ -5663,7 +5757,56 @@ function renderParentPortalHtml() {
       -webkit-overflow-scrolling: touch;
     }
 
-    /* ===== BOTTOM NAV ===== */
+    /* ===== نافس: أزرار الاختبار ===== */
+.nafis-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  text-align: right;
+  transition: border-color 0.15s, background 0.15s;
+}
+.nafis-option:active { opacity: 0.85; }
+.nafis-option.selected {
+  border-color: var(--primary);
+  background: rgba(var(--primary-rgb, 16,185,129), 0.08);
+  color: var(--primary);
+}
+.nafis-option.correct {
+  border-color: #15803d;
+  background: #dcfce7;
+  color: #15803d;
+}
+.nafis-option.wrong {
+  border-color: #dc2626;
+  background: #fff1f2;
+  color: #dc2626;
+}
+.nafis-option-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 50%;
+  background: var(--border);
+  font-size: 13px;
+  font-weight: 900;
+}
+.nafis-option.selected .nafis-option-letter {
+  background: var(--primary);
+  color: white;
+}
+/* ===== BOTTOM NAV ===== */
     #bottomNav {
       height: var(--nav-h);
       background: rgba(255,255,255,0.9);
@@ -6634,6 +6777,7 @@ function renderParentPortalHtml() {
       </div>
       <!-- end pageSettings -->
       <!-- ===== PAGE: NAFIS ===== -->
+      <!-- ===== صفحة نافس الرئيسية ===== -->
       <div id="pageNafis" class="page-section hidden">
         <div class="page-title">🏆 اختبارات نافس</div>
 
@@ -6650,6 +6794,11 @@ function renderParentPortalHtml() {
           <select id="nafisStudentSelect" class="form-select" onchange="loadNafisStats()"></select>
         </div>
 
+        <!-- زر بدء اختبار جديد -->
+        <button class="btn btn-primary" id="nafisStartQuizBtn" onclick="showNafisSubjectPicker()" style="width:100%;margin-bottom:16px;display:none">
+          🎯 ابدأ اختبار نافس جديد
+        </button>
+
         <!-- Loading / Empty State -->
         <div id="nafisLoading" class="empty-state hidden">
           <div class="empty-icon">⏳</div>
@@ -6658,7 +6807,7 @@ function renderParentPortalHtml() {
         <div id="nafisEmpty" class="empty-state hidden">
           <div class="empty-icon">🏆</div>
           <p>لا توجد محاولات في اختبارات نافس حتى الآن.</p>
-          <p style="font-size:12px;color:var(--muted);margin-top:8px">شجّع ابنك على المشاركة في اختبارات نافس التجريبية!</p>
+          <p style="font-size:12px;color:var(--muted);margin-top:8px">اضغط على زر "ابدأ اختبار نافس جديد" لبدء أول اختبار!</p>
         </div>
 
         <!-- Recent Attempts -->
@@ -6670,6 +6819,82 @@ function renderParentPortalHtml() {
             <div class="card-title"><span class="icon">🥇</span> ترتيب المدرسة</div>
             <div id="nafisLeaderboard"></div>
           </div>
+        </div>
+      </div>
+
+      <!-- ===== اختيار المادة ===== -->
+      <div id="pageNafisSubject" class="page-section hidden">
+        <div class="page-title">📚 اختر المادة</div>
+        <div id="nafisSubjectLoading" class="empty-state">
+          <div class="empty-icon">⏳</div>
+          <p>جارٍ تحميل المواد...</p>
+        </div>
+        <div id="nafisSubjectList" style="display:none">
+          <p id="nafisGradeLabel" style="text-align:center;color:var(--muted);font-size:13px;margin-bottom:16px"></p>
+          <div id="nafisSubjectButtons" style="display:flex;flex-direction:column;gap:12px"></div>
+        </div>
+        <button class="btn btn-outline" onclick="navigateTo('nafis')" style="width:100%;margin-top:16px">← رجوع</button>
+      </div>
+
+      <!-- ===== صفحة الاختبار ===== -->
+      <div id="pageNafisQuiz" class="page-section hidden">
+        <!-- Header الاختبار -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div>
+            <div class="page-title" style="margin-bottom:2px" id="nafisQuizTitle">اختبار نافس</div>
+            <div style="font-size:12px;color:var(--muted)" id="nafisQuizProgress">السؤال 1 من 10</div>
+          </div>
+          <div id="nafisQuizTimer" style="font-size:20px;font-weight:900;color:var(--primary);background:var(--surface);padding:6px 14px;border-radius:12px;min-width:52px;text-align:center">--</div>
+        </div>
+
+        <!-- شريط التقدم -->
+        <div style="background:var(--border);border-radius:8px;height:6px;margin-bottom:20px;overflow:hidden">
+          <div id="nafisProgressBar" style="background:var(--primary);height:100%;border-radius:8px;transition:width 0.3s;width:0%"></div>
+        </div>
+
+        <!-- السؤال -->
+        <div class="card" style="margin-bottom:16px">
+          <div id="nafisQuizSkill" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
+          <div id="nafisQuizQuestion" style="font-size:17px;font-weight:700;line-height:1.6;color:var(--text)"></div>
+        </div>
+
+        <!-- الخيارات -->
+        <div id="nafisQuizOptions" style="display:flex;flex-direction:column;gap:10px"></div>
+
+        <!-- زر التالي -->
+        <button id="nafisNextBtn" class="btn btn-primary" onclick="nafisNextQuestion()" style="width:100%;margin-top:16px;display:none">
+          التالي ←
+        </button>
+      </div>
+
+      <!-- ===== صفحة النتيجة ===== -->
+      <div id="pageNafisResult" class="page-section hidden">
+        <div class="page-title">📊 نتيجة الاختبار</div>
+
+        <!-- النتيجة الكبيرة -->
+        <div style="text-align:center;padding:24px;background:var(--surface);border-radius:16px;margin-bottom:20px">
+          <div id="nafisResultEmoji" style="font-size:56px;margin-bottom:8px">🏆</div>
+          <div id="nafisResultScore" style="font-size:48px;font-weight:900;color:var(--primary)">0%</div>
+          <div id="nafisResultLabel" style="font-size:14px;color:var(--muted);margin-top:4px">نتيجتك</div>
+          <div id="nafisResultFraction" style="font-size:16px;font-weight:700;margin-top:8px;color:var(--text)">0 / 10</div>
+        </div>
+
+        <!-- تفاصيل الأسئلة -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-title"><span class="icon">📝</span> تفاصيل الإجابات</div>
+          <div id="nafisResultDetails"></div>
+        </div>
+
+        <!-- إحصائيات المهارات -->
+        <div class="card" id="nafisSkillStatsCard" style="margin-bottom:16px;display:none">
+          <div class="card-title"><span class="icon">📈</span> أداؤك في المهارات</div>
+          <div id="nafisSkillStats"></div>
+        </div>
+
+        <!-- الأزرار -->
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <button class="btn btn-primary" onclick="showNafisSubjectPicker()">🔄 اختبار جديد</button>
+          <button class="btn btn-outline" onclick="navigateTo('nafis')">📊 عرض إحصائياتي</button>
         </div>
       </div>
 
@@ -6776,7 +7001,7 @@ function navigateTo(page) {
   activeNavPage = page;
   document.querySelectorAll('.page-section').forEach(el => el.classList.add('hidden'));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  const pageMap = { points: 'pagePoints', store: 'pageStore', notifications: 'pageNotifications', settings: 'pageSettings' , nafis: 'pageNafis' };
+  const pageMap = { points: 'pagePoints', store: 'pageStore', notifications: 'pageNotifications', settings: 'pageSettings' , nafis: 'pageNafis' , nafisSubject: 'pageNafisSubject', nafisQuiz: 'pageNafisQuiz', nafisResult: 'pageNafisResult' };
   const pageEl = $(pageMap[page]);
   if (pageEl) pageEl.classList.remove('hidden');
   const navEl = document.querySelector('[data-page="' + page + '"]');
@@ -7177,7 +7402,233 @@ function initNafisStudentSelect() {
     '<option value="' + (s.studentId || s.id || '') + '" data-school="' + (s.schoolId || '') + '">' +
     (s.name || 'طالب') + ' - ' + (s.schoolName || '') + '</option>'
   ).join('');
-  if (students.length) loadNafisStats();
+  if (students.length) {
+    loadNafisStats();
+    const startBtn = $('nafisStartQuizBtn');
+    if (startBtn) startBtn.style.display = 'block';
+  }
+}
+
+// ===== نافس: اختيار المادة =====
+let nafisCurrentSubjects = [];
+let nafisCurrentGradeKey = '';
+let nafisCurrentNafisLabel = '';
+
+async function showNafisSubjectPicker() {
+  navigateTo('nafisSubject');
+  const sel = $('nafisStudentSelect');
+  const studentId = sel ? sel.value : '';
+  const schoolId = sel ? sel.dataset.schoolId : '';
+  if (!studentId || !schoolId) return;
+  const loading = $('nafisSubjectLoading');
+  const list = $('nafisSubjectList');
+  if (loading) loading.classList.remove('hidden');
+  if (list) list.style.display = 'none';
+  try {
+    const data = await api('/api/parent/nafis/subjects?studentId=' + studentId + '&schoolId=' + schoolId, {
+      headers: { 'X-Session-Token': getToken() }
+    });
+    nafisCurrentSubjects = data.subjects || [];
+    nafisCurrentGradeKey = data.gradeKey || '';
+    nafisCurrentNafisLabel = data.nafisLabel || 'اختبار نافس';
+    const gradeLabel = $('nafisGradeLabel');
+    if (gradeLabel) gradeLabel.textContent = data.nafisLabel + ' - ' + (data.gradeKey || '');
+    const btns = $('nafisSubjectButtons');
+    if (btns) {
+      btns.innerHTML = nafisCurrentSubjects.map((s) => {
+        const icons = { math: '🔢', arabic: '📖', science: '🔬', physics: '⚡', chemistry: '🧪', biology: '🌿', social: '🌍' };
+        return '<button class="btn btn-outline" onclick="startNafisQuiz('' + s.key + '')" style="width:100%;font-size:16px;padding:14px">'
+          + (icons[s.key] || '📚') + ' ' + s.label + '</button>';
+      }).join('');
+    }
+    if (loading) loading.classList.add('hidden');
+    if (list) list.style.display = 'block';
+  } catch(e) {
+    if (loading) loading.classList.add('hidden');
+    showToast('تعذّر تحميل المواد. حاول مجدداً.', 'error');
+  }
+}
+
+// ===== نافس: بدء الاختبار =====
+let nafisQuizData = null;
+let nafisCurrentQuestion = 0;
+let nafisUserAnswers = [];
+let nafisTimerInterval = null;
+let nafisTimeLeft = 0;
+
+async function startNafisQuiz(subject) {
+  const sel = $('nafisStudentSelect');
+  const studentId = sel ? sel.value : '';
+  const schoolId = sel ? sel.dataset.schoolId : '';
+  if (!studentId || !schoolId) return;
+  navigateTo('nafisQuiz');
+  try {
+    const data = await api('/api/parent/nafis/start-quiz', {
+      method: 'POST',
+      headers: { 'X-Session-Token': getToken() },
+      body: JSON.stringify({ studentId, schoolId: Number(schoolId), subject })
+    });
+    nafisQuizData = data;
+    nafisCurrentQuestion = 0;
+    nafisUserAnswers = new Array(data.questions.length).fill(-1);
+    const title = $('nafisQuizTitle');
+    if (title) title.textContent = (data.nafisLabel || 'اختبار نافس') + ' - ' + (data.subjectLabel || '');
+    renderNafisQuestion();
+    startNafisTimer(data.questions.length * 60); // دقيقة لكل سؤال
+  } catch(e) {
+    showToast('تعذّر تحميل الأسئلة: ' + (e.message || 'خطأ'), 'error');
+    navigateTo('nafis');
+  }
+}
+
+function startNafisTimer(seconds) {
+  if (nafisTimerInterval) clearInterval(nafisTimerInterval);
+  nafisTimeLeft = seconds;
+  updateNafisTimer();
+  nafisTimerInterval = setInterval(() => {
+    nafisTimeLeft--;
+    updateNafisTimer();
+    if (nafisTimeLeft <= 0) {
+      clearInterval(nafisTimerInterval);
+      submitNafisQuiz();
+    }
+  }, 1000);
+}
+
+function updateNafisTimer() {
+  const el = $('nafisQuizTimer');
+  if (!el) return;
+  const mins = Math.floor(nafisTimeLeft / 60);
+  const secs = nafisTimeLeft % 60;
+  el.textContent = mins + ':' + String(secs).padStart(2, '0');
+  el.style.color = nafisTimeLeft <= 60 ? '#dc2626' : 'var(--primary)';
+}
+
+function renderNafisQuestion() {
+  if (!nafisQuizData || !nafisQuizData.questions) return;
+  const q = nafisQuizData.questions[nafisCurrentQuestion];
+  const total = nafisQuizData.questions.length;
+  const progress = $('nafisQuizProgress');
+  if (progress) progress.textContent = 'السؤال ' + (nafisCurrentQuestion + 1) + ' من ' + total;
+  const bar = $('nafisProgressBar');
+  if (bar) bar.style.width = ((nafisCurrentQuestion / total) * 100) + '%';
+  const skill = $('nafisQuizSkill');
+  if (skill) skill.textContent = (q.skill || '') + (q.difficulty ? ' • ' + { easy: 'سهل', medium: 'متوسط', hard: 'صعب' }[q.difficulty] || q.difficulty : '');
+  const question = $('nafisQuizQuestion');
+  if (question) question.textContent = q.question;
+  const options = $('nafisQuizOptions');
+  if (options) {
+    options.innerHTML = q.options.map((opt, i) => {
+      const selected = nafisUserAnswers[nafisCurrentQuestion] === i;
+      return '<button class="nafis-option' + (selected ? ' selected' : '') + '" onclick="selectNafisAnswer(' + i + ')" data-idx="' + i + '">'
+        + '<span class="nafis-option-letter">' + ['أ', 'ب', 'ج', 'د'][i] + '</span>'
+        + '<span>' + opt + '</span>'
+        + '</button>';
+    }).join('');
+  }
+  const nextBtn = $('nafisNextBtn');
+  if (nextBtn) {
+    nextBtn.style.display = nafisUserAnswers[nafisCurrentQuestion] >= 0 ? 'block' : 'none';
+    nextBtn.textContent = nafisCurrentQuestion === total - 1 ? '✅ إنهاء الاختبار' : 'التالي ←';
+  }
+}
+
+function selectNafisAnswer(idx) {
+  nafisUserAnswers[nafisCurrentQuestion] = idx;
+  // تحديث الأزرار
+  const options = $('nafisQuizOptions');
+  if (options) {
+    options.querySelectorAll('.nafis-option').forEach((btn, i) => {
+      btn.classList.toggle('selected', i === idx);
+    });
+  }
+  const nextBtn = $('nafisNextBtn');
+  if (nextBtn) {
+    nextBtn.style.display = 'block';
+    nextBtn.textContent = nafisCurrentQuestion === (nafisQuizData?.questions?.length || 10) - 1 ? '✅ إنهاء الاختبار' : 'التالي ←';
+  }
+}
+
+function nafisNextQuestion() {
+  if (!nafisQuizData) return;
+  const total = nafisQuizData.questions.length;
+  if (nafisCurrentQuestion < total - 1) {
+    nafisCurrentQuestion++;
+    renderNafisQuestion();
+  } else {
+    submitNafisQuiz();
+  }
+}
+
+async function submitNafisQuiz() {
+  if (nafisTimerInterval) clearInterval(nafisTimerInterval);
+  if (!nafisQuizData) return;
+  // استبدال -1 بـ 0 للأسئلة غير المجاب عنها
+  const finalAnswers = nafisUserAnswers.map((a) => a >= 0 ? a : 0);
+  try {
+    const result = await api('/api/parent/nafis/submit-quiz', {
+      method: 'POST',
+      headers: { 'X-Session-Token': getToken() },
+      body: JSON.stringify({ quizSessionId: nafisQuizData.quizSessionId, answers: finalAnswers })
+    });
+    renderNafisResult(result);
+    navigateTo('nafisResult');
+    // تحديث الإحصائيات في الخلفية
+    setTimeout(loadNafisStats, 500);
+  } catch(e) {
+    showToast('تعذّر حفظ النتيجة: ' + (e.message || 'خطأ'), 'error');
+  }
+}
+
+function renderNafisResult(result) {
+  const score = result.score || 0;
+  const correct = result.correct || 0;
+  const total = result.total || 0;
+  // الإيموجي حسب النتيجة
+  const emoji = score >= 90 ? '🥇' : score >= 75 ? '🥈' : score >= 60 ? '🥉' : score >= 40 ? '📚' : '💪';
+  const el = $('nafisResultEmoji'); if (el) el.textContent = emoji;
+  const scoreEl = $('nafisResultScore'); if (scoreEl) { scoreEl.textContent = score + '%'; scoreEl.style.color = score >= 75 ? '#15803d' : score >= 50 ? '#b45309' : '#dc2626'; }
+  const labelEl = $('nafisResultLabel'); if (labelEl) labelEl.textContent = score >= 90 ? 'ممتاز! أداء رائع 🌟' : score >= 75 ? 'جيد جداً! استمر 👍' : score >= 60 ? 'جيد، يمكنك التحسين 📈' : score >= 40 ? 'تحتاج مزيداً من التدريب 📖' : 'لا تستسلم، حاول مجدداً 💪';
+  const fracEl = $('nafisResultFraction'); if (fracEl) fracEl.textContent = correct + ' / ' + total + ' إجابة صحيحة';
+  // تفاصيل الأسئلة
+  const details = $('nafisResultDetails');
+  if (details && result.details && nafisQuizData) {
+    details.innerHTML = result.details.map((d, i) => {
+      const q = nafisQuizData.questions[i];
+      const color = d.isCorrect ? '#15803d' : '#dc2626';
+      const bg = d.isCorrect ? '#dcfce7' : '#fff1f2';
+      const icon = d.isCorrect ? '✅' : '❌';
+      const selectedText = q ? (q.options[d.selectedAnswer] || '-') : '-';
+      const correctText = q ? (q.options[d.correctAnswer] || '-') : '-';
+      return '<div style="padding:10px 0;border-bottom:1px solid var(--border)">'
+        + '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">' + icon + ' ' + (q ? q.question : 'سؤال ' + (i+1)) + '</div>'
+        + (d.isCorrect ? '' : '<div style="font-size:12px;color:#dc2626">إجابتك: ' + selectedText + '</div>')
+        + '<div style="font-size:12px;color:#15803d">الإجابة الصحيحة: ' + correctText + '</div>'
+        + (d.explanation ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">💡 ' + d.explanation + '</div>' : '')
+        + '</div>';
+    }).join('');
+  }
+  // إحصائيات المهارات
+  const skillStats = result.skillStats || {};
+  const skillKeys = Object.keys(skillStats);
+  const skillCard = $('nafisSkillStatsCard');
+  const skillEl = $('nafisSkillStats');
+  if (skillCard && skillEl && skillKeys.length > 0) {
+    skillCard.style.display = 'block';
+    skillEl.innerHTML = skillKeys.map((skill) => {
+      const s = skillStats[skill];
+      const pct = s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0;
+      const color = pct >= 75 ? '#15803d' : pct >= 50 ? '#b45309' : '#dc2626';
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'
+        + '<div style="font-size:13px;font-weight:600">' + skill + '</div>'
+        + '<div style="display:flex;align-items:center;gap:8px">'
+        + '<span style="font-size:12px;color:var(--muted)">' + s.correct + '/' + s.total + '</span>'
+        + '<span style="font-size:13px;font-weight:900;color:' + color + '">' + pct + '%</span>'
+        + '</div></div>';
+    }).join('');
+  } else if (skillCard) {
+    skillCard.style.display = 'none';
+  }
 }
 
 async function loadNafisStats() {
@@ -7318,6 +7769,55 @@ $('logoutBtn').onclick = async function() {
   location.reload();
 };
 
+/* ===== نافس: أزرار الاختبار ===== */
+.nafis-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  text-align: right;
+  transition: border-color 0.15s, background 0.15s;
+}
+.nafis-option:active { opacity: 0.85; }
+.nafis-option.selected {
+  border-color: var(--primary);
+  background: rgba(var(--primary-rgb, 16,185,129), 0.08);
+  color: var(--primary);
+}
+.nafis-option.correct {
+  border-color: #15803d;
+  background: #dcfce7;
+  color: #15803d;
+}
+.nafis-option.wrong {
+  border-color: #dc2626;
+  background: #fff1f2;
+  color: #dc2626;
+}
+.nafis-option-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 50%;
+  background: var(--border);
+  font-size: 13px;
+  font-weight: 900;
+}
+.nafis-option.selected .nafis-option-letter {
+  background: var(--primary);
+  color: white;
+}
 /* ===== BOTTOM NAV ===== */
 document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => navigateTo(btn.dataset.page));
