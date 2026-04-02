@@ -276,17 +276,15 @@ export function normalizeSmartLinks(links) {
       topCompanies: item?.widgets?.topCompanies !== false,
       attendanceChart: item?.widgets?.attendanceChart !== false,
       recentActivity: item?.widgets?.recentActivity !== false,
-      teacherHighlights: !!item?.widgets?.teacherHighlights,
-      rewardCategories: !!item?.widgets?.rewardCategories,
-      parentReadiness: !!item?.widgets?.parentReadiness,
-      lessonAttendanceSummary: !!item?.widgets?.lessonAttendanceSummary,
-      rewardStoreSummary: !!item?.widgets?.rewardStoreSummary,
-      actionStats: !!item?.widgets?.actionStats,
-      teacherActivity: !!item?.widgets?.teacherActivity,
-      rewardCategoryBreakdown: !!item?.widgets?.rewardCategoryBreakdown,
-      topTeachers: !!item?.widgets?.topTeachers,
-      nafisQuiz: !!item?.widgets?.nafisQuiz,
-      nafisLeaderboard: !!item?.widgets?.nafisLeaderboard,
+      parentPortalSummary: item?.widgets?.parentPortalSummary !== false,
+      lessonAttendanceSummary: item?.widgets?.lessonAttendanceSummary !== false,
+      rewardStoreSummary: item?.widgets?.rewardStoreSummary !== false,
+      actionStats: item?.widgets?.actionStats !== false,
+      teacherActivity: item?.widgets?.teacherActivity !== false,
+      rewardCategoryBreakdown: item?.widgets?.rewardCategoryBreakdown !== false,
+      topTeachers: item?.widgets?.topTeachers !== false,
+      nafisQuiz: item?.widgets?.nafisQuiz === true,
+      nafisLeaderboard: item?.widgets?.nafisLeaderboard === true,
     },
     createdAt: item?.createdAt || new Date().toISOString(),
   });
@@ -343,7 +341,6 @@ export function hydrateSchools(schools) {
       attendanceRate: safeNumber(student.attendanceRate, 100),
       points: safeNumber(student.points),
     })),
-    nafisAttempts: Array.isArray(school.nafisAttempts) ? school.nafisAttempts : [],
     // معالجة structure.classrooms.students لضمان حفظ facePhoto و faceReady والنقاط
     structure: school.structure ? {
       ...school.structure,
@@ -617,7 +614,5 @@ export function hydrateSharedState(parsed = {}) {
       },
     },
     notifications: Array.isArray(parsed.notifications) ? parsed.notifications : defaults.notifications,
-    globalNafisQuestions: Array.isArray(parsed.globalNafisQuestions) ? parsed.globalNafisQuestions : [],
-    nafisResults: Array.isArray(parsed.nafisResults) ? parsed.nafisResults : [],
   };
 }
