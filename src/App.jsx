@@ -1732,7 +1732,18 @@ function mergeSchoolsFromResponse(existingSchools, incomingSchools) {
       finalStructure = { ...(incoming.structure || {}), classrooms: [...incomingClassrooms, ...missingCR] };
     }
 
-    return { ...incoming, students: finalStudents, companies: finalCompanies, structure: finalStructure };
+    // حماية smartLinks (البوابات والشاشات)
+    const existingSmartLinks = existing.smartLinks || {};
+    const incomingSmartLinks = incoming.smartLinks || {};
+    const existingGates = Array.isArray(existingSmartLinks.gates) ? existingSmartLinks.gates : [];
+    const existingScreens = Array.isArray(existingSmartLinks.screens) ? existingSmartLinks.screens : [];
+    const incomingGates = Array.isArray(incomingSmartLinks.gates) ? incomingSmartLinks.gates : [];
+    const incomingScreens = Array.isArray(incomingSmartLinks.screens) ? incomingSmartLinks.screens : [];
+    const finalGates = (existingGates.length > 0 && incomingGates.length === 0) ? existingGates : incomingGates;
+    const finalScreens = (existingScreens.length > 0 && incomingScreens.length === 0) ? existingScreens : incomingScreens;
+    const finalSmartLinks = { ...incomingSmartLinks, gates: finalGates, screens: finalScreens };
+
+    return { ...incoming, students: finalStudents, companies: finalCompanies, structure: finalStructure, smartLinks: finalSmartLinks };
   });
 
   // الحفاظ على المدارس الموجودة غير الواردة

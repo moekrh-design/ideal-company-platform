@@ -631,6 +631,23 @@ async function saveSharedState(state, actor = null) {
         incomingSchool.companies = [...incomingCompanies, ...missingCompanies];
       }
 
+      // --- حماية smartLinks (البوابات والشاشات) ---
+      const serverSmartLinks = serverSchool.smartLinks || {};
+      const incomingSmartLinks = incomingSchool.smartLinks || {};
+      const serverGates = Array.isArray(serverSmartLinks.gates) ? serverSmartLinks.gates : [];
+      const serverScreens = Array.isArray(serverSmartLinks.screens) ? serverSmartLinks.screens : [];
+      const incomingGates = Array.isArray(incomingSmartLinks.gates) ? incomingSmartLinks.gates : [];
+      const incomingScreens = Array.isArray(incomingSmartLinks.screens) ? incomingSmartLinks.screens : [];
+      if (serverGates.length > 0 && incomingGates.length === 0) {
+        console.warn(`[PROTECT-SMARTLINKS] Prevented deletion of ${serverGates.length} gates in school ${serverSchool.name}`);
+        if (!incomingSchool.smartLinks) incomingSchool.smartLinks = {};
+        incomingSchool.smartLinks.gates = serverGates;
+      }
+      if (serverScreens.length > 0 && incomingScreens.length === 0) {
+        console.warn(`[PROTECT-SMARTLINKS] Prevented deletion of ${serverScreens.length} screens in school ${serverSchool.name}`);
+        if (!incomingSchool.smartLinks) incomingSchool.smartLinks = {};
+        incomingSchool.smartLinks.screens = serverScreens;
+      }
       // --- حماية structure.classrooms (الطلاب في الهيكل) ---
       const serverClassrooms = Array.isArray(serverSchool.structure && serverSchool.structure.classrooms) ? serverSchool.structure.classrooms : [];
       const incomingClassrooms = Array.isArray(incomingSchool.structure && incomingSchool.structure.classrooms) ? incomingSchool.structure.classrooms : [];
