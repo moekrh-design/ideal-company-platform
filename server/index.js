@@ -599,6 +599,24 @@ async function saveSharedState(state, actor = null) {
       state.users = current.users;
     }
   }
+  // ===== حماية حرجة: منع حذف الطلاب داخل المدارس =====
+  if (Array.isArray(state.schools) && Array.isArray(current.schools)) {
+    for (const incomingSchool of state.schools) {
+      const serverSchool = current.schools.find(s => s.id === incomingSchool.id);
+      if (!serverSchool) continue;
+      const serverStudents = Array.isArray(serverSchool.students) ? serverSchool.students : [];
+      const incomingStudents = Array.isArray(incomingSchool.students) ? incomingSchool.students : [];
+      if (serverStudents.length > 0 && incomingStudents.length === 0) {
+        console.warn(`[PROTECT-STUDENTS] Prevented deletion of ${serverStudents.length} students in school ${serverSchool.name}`);
+        incomingSchool.students = serverStudents;
+      } else if (serverStudents.length > 0 && incomingStudents.length < serverStudents.length * 0.5) {
+        console.warn(`[PROTECT-STUDENTS] Prevented major student loss in ${serverSchool.name}: ${incomingStudents.length} < ${serverStudents.length}`);
+        const incomingIds = new Set(incomingStudents.map(s => String(s.id)));
+        const missingStudents = serverStudents.filter(s => !incomingIds.has(String(s.id)));
+        incomingSchool.students = [...incomingStudents, ...missingStudents];
+      }
+    }
+  }
   const hydrated = await normalizeStateForStorage(state, current);
   writeStateRow(hydrated, actor);
   void ensureDailyBackups('save', hydrated);
