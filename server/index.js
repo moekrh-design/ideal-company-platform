@@ -390,6 +390,15 @@ function scopeStateForClient(state, requestingUser = null) {
         if (normalizedRole === 'student' && studentId) {
           return Number(item?.studentId) === studentId || Number(item?.userId) === actorId;
         }
+        // [FIX-TEACHER-NOTIFY] إيصال الإشعارات للمعلم عبر forTeacherIds
+        if (normalizedRole === 'teacher' && actorId) {
+          if (Array.isArray(item?.forTeacherIds) && item.forTeacherIds.length > 0) {
+            return item.forTeacherIds.map(String).includes(String(actorId));
+          }
+          // إشعارات بدون forTeacherIds مخصصة للمدرسة فقط
+          if (schoolId && item?.schoolId != null) return Number(item.schoolId) === schoolId && !item?.forTeacherIds;
+          return false;
+        }
         if (schoolId && item?.schoolId != null) return Number(item.schoolId) === schoolId;
         if (item?.userId != null) return Number(item.userId) === actorId;
         return false;
@@ -1246,6 +1255,11 @@ function mergeStateByRole(currentState, incomingState, actor) {
             incomingSchool.rewardStore?.items || []
           ),
         },
+        // [FIX-LESSON-SESSIONS] دمج جلسات التحضير: الخادم + الوارد (لمنع اختفاء الجلسات)
+        lessonAttendanceSessions: mergeArrayById(
+          currentSchool?.lessonAttendanceSessions || [],
+          incomingSchool.lessonAttendanceSessions || []
+        ),
       };
       next.schools = next.schools.map((school) => school.id === schoolId ? mergedSchool : school);
     }
@@ -1830,8 +1844,55 @@ async function processSchoolMessageSend(state, schoolId, actor, payload = {}) {
   const settings = hydrateMessagingSettings(school);
   const channel = payload.channel === 'sms' ? 'sms' : payload.channel === 'internal' ? 'internal' : 'whatsapp';
   const sendMode = payload.sendMode === 'scheduled' ? 'scheduled' : 'now';
-  if (settings.channels?.[channel] !== true) return { ok: false, message: 'القناة المحددة غير مفعلة من الإعدادات.' };
   const audience = String(payload.audience || 'allStudents');
+
+  // [FIX-TEACHER-NOTIFY] دعم إرسال إشعارات داخلية للمعلمين
+  // عندما يُرسل المدير رسالة بـ audience=selectedTeachers أو allTeachers مع channel=internal
+  if (channel === 'internal' && (audience === 'selectedTeachers' || audience === 'allTeachers')) {
+    const recipientUserIds = Array.isArray(payload.recipientUserIds) ? payload.recipientUserIds.map(String) : [];
+    const schoolTeachers = (next.users || []).filter((user) =>
+      Number(user.schoolId) === Number(schoolId) &&
+      String(user.role) === 'teacher' &&
+      String(user.status || 'نشط') === 'نشط' &&
+      (audience === 'allTeachers' || recipientUserIds.includes(String(user.id)))
+    );
+    if (!schoolTeachers.length) return { ok: false, message: 'لا يوجد معلمون مستهدفون.' };
+    const now = new Date();
+    const notifId = Date.now();
+    const notif = {
+      id: notifId,
+      title: String(payload.subject || 'رسالة من الإدارة').trim(),
+      body: String(payload.message || '').trim(),
+      time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(now),
+      createdAt: now.toISOString(),
+      schoolId: Number(schoolId),
+      forTeacherIds: schoolTeachers.map((t) => t.id),
+    };
+    next.notifications = Array.isArray(next.notifications) ? next.notifications : [];
+    next.notifications = [notif, ...next.notifications].slice(0, 500);
+    school.messaging = school.messaging || {};
+    school.messaging.logs = Array.isArray(school.messaging.logs) ? school.messaging.logs : [];
+    const log = {
+      id: notifId,
+      createdAt: now.toISOString(),
+      subject: notif.title,
+      type: 'يدوي',
+      audience: String(payload.audienceLabel || 'معلمون'),
+      channel: 'internal',
+      senderName: actor?.name || actor?.username || 'الإدارة',
+      recipients: schoolTeachers.length,
+      successCount: schoolTeachers.length,
+      failedCount: 0,
+      status: 'نجاح',
+      body: notif.body,
+      deliveries: schoolTeachers.map((t) => ({ teacherId: t.id, teacherName: t.name || t.username, status: 'نجاح' })),
+    };
+    school.messaging.logs = [log, ...school.messaging.logs].slice(0, 200);
+    console.log(`[TEACHER-NOTIFY] Sent internal notification to ${schoolTeachers.length} teachers in school ${schoolId}`);
+    return { ok: true, state: hydrateSharedState(next), log, message: `تم إرسال الإشعار إلى ${schoolTeachers.length} معلم/ـة.` };
+  }
+
+  if (settings.channels?.[channel] !== true) return { ok: false, message: 'القناة المحددة غير مفعلة من الإعدادات.' };
   const targetedStudents = getMessageAudienceStudents(school, audience).slice(0, settings.operations.batchLimit || 200);
   if (!targetedStudents.length) return { ok: false, message: 'لا يوجد مستهدفون مطابقون لهذه العملية.' };
   const now = new Date();
