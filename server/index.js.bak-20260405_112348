@@ -121,6 +121,7 @@ initializeDatabase();
 ensureStateSeeded();
 
 // ✅ إصلاح أمان: نسخة احتياطية تلقائية من DB قبل تطبيق أي migration
+// تحمي من ضياع البيانات في حال حدوث خطأ غير متوقع أثناء الإقلاع
 try {
   if (existsSync(DB_PATH)) {
     const { copyFileSync: _cpSync } = await import('node:fs');
@@ -538,7 +539,9 @@ async function getSharedState() {
   if (!row) return await normalizeStateForStorage(createDefaultSharedState());
   try {
     return await normalizeStateForStorage(JSON.parse(row.value), JSON.parse(row.value));
-  } catch {
+  } catch (err) {
+    // ✅ إصلاح أمان: تسجيل الخطأ بدل الإعادة الصامتة للحالة الافتراضية
+    console.error('[getSharedState] فشل في قراءة الحالة، إعادة الحالة الافتراضية كآخر خيار:', err?.message || err);
     return await normalizeStateForStorage(createDefaultSharedState());
   }
 }
@@ -2028,7 +2031,9 @@ async function getSharedStateAsync() {
   }
   try {
     return await normalizeStateForStorage(JSON.parse(row.value), JSON.parse(row.value));
-  } catch {
+  } catch (err) {
+    // ✅ إصلاح أمان: تسجيل الخطأ بدل الإعادة الصامتة للحالة الافتراضية
+    console.error('[getSharedState] فشل في قراءة الحالة، إعادة الحالة الافتراضية كآخر خيار:', err?.message || err);
     return await normalizeStateForStorage(createDefaultSharedState());
   }
 }
@@ -5305,63 +5310,10 @@ const server = http.createServer(async (req, res) => {
       if (!['superadmin', 'principal', 'supervisor'].includes(actor.role)) return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
       const state = await getSharedState();
       const portalSettings = state.settings?.parentPortal || {};
-
-      // ✅ إصلاح: جلب البيانات الحقيقية بدل القوائم الفارغة الصلبة
-      // تحديد نطاق المدارس حسب دور المستخدم
-      const schoolId = Number(reqUrl.searchParams.get('schoolId') || actor.schoolId || 0);
-      const scopedSchools = actor.role === 'superadmin'
-        ? (schoolId ? state.schools.filter((s) => Number(s.id) === schoolId) : state.schools)
-        : state.schools.filter((s) => Number(s.id) === Number(actor.schoolId || 0));
-
-      // جلب الاستئذانات المعلقة (parent-requested / created) من جميع المدارس المعنية
-      const pendingLeavePasses = scopedSchools.flatMap((school) =>
-        (Array.isArray(school.leavePasses) ? school.leavePasses : [])
-          .filter((p) => ['parent-requested', 'created', 'sent-system', 'sent-manual'].includes(String(p.status || '')))
-          .map((p) => ({ ...p, schoolName: school.name || '' }))
-      ).slice(0, 50);
-
-      // جلب طلبات تغيير الرقم الأساسي المعلقة
-      const pendingPrimaryRequests = [];
-      try {
-        const parents = await listParentAccounts(state, actor);
-        const scopedSchoolIds = scopedSchools.map((s) => Number(s.id));
-        for (const parent of parents) {
-          const req = parent.primaryChangeRequest;
-          if (!req || String(req.status || '') !== 'pending') continue;
-          const parentSchools = Array.isArray(parent.schoolIds) ? parent.schoolIds.map(Number) : [Number(parent.schoolId || 0)];
-          if (scopedSchoolIds.some((id) => parentSchools.includes(id))) {
-            pendingPrimaryRequests.push({
-              id: req.id || parent.mobile,
-              mobile: parent.mobile,
-              guardianName: parent.guardianName || 'ولي الأمر',
-              requestedMobile: req.requestedMobile || '',
-              status: 'pending',
-              requestedAt: req.requestedAt || '',
-            });
-          }
-        }
-      } catch (_e) { /* تجاهل الخطأ — سيرجع الاستئذانات على الأقل */ }
-
-      // جلب تنبيهات ولي الأمر الأخيرة من app_meta
-      const alertsFromMeta = [];
-      try {
-        for (const school of scopedSchools) {
-          const schoolAlerts = await getParentPrimaryChangeAlerts(school.id);
-          alertsFromMeta.push(...schoolAlerts.slice(0, 10).map((a) => ({
-            id: a.id,
-            title: a.message || 'تغيير رقم ولي الأمر',
-            body: (a.guardianName || 'ولي الأمر') + (a.studentNames?.length ? ' — ' + a.studentNames.join('، ') : ''),
-            time: a.createdAt || '',
-            createdAt: a.createdAt || '',
-          })));
-        }
-      } catch (_e) { /* تجاهل */ }
-
       return sendJson(res, 200, {
         ok: true,
-        requests: pendingPrimaryRequests,
-        leavePasses: pendingLeavePasses,
-        alerts: alertsFromMeta.slice(0, 20),
+        requests: [],
+        alerts: [],
         policy: { mode: portalSettings.approvalMode || 'auto' },
         portalSettings: {
           enabled: portalSettings.enabled !== false,

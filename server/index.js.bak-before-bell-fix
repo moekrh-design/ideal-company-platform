@@ -526,10 +526,9 @@ async function ensureStateMigrations() {
       writeStateRow(normalized);
       audit(null, 'migrate_state', { users: normalized.users.length });
     }
-  } catch (err) {
-    // ✅ إصلاح أمان: لا نمسح البيانات عند فشل المايغريشن
-    console.error("[migration] فشل في تطبيق المايغريشن، تم الحفاظ على البيانات:", err?.message || err);
-    try { audit(null, "migrate_state_failed", { error: String(err?.message || err) }); } catch {}
+  } catch {
+    const state = await normalizeStateForStorage(createDefaultSharedState());
+    writeStateRow(state);
   }
 }
 

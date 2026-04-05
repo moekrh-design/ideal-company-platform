@@ -4439,46 +4439,25 @@ export default function App() {
         const apiAlerts = Array.isArray(response?.alerts) ? response.alerts : [];
         const pending = requests.filter((request) => String(request?.status || '') === 'pending').length;
         const autoApproved = apiAlerts.filter((alert) => /اعتماد تلقائي|تلقائيًا|تلقائي/.test(String(alert?.title || '') + ' ' + String(alert?.body || ''))).length;
-
-        // ✅ إصلاح: تعريف isCurrentTeacher مبكراً قبل أي استخدام
-        const isCurrentTeacher = String(currentUser?.role || '') === 'teacher';
-
-        // ✅ إصلاح: استخدام الاستئذانات المعلقة من رد الـ API مباشرة (لغير المعلمين)
-        // وطلب /api/leave-passes/pending للمعلمين فقط
+        // === جلب استئذانات المعلم المعلقة ===
         let leavePassAlerts = [];
-        // استئذانات أولياء الأمور من رد الـ API الرئيسي (للمدير/الوكيل/السوبر)
-        const apiLeavePasses = Array.isArray(response?.leavePasses) ? response.leavePasses : [];
-        if (!isCurrentTeacher && apiLeavePasses.length > 0) {
-          leavePassAlerts = apiLeavePasses.slice(0, 5).map((lp, i) => ({
-            id: 'lp-api-' + (lp.id || i),
-            title: lp.isFromParent ? '🚪 استئذان من ولي الأمر' : '🚨 طلب استئذان' + (lp.status === 'created' ? ' جديد' : ''),
-            body: (lp.studentName || 'طالب') + ' — ' + (lp.schoolName ? lp.schoolName + ' — ' : '') + (lp.destination === 'agent' ? 'الوكيل' : lp.destination === 'counselor' ? 'المرشد' : 'ولي الأمر'),
-            time: lp.createdAt ? new Date(lp.createdAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : 'الآن',
-            tone: lp.isFromParent ? 'amber' : 'rose',
-            urgent: true,
-            type: 'leavePass',
-            leavePassId: lp.id,
-          }));
-        }
-        // للمعلمين: جلب استئذاناتهم المعلقة من endpoint مخصص
         try {
-          if (isCurrentTeacher) {
-            const lpResp = await apiRequest('/api/leave-passes/pending?schoolId=' + (selectedSchool?.id || ''), { token: getSessionToken() });
-            if (lpResp?.ok && lpResp.count > 0) {
-              leavePassAlerts = (lpResp.passes || []).slice(0, 5).map((lp, i) => ({
-                id: 'lp-' + (lp.id || i),
-                title: '🚨 طلب استئذان' + (lp.status === 'created' ? ' جديد' : ''),
-                body: (lp.studentName || 'طالب') + ' — ' + (lp.destination === 'agent' ? 'الوكيل' : lp.destination === 'counselor' ? 'المرشد' : 'ولي الأمر'),
-                time: lp.createdAt ? new Date(lp.createdAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : 'الآن',
-                tone: 'amber',
-                urgent: true,
-                type: 'leavePass',
-                leavePassId: lp.id,
-              }));
-            }
+          const lpResp = await apiRequest('/api/leave-passes/pending?schoolId=' + (selectedSchool?.id || ''), { token: getSessionToken() });
+          if (lpResp?.ok && lpResp.count > 0) {
+            leavePassAlerts = (lpResp.passes || []).slice(0, 5).map((lp, i) => ({
+              id: 'lp-' + (lp.id || i),
+              title: '🚨 طلب استئذان' + (lp.status === 'created' ? ' جديد' : ''),
+              body: (lp.studentName || 'طالب') + ' — ' + (lp.destination === 'agent' ? 'الوكيل' : lp.destination === 'counselor' ? 'المرشد' : 'ولي الأمر'),
+              time: lp.createdAt ? new Date(lp.createdAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : 'الآن',
+              tone: 'amber',
+              urgent: true,
+              type: 'leavePass',
+              leavePassId: lp.id,
+            }));
           }
         } catch (e) { /* ignore */ }
         const leavePassCount = leavePassAlerts.length;
+        const isCurrentTeacher = String(currentUser?.role || '') === 'teacher';
         // استئذانات المعلم المعلقة (من الـ state مباشرة)
         const teacherLeavePassAlerts = isCurrentTeacher ? (() => {
           const { getLeavePasses: getLP } = { getLeavePasses: (school) => Array.isArray(school?.leavePasses) ? school.leavePasses : [] };
@@ -4497,24 +4476,12 @@ export default function App() {
             }));
         })() : [];
         const teacherNotifs = isCurrentTeacher ? (notifications || []).filter((note) => note?.forTeacherIds?.map(String).includes(String(currentUser?.id || ''))) : [];
-        // ✅ إصلاح: نعرض كل التنبيهات لجميع الأدوار، لا فقط تنبيهات ولي الأمر
-        // الفلتر القديم كان يخفي الاستئذانات والحضور والنقاط وكل شيء ما عدا أولياء الأمور
-        const globalNotifs = isCurrentTeacher
-          ? [] // المعلم تنبيهاته من teacherNotifs و teacherLeavePassAlerts فقط
-          : (notifications || []).filter((note) => {
-              // استبعد التنبيهات المخصصة لمعلمين بعينهم (forTeacherIds محددة)
-              if (Array.isArray(note?.forTeacherIds) && note.forTeacherIds.length > 0) return false;
-              return true;
-            });
-        const localItems = [...teacherLeavePassAlerts, ...leavePassAlerts, ...teacherNotifs, ...globalNotifs].slice(0, 8).map((note, index) => ({
+        const localItems = [...teacherLeavePassAlerts, ...leavePassAlerts, ...teacherNotifs, ...(notifications || []).filter((note) => /فشل|تعذر|ولي الأمر|أولياء الأمور|الرقم الأساسي|بوابة ولي الأمر/.test(String(note?.title || '') + ' ' + String(note?.body || '')))].slice(0, 8).map((note, index) => ({
           id: `local-${note?.id || index}`,
           title: note?.title || 'تنبيه',
           body: note?.body || '',
           time: note?.time || '—',
-          tone: /فشل|تعذر|خطأ/.test(String(note?.title || '') + ' ' + String(note?.body || '')) ? 'rose'
-              : /تحذير|انتباه|مخالفة|غياب/.test(String(note?.title || '') + ' ' + String(note?.body || '')) ? 'amber'
-              : /مكافأة|نقاط|إنجاز/.test(String(note?.title || '') + ' ' + String(note?.body || '')) ? 'green'
-              : 'blue',
+          tone: /فشل|تعذر/.test(String(note?.title || '') + ' ' + String(note?.body || '')) ? 'rose' : 'blue',
         }));
         const normalizedAlerts = apiAlerts.slice(0, 6).map((alert, index) => ({
           id: `api-${alert?.id || index}`,
@@ -4529,12 +4496,9 @@ export default function App() {
           items.push({ id: 'pending-summary', title: 'طلبات أولياء الأمور', body: `يوجد ${pending} طلب بانتظار المتابعة أو الاعتماد.`, time: 'الآن', tone: 'blue' });
         }
         items.push(...normalizedAlerts, ...localItems);
-        // ✅ إصلاح: عدّاد الجرس كان صفراً للمدير/الوكيل لأن items كانت فارغة دائماً
-        // الآن نحسب الاستئذانات المعلقة + التنبيهات الفعلية لكل الأدوار
-        const nonTeacherCount = pending + leavePassAlerts.length + normalizedAlerts.length + globalNotifs.length;
         const totalCount = isCurrentTeacher
           ? teacherLeavePassAlerts.length + teacherNotifs.length
-          : Math.min(nonTeacherCount || items.length, 99);
+          : Math.min(items.length, 99);
         setHeaderAlertsState({
           loading: false,
           loaded: true,
