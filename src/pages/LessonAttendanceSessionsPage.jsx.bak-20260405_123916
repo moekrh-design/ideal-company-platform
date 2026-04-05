@@ -506,7 +506,7 @@ function LessonAttendanceSessionsPage({ selectedSchool, currentUser, users, sett
                         <div className="mt-4 space-y-4">
                           <Select label="اختر الفصل" value={teacherClassKey} onChange={(e) => setTeacherClassKey(e.target.value)}>
                             <option value="">اختر الفصل</option>
-                            {teacherClassrooms.map((row) => <option key={getClassroomKeyFromCompanyRow(row)} value={getClassroomKeyFromCompanyRow(row)}>{row.className ? `${row.className} — ${row.name}` : row.name} ({row.studentsCount})</option>)}
+                            {teacherClassrooms.map((row) => <option key={getClassroomKeyFromCompanyRow(row)} value={getClassroomKeyFromCompanyRow(row)}>{row.name} ({row.studentsCount})</option>)}
                           </Select>
                           {/* إذا سبق للمعلم التحضير ولم يطلب إعادة التحضير، نعرض رسالة الاعتماد وزر إعادة التحضير */}
                           {existingTeacherSubmission && !allowResubmit ? (

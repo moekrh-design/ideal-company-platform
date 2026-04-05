@@ -532,7 +532,7 @@ function LeavePassesPage({ selectedSchool, currentUser, users, initialPassId, on
           <div className="grid gap-4 lg:grid-cols-2">
             <Select label="الفصل" value={form.classFilter || ''} onChange={(e) => setForm((prev) => ({ ...prev, classFilter: e.target.value, studentId: '' }))}>
               <option value="">اختر الفصل أولاً</option>
-              {(() => { const seen = new Map(); students.forEach((s) => { const co = getStudentGroupingLabel(s, selectedSchool); if (co && !seen.has(co)) seen.set(co, s.className || s.classroomName || ""); }); return [...seen.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0]), "ar")).map(([co, cn]) => <option key={co} value={co}>{cn ? cn + " — " + co : co}</option>); })()}
+              {[...new Set(students.map((s) => getStudentGroupingLabel(s, selectedSchool)).filter(Boolean))].sort().map((cls) => <option key={cls} value={cls}>{cls}</option>)}
             </Select>
             <Select label="الطالب" value={form.studentId} onChange={(e) => setForm((prev) => ({ ...prev, studentId: e.target.value }))} disabled={!form.classFilter}>
               <option value="">{form.classFilter ? 'اختر الطالب' : 'اختر الفصل أولاً'}</option>

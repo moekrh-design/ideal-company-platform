@@ -98,7 +98,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
     teacherAvailableStudents.forEach((student) => {
       const name = String(getStudentCompanyName(student, selectedSchool) || student.companyName || student.className || 'غير محدد');
       const key = normalizeSearchToken(name) || String(student.companyId || student.classId || name);
-      if (!map.has(key)) map.set(key, { key, label: name, className: student.className || student.classroomName || ''});
+      if (!map.has(key)) map.set(key, { key, label: name });
     });
     return Array.from(map.values()).sort((a, b) => String(a.label || '').localeCompare(String(b.label || ''), 'ar'));
   }, [teacherAvailableStudents, selectedSchool]);
@@ -851,7 +851,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
                   <Select label="اختر الفصل أولًا" value={manualSelectedCompany} onChange={(e) => { setManualSelectedCompany(e.target.value); setManualSelectedStudentId(""); }}>
                     <option value="">اختر الفصل</option>
                     {teacherManualCompanyOptions.map((company) => (
-                      <option key={`compact-company-${company.key}`} value={company.label}>{company.className ? `${company.className} — ${company.label}` : company.label}</option>
+                      <option key={`compact-company-${company.key}`} value={company.label}>{company.label}</option>
                     ))}
                   </Select>
                 ) : null}
@@ -911,7 +911,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
                   <Select label="اختر الفصل أولًا" value={manualSelectedCompany} onChange={(e) => { setManualSelectedCompany(e.target.value); setManualSelectedStudentId(""); }}>
                     <option value="">اختر الفصل</option>
                     {teacherManualCompanyOptions.map((company) => (
-                      <option key={`admin-company-${company.key}`} value={company.label}>{company.className ? `${company.className} — ${company.label}` : company.label}</option>
+                      <option key={`admin-company-${company.key}`} value={company.label}>{company.label}</option>
                     ))}
                   </Select>
                 ) : null}
