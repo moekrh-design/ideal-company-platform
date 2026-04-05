@@ -1,15 +1,47 @@
 #!/bin/bash
-# سكريبت تحديث منصة ideal-platform من GitHub
+# =====================================================
+# update.sh - سكريبت تحديث منصة ideal-platform
+# الإصدار: 2.0 - آمن مع رفع تلقائي لـ GitHub
+# =====================================================
 set -e
+
 APP_DIR="/var/www/systems/ideal-platform"
-echo "=== بدء التحديث ==="
+LOG_FILE="/var/log/ideal-update.log"
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+echo "=== [$TIMESTAMP] بدء التحديث ===" | tee -a "$LOG_FILE"
 cd "$APP_DIR"
-git pull origin main
-npm install --production
-pm2 restart ideal-platform
+
+# =====================================================
+# 1. رفع الكود الحالي لـ GitHub أولاً (قبل أي شيء)
+# =====================================================
+echo "--- رفع الكود الحالي لـ GitHub ---" | tee -a "$LOG_FILE"
+auto-push.sh "pre-update: حفظ الكود قبل التحديث $(date '+%Y-%m-%d %H:%M')" 2>&1 | tee -a "$LOG_FILE"
+
+# =====================================================
+# 2. سحب التحديثات من GitHub بأمان
+# =====================================================
+echo "--- سحب التحديثات ---" | tee -a "$LOG_FILE"
+git pull origin main --no-rebase 2>&1 | tee -a "$LOG_FILE"
+
+# =====================================================
+# 3. تثبيت الحزم إذا تغيرت
+# =====================================================
+echo "--- تثبيت الحزم ---" | tee -a "$LOG_FILE"
+npm install --production 2>&1 | tail -3 | tee -a "$LOG_FILE"
+
+# =====================================================
+# 4. إعادة تشغيل الخادم
+# =====================================================
+echo "--- إعادة تشغيل الخادم ---" | tee -a "$LOG_FILE"
+pm2 restart ideal-platform 2>&1 | tee -a "$LOG_FILE"
 sleep 3
 pm2 status ideal-platform
-echo "=== تم التحديث بنجاح ==="
 
-# رفع الكود لـ GitHub بعد كل تحديث
-auto-push.sh "deploy: تحديث تلقائي بعد build $(date +%Y-%m-%d)"
+# =====================================================
+# 5. رفع الكود النهائي بعد التحديث
+# =====================================================
+echo "--- رفع الكود النهائي لـ GitHub ---" | tee -a "$LOG_FILE"
+auto-push.sh "post-update: الكود بعد التحديث $(date '+%Y-%m-%d %H:%M')" 2>&1 | tee -a "$LOG_FILE"
+
+echo "=== [$TIMESTAMP] تم التحديث بنجاح ===" | tee -a "$LOG_FILE"

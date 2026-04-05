@@ -1,0 +1,15 @@
+#!/bin/bash
+# سكريبت تحديث منصة ideal-platform من GitHub
+set -e
+APP_DIR="/var/www/systems/ideal-platform"
+echo "=== بدء التحديث ==="
+cd "$APP_DIR"
+git pull origin main
+npm install --production
+pm2 restart ideal-platform
+sleep 3
+pm2 status ideal-platform
+echo "=== تم التحديث بنجاح ==="
+
+# رفع الكود لـ GitHub بعد كل تحديث
+auto-push.sh "deploy: تحديث تلقائي بعد build $(date +%Y-%m-%d)"
