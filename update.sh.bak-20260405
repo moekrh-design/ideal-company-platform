@@ -10,6 +10,3 @@ pm2 restart ideal-platform
 sleep 3
 pm2 status ideal-platform
 echo "=== تم التحديث بنجاح ==="
-
-# رفع الكود لـ GitHub بعد كل تحديث
-auto-push.sh "deploy: تحديث تلقائي بعد build $(date +%Y-%m-%d)"
