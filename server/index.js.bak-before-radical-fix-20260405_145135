@@ -599,13 +599,11 @@ async function saveSharedState(state, actor = null) {
       state.users = current.users;
     }
   }
-  // ===== حماية جذرية شاملة: منع حذف الطلاب والشركات والهيكل داخل المدارس =====
+  // ===== حماية حرجة: منع حذف الطلاب داخل المدارس =====
   if (Array.isArray(state.schools) && Array.isArray(current.schools)) {
     for (const incomingSchool of state.schools) {
       const serverSchool = current.schools.find(s => s.id === incomingSchool.id);
       if (!serverSchool) continue;
-
-      // --- حماية students المباشرة ---
       const serverStudents = Array.isArray(serverSchool.students) ? serverSchool.students : [];
       const incomingStudents = Array.isArray(incomingSchool.students) ? incomingSchool.students : [];
       if (serverStudents.length > 0 && incomingStudents.length === 0) {
@@ -616,36 +614,6 @@ async function saveSharedState(state, actor = null) {
         const incomingIds = new Set(incomingStudents.map(s => String(s.id)));
         const missingStudents = serverStudents.filter(s => !incomingIds.has(String(s.id)));
         incomingSchool.students = [...incomingStudents, ...missingStudents];
-      }
-
-      // --- حماية companies ---
-      const serverCompanies = Array.isArray(serverSchool.companies) ? serverSchool.companies : [];
-      const incomingCompanies = Array.isArray(incomingSchool.companies) ? incomingSchool.companies : [];
-      if (serverCompanies.length > 0 && incomingCompanies.length === 0) {
-        console.warn(`[PROTECT-COMPANIES] Prevented deletion of ${serverCompanies.length} companies in school ${serverSchool.name}`);
-        incomingSchool.companies = serverCompanies;
-      } else if (serverCompanies.length > 0 && incomingCompanies.length < serverCompanies.length * 0.5) {
-        console.warn(`[PROTECT-COMPANIES] Prevented major company loss in ${serverSchool.name}: ${incomingCompanies.length} < ${serverCompanies.length}`);
-        const incomingCIds = new Set(incomingCompanies.map(c => String(c.id)));
-        const missingCompanies = serverCompanies.filter(c => !incomingCIds.has(String(c.id)));
-        incomingSchool.companies = [...incomingCompanies, ...missingCompanies];
-      }
-
-      // --- حماية structure.classrooms (الطلاب في الهيكل) ---
-      const serverClassrooms = Array.isArray(serverSchool.structure && serverSchool.structure.classrooms) ? serverSchool.structure.classrooms : [];
-      const incomingClassrooms = Array.isArray(incomingSchool.structure && incomingSchool.structure.classrooms) ? incomingSchool.structure.classrooms : [];
-      const serverStructureStudents = serverClassrooms.reduce((sum, c) => sum + (Array.isArray(c.students) ? c.students.length : 0), 0);
-      const incomingStructureStudents = incomingClassrooms.reduce((sum, c) => sum + (Array.isArray(c.students) ? c.students.length : 0), 0);
-      if (serverStructureStudents > 0 && incomingStructureStudents === 0) {
-        console.warn(`[PROTECT-STRUCTURE] Prevented deletion of ${serverStructureStudents} structure students in school ${serverSchool.name}`);
-        if (!incomingSchool.structure) incomingSchool.structure = {};
-        incomingSchool.structure.classrooms = serverClassrooms;
-      } else if (serverStructureStudents > 0 && incomingStructureStudents < serverStructureStudents * 0.5) {
-        console.warn(`[PROTECT-STRUCTURE] Prevented major structure student loss in ${serverSchool.name}: ${incomingStructureStudents} < ${serverStructureStudents}`);
-        const incomingCRIds = new Set(incomingClassrooms.map(c => String(c.id)));
-        const missingClassrooms = serverClassrooms.filter(c => !incomingCRIds.has(String(c.id)));
-        if (!incomingSchool.structure) incomingSchool.structure = {};
-        incomingSchool.structure.classrooms = [...incomingClassrooms, ...missingClassrooms];
       }
     }
   }
