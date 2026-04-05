@@ -6,8 +6,13 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import { createDefaultSharedState, hydrateSharedState, isRoleEnabledForSchool, defaultSettings, ensureDemoUsers } from './state.js';
-import { getQuestionsForGradeSubject, getSubjectsForGrade, calculateQuizScore, NAFIS_SUBJECT_LABELS, getNafisLabel } from './nafis-questions.js';
+import { getQuestionsForGradeSubject, getSubjectsForGrade, calculateQuizScore, NAFIS_SUBJECT_LABELS, getNafisLabel, NAFIS_QUESTION_BANK } from './nafis-questions.js';
 import nodemailer from 'nodemailer';
+
+// ==========================================
+//  v1.8.1 — حماية أمنية جديدة
+// ==========================================
+import { applyServerMiddleware, logApiRequest } from './boot.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -312,10 +317,140 @@ async function normalizeStateForStorage(state, existingState = null) {
   };
 }
 
-function sanitizeStateForClient(state) {
+function sanitizeUserForClient(user) {
+  if (!user) return null;
+  const { password, ...safe } = user;
+  return safe;
+}
+
+function isGlobalAdminRole(role = '') {
+  const normalizedRole = String(role || '').trim().toLowerCase();
+  return normalizedRole === 'superadmin' || normalizedRole === 'admin';
+}
+
+function maskNationalId(value = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.length <= 5) return '*****';
+  return `${raw.slice(0, 3)}*****${raw.slice(-2)}`;
+}
+
+function scopeStateForClient(state, requestingUser = null) {
+  if (!requestingUser) return state;
+  const normalizedRole = String(requestingUser.role || '').trim().toLowerCase();
+  if (isGlobalAdminRole(normalizedRole)) return state;
+
+  const actorId = Number(requestingUser.id || 0);
+  const schoolId = Number(requestingUser.schoolId || 0);
+  const studentId = Number(requestingUser.studentId || 0);
+  const scopeSchool = (item) => !schoolId || Number(item?.id) === schoolId;
+  const scopeSchoolLog = (item) => !schoolId || Number(item?.schoolId) === schoolId;
+
+  let scopedSchools = Array.isArray(state.schools) ? state.schools.filter(scopeSchool) : [];
+  if (normalizedRole === 'student' && studentId) {
+    scopedSchools = scopedSchools.map((school) => ({
+      ...school,
+      students: (school.students || []).filter((student) => Number(student.id) === studentId),
+      structure: school.structure && Array.isArray(school.structure.classrooms)
+        ? {
+            ...school.structure,
+            classrooms: school.structure.classrooms.map((classroom) => ({
+              ...classroom,
+              students: (classroom.students || []).filter((student) => Number(student.id) === studentId),
+            })).filter((classroom) => (classroom.students || []).length > 0),
+          }
+        : school.structure,
+    }));
+  }
+
+  let scopedUsers = Array.isArray(state.users) ? state.users : [];
+  if (normalizedRole === 'student') {
+    scopedUsers = scopedUsers.filter((user) => Number(user.id) === actorId);
+  } else if (schoolId) {
+    scopedUsers = scopedUsers.filter((user) => Number(user.schoolId) === schoolId || Number(user.id) === actorId);
+  }
+  scopedUsers = scopedUsers.filter((user) => String(user.role || '').trim().toLowerCase() !== 'superadmin' || Number(user.id) === actorId);
+
+  const scopedNotifications = Array.isArray(state.notifications)
+    ? state.notifications.filter((item) => {
+        if (normalizedRole === 'student' && studentId) {
+          return Number(item?.studentId) === studentId || Number(item?.userId) === actorId;
+        }
+        if (schoolId && item?.schoolId != null) return Number(item.schoolId) === schoolId;
+        if (item?.userId != null) return Number(item.userId) === actorId;
+        return false;
+      })
+    : [];
+
   return {
     ...state,
-    users: (state.users || []).map((user) => ({ ...user, password: '' })),
+    schools: scopedSchools,
+    users: scopedUsers,
+    scanLog: Array.isArray(state.scanLog)
+      ? state.scanLog.filter((item) => scopeSchoolLog(item) && (normalizedRole !== 'student' || !studentId || Number(item?.studentId) === studentId))
+      : [],
+    actionLog: Array.isArray(state.actionLog)
+      ? state.actionLog.filter((item) => scopeSchoolLog(item) && (normalizedRole !== 'student' || !studentId || Number(item?.studentId) === studentId))
+      : [],
+    gateSyncEvents: Array.isArray(state.gateSyncEvents)
+      ? state.gateSyncEvents.filter((item) => scopeSchoolLog(item))
+      : [],
+    executiveReport: state.executiveReport
+      ? {
+          ...state.executiveReport,
+          schools: Array.isArray(state.executiveReport?.schools)
+            ? state.executiveReport.schools.filter(scopeSchool)
+            : [],
+        }
+      : state.executiveReport,
+    notifications: scopedNotifications,
+  };
+}
+
+function sanitizeStateForClient(state, requestingUser = null) {
+  const scopedState = scopeStateForClient(state, requestingUser);
+  const normalizedRole = String(requestingUser?.role || '').trim().toLowerCase();
+  const canViewSensitiveIdentity = normalizedRole === 'superadmin' || normalizedRole === 'principal';
+
+  const sanitizedUsers = (scopedState.users || []).map((u) => {
+    const { password, ...rest } = u;
+    if (!canViewSensitiveIdentity) {
+      return { ...rest, email: '', mobile: '' };
+    }
+    return rest;
+  });
+
+  const sanitizedSchools = (scopedState.schools || []).map((school) => ({
+    ...school,
+    students: (school.students || []).map((student) => {
+      const s = { ...student };
+      s.faceSignature = s.faceSignature && s.faceSignature.length > 0 ? ['[hidden]'] : [];
+      s.facePhoto = s.facePhoto ? '[set]' : '';
+      if (!canViewSensitiveIdentity) {
+        s.nationalId = maskNationalId(s.nationalId);
+      }
+      return s;
+    }),
+    structure: school.structure && Array.isArray(school.structure.classrooms)
+      ? {
+          ...school.structure,
+          classrooms: school.structure.classrooms.map((classroom) => ({
+            ...classroom,
+            students: (classroom.students || []).map((student) => ({
+              ...student,
+              faceSignature: student.faceSignature && student.faceSignature.length > 0 ? ['[hidden]'] : [],
+              facePhoto: student.facePhoto ? '[set]' : '',
+              nationalId: canViewSensitiveIdentity ? student.nationalId : maskNationalId(student.nationalId),
+            })),
+          })),
+        }
+      : school.structure,
+  }));
+
+  return {
+    ...scopedState,
+    users: sanitizedUsers,
+    schools: sanitizedSchools,
   };
 }
 
@@ -395,6 +530,60 @@ async function getSharedState() {
 
 async function saveSharedState(state, actor = null) {
   const current = await getSharedState();
+  // ===== حماية جذرية مضاعفة: منع اختفاء أي مدرسة بأي حال =====
+  if (Array.isArray(current.schools) && current.schools.length > 0) {
+    if (!Array.isArray(state.schools) || state.schools.length === 0) {
+      // الحالة الحرجة: لا مدارس في الوارد - احتفظ بمدارس الخادم كاملة
+      console.warn(`[PROTECT-CRITICAL] Incoming state has no schools! Keeping all ${current.schools.length} server schools.`);
+      state.schools = current.schools;
+    } else {
+      // دمج ذكي: الاحتفاظ بأي مدرسة موجودة في الخادم وغائبة عن الوارد
+      const incomingIds = new Set(state.schools.map(s => s.id));
+      const missingSchools = current.schools.filter(s => !incomingIds.has(s.id));
+      if (missingSchools.length > 0) {
+        console.warn(`[PROTECT] Prevented deletion of ${missingSchools.length} schools: ${missingSchools.map(s => s.name).join(', ')}`);
+        state.schools = [...state.schools, ...missingSchools];
+      }
+    }
+  }
+  // ===== حماية الاستئذانات: دمج ذكي بدل الاستبدال =====
+  if (Array.isArray(state.schools) && Array.isArray(current.schools)) {
+    for (const incomingSchool of state.schools) {
+      const serverSchool = current.schools.find(s => s.id === incomingSchool.id);
+      if (!serverSchool) continue;
+      const serverPasses = Array.isArray(serverSchool.leavePasses) ? serverSchool.leavePasses : [];
+      const incomingPasses = Array.isArray(incomingSchool.leavePasses) ? incomingSchool.leavePasses : [];
+      if (serverPasses.length === 0 && incomingPasses.length === 0) continue;
+      // Merge: for each pass, keep the one with newer status/timestamp
+      const merged = new Map();
+      for (const p of serverPasses) merged.set(String(p.id), p);
+      for (const p of incomingPasses) {
+        const existing = merged.get(String(p.id));
+        if (!existing) { merged.set(String(p.id), p); continue; }
+        // Keep the one with more advanced status or newer timestamp
+        const statusOrder = { 'created': 0, 'sent-manual': 1, 'sent-system': 1, 'viewed': 2, 'approved-agent': 3, 'approved-counselor': 3, 'released-guardian': 5, 'released-teacher': 5, 'completed': 6, 'cancelled': 6 };
+        const existingRank = statusOrder[String(existing.status || '')] ?? 0;
+        const incomingRank = statusOrder[String(p.status || '')] ?? 0;
+        if (incomingRank > existingRank) { merged.set(String(p.id), p); }  // الوارد أكثر تقدماً
+        else if (existingRank > incomingRank) { /* الخادم أكثر تقدماً — لا تتراجع */ }
+        else {
+          // نفس الرتبة: اختر الأحدث
+          const existingTime = existing.updatedAt || existing.completedAt || existing.createdAt || '';
+          const incomingTime = p.updatedAt || p.completedAt || p.createdAt || '';
+          if (incomingTime > existingTime) merged.set(String(p.id), p);
+        }
+      }
+      incomingSchool.leavePasses = Array.from(merged.values());
+    }
+  }
+  // ===== حماية حرجة: منع حذف المستخدمين =====
+  if (Array.isArray(current.users) && Array.isArray(state.users)) {
+    if (state.users.length < current.users.length * 0.5) {
+      // فقدان أكثر من نصف المستخدمين — استخدم مستخدمي الخادم
+      console.warn(`[PROTECT] Prevented user loss (${state.users.length} < ${current.users.length}). Keeping server users.`);
+      state.users = current.users;
+    }
+  }
   const hydrated = await normalizeStateForStorage(state, current);
   writeStateRow(hydrated, actor);
   void ensureDailyBackups('save', hydrated);
@@ -859,9 +1048,9 @@ function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
-    'Access-Control-Allow-Origin': '*',
+    // 'Access-Control-Allow-Origin': handled by security middleware,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Session-Token',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
   });
   res.end(body);
 }
@@ -870,7 +1059,7 @@ function sendText(res, statusCode, text, contentType = 'text/plain; charset=utf-
   res.writeHead(statusCode, {
     'Content-Type': contentType,
     'Content-Length': Buffer.byteLength(text),
-    'Access-Control-Allow-Origin': '*',
+    // 'Access-Control-Allow-Origin': handled by security middleware,
   });
   res.end(text);
 }
@@ -904,7 +1093,55 @@ async function readJsonBody(req) {
 
 function mergeStateByRole(currentState, incomingState, actor) {
   const incoming = hydrateSharedState(incomingState);
-  if (actor.role === 'superadmin') return incoming;
+  // ===== v1.8.1 FIX: حتى superadmin يدمج scanLog و actionLog =====
+  // المشكلة السابقة: الأدمن يرسل state كاملة فيمسح سجلات حديثة من مستخدمين آخرين
+  if (actor.role === 'superadmin') {
+    const merged = structuredClone(incoming);
+    // دمج scanLog: الاحتفاظ بسجلات الخادم + إضافة الجديدة فقط
+    const serverScanIds = new Set(currentState.scanLog.map((item) => item.id));
+    const newIncomingScans = incoming.scanLog.filter((item) => !serverScanIds.has(item.id));
+    const incomingScanIds = new Set(incoming.scanLog.map((item) => item.id));
+    const keptServerScans = currentState.scanLog.filter((item) => !incomingScanIds.has(item.id));
+    merged.scanLog = [...newIncomingScans, ...currentState.scanLog];
+    // دمج actionLog بنفس الطريقة
+    const serverActionIds = new Set(currentState.actionLog.map((item) => item.id));
+    const newIncomingActions = incoming.actionLog.filter((item) => !serverActionIds.has(item.id));
+    merged.actionLog = [...newIncomingActions, ...currentState.actionLog];
+    // ===== حماية جذرية للمدارس: دمج ذكي يمنع اختفاء أي مدرسة =====
+    // المشكلة: incoming.schools من المتصفح قد تكون أقل (كاش قديم) فتُحذف مدارس من الخادم
+    // الحل: الاحتفاظ بجميع مدارس الخادم + تحديث بيانات الواردة + إضافة الجديدة
+    const incomingSchoolIds = new Set(incoming.schools.map((s) => s.id));
+    const updatedSchools = incoming.schools.map((inSchool) => {
+      const curSchool = currentState.schools.find((s) => s.id === inSchool.id);
+      if (!curSchool) return inSchool; // مدرسة جديدة - أضفها
+      return {
+        ...inSchool,
+        messaging: mergeMessagingState(curSchool.messaging || {}, inSchool.messaging || {}),
+        rewardStore: {
+          ...(curSchool.rewardStore || {}),
+          ...(inSchool.rewardStore || {}),
+          items: mergeArrayById(curSchool.rewardStore?.items || [], inSchool.rewardStore?.items || []),
+        },
+        lessonAttendanceSessions: mergeArrayById(curSchool.lessonAttendanceSessions || [], inSchool.lessonAttendanceSessions || []),
+      };
+    });
+    // المدارس الموجودة في الخادم لكن غائبة عن الوارد: احتفظ بها كما هي
+    const missingFromIncoming = currentState.schools.filter((s) => !incomingSchoolIds.has(s.id));
+    if (missingFromIncoming.length > 0) {
+      console.warn(`[PROTECT-SCHOOLS] Superadmin save: prevented loss of ${missingFromIncoming.length} schools: ${missingFromIncoming.map(s => s.name).join(', ')}`);
+    }
+    merged.schools = [...updatedSchools, ...missingFromIncoming];
+    // ===== حماية بنود الإجراءات من الاستبدال =====
+    const serverActions = currentState.settings?.actions || {};
+    const incomingActions = merged.settings?.actions || {};
+    merged.settings = merged.settings || {};
+    merged.settings.actions = {
+      rewards: mergeActionItems(serverActions.rewards || [], incomingActions.rewards || []),
+      violations: mergeActionItems(serverActions.violations || [], incomingActions.violations || []),
+      programs: mergeActionItems(serverActions.programs || [], incomingActions.programs || []),
+    };
+    return merged;
+  }
 
   const schoolId = actor.schoolId;
   const next = structuredClone(currentState);
@@ -912,28 +1149,65 @@ function mergeStateByRole(currentState, incomingState, actor) {
   if (actor.role === 'principal') {
     const incomingSchool = incoming.schools.find((item) => item.id === schoolId);
     if (incomingSchool) {
-      next.schools = next.schools.map((school) => school.id === schoolId ? incomingSchool : school);
+      // ===== v1.8.1 FIX: دمج بيانات المدرسة بدلاً من الاستبدال الكامل =====
+      const currentSchool = next.schools.find((school) => school.id === schoolId);
+      const mergedSchool = {
+        ...incomingSchool,
+        // الحفاظ على السجلات المضافة من الخادم مع السماح بحفظ تعديلات الرسائل
+        messaging: mergeMessagingState(currentSchool?.messaging || {}, incomingSchool.messaging || {}),
+        rewardStore: {
+          ...(currentSchool?.rewardStore || {}),
+          ...(incomingSchool.rewardStore || {}),
+          // دمج العناصر: الأحدث من الخادم + الجديدة من المستخدم
+          items: mergeArrayById(
+            currentSchool?.rewardStore?.items || [],
+            incomingSchool.rewardStore?.items || []
+          ),
+        },
+      };
+      next.schools = next.schools.map((school) => school.id === schoolId ? mergedSchool : school);
     }
   }
 
   if (['principal', 'supervisor', 'teacher', 'gate'].includes(actor.role)) {
-    next.scanLog = [
-      ...currentState.scanLog.filter((item) => item.schoolId !== schoolId),
-      ...incoming.scanLog.filter((item) => item.schoolId === schoolId),
-    ];
-    next.actionLog = [
-      ...currentState.actionLog.filter((item) => item.schoolId !== schoolId),
-      ...incoming.actionLog.filter((item) => item.schoolId === schoolId),
-    ];
+    // ===== v1.8.1 FIX: دمج scanLog بالإضافة (ليس استبدال) =====
+    // المشكلة السابقة: المستخدم يرسل scanLog قديمة فتمسح سجلات حديثة من مستخدمين آخرين
+    // الحل: دمج السجلات بالـ id بحيث لا يُحذف أي سجل موجود
+    const currentSchoolScanIds = new Set(
+      currentState.scanLog.filter((item) => Number(item.schoolId) === Number(schoolId)).map((item) => item.id)
+    );
+    const incomingSchoolScans = incoming.scanLog.filter((item) => Number(item.schoolId) === Number(schoolId));
+    // السجلات الجديدة فقط (غير موجودة في الخادم)
+    const newScans = incomingSchoolScans.filter((item) => !currentSchoolScanIds.has(item.id));
+    next.scanLog = [...newScans, ...currentState.scanLog];
+
+    const currentSchoolActionIds = new Set(
+      currentState.actionLog.filter((item) => Number(item.schoolId) === Number(schoolId)).map((item) => item.id)
+    );
+    const incomingSchoolActions = incoming.actionLog.filter((item) => Number(item.schoolId) === Number(schoolId));
+    const newActions = incomingSchoolActions.filter((item) => !currentSchoolActionIds.has(item.id));
+    next.actionLog = [...newActions, ...currentState.actionLog];
   }
 
   if (actor.role === 'principal') {
     const incomingSchoolUsers = incoming.users.filter((item) => item.role !== 'superadmin' && item.schoolId === schoolId);
+    // ===== v1.8.1 FIX: دمج المستخدمين بالـ id =====
+    const incomingUserIds = new Set(incomingSchoolUsers.map((item) => item.id));
     next.users = [
-      ...currentState.users.filter((item) => item.role === 'superadmin' || item.schoolId !== schoolId),
+      ...currentState.users.filter((item) => item.role === 'superadmin' || item.schoolId !== schoolId || !incomingUserIds.has(item.id)),
       ...incomingSchoolUsers,
     ];
-    next.settings = incoming.settings;
+    // ===== حماية بنود المكافآت والمخالفات والبرامج من الاستبدال =====
+    // دمج الإعدادات مع الاحتفاظ ببنود actions الأكثر اكتمالاً
+    const mergedSettings = { ...currentState.settings, ...incoming.settings };
+    const serverActions = currentState.settings?.actions || {};
+    const incomingActions = incoming.settings?.actions || {};
+    mergedSettings.actions = {
+      rewards: mergeActionItems(serverActions.rewards || [], incomingActions.rewards || []),
+      violations: mergeActionItems(serverActions.violations || [], incomingActions.violations || []),
+      programs: mergeActionItems(serverActions.programs || [], incomingActions.programs || []),
+    };
+    next.settings = mergedSettings;
   }
 
   if (actor.role === 'student') {
@@ -941,6 +1215,111 @@ function mergeStateByRole(currentState, incomingState, actor) {
   }
 
   return hydrateSharedState(next);
+}
+
+
+// ===== دمج بنود الإجراءات: الأكثر اكتمالاً يفوز =====
+function mergeActionItems(serverItems = [], incomingItems = []) {
+  // إذا المستخدم أرسل بنود، ادمجها مع الموجودة في الخادم
+  // الأولوية: الخادم يحتفظ بالبنود التي لم يرسلها المستخدم
+  if (!incomingItems.length) return serverItems;
+  const merged = new Map();
+  // ابدأ ببنود الخادم (الأكثر اكتمالاً)
+  for (const item of serverItems) {
+    const key = String(item.id || item.title || '');
+    if (key) merged.set(key, item);
+  }
+  // أضف/حدث من البنود الواردة
+  for (const item of incomingItems) {
+    const key = String(item.id || item.title || '');
+    if (!key) continue;
+    const existing = merged.get(key);
+    if (existing) {
+      // حدث البيانات مع الاحتفاظ بالاسم
+      // حقل active: الوارد يُقدَّم دائماً، وإذا غائب نحتفظ بالخادم
+      const activeValue = item.active !== undefined ? item.active : existing.active;
+      merged.set(key, { ...existing, ...item, title: item.title || item.label || existing.title || existing.label, label: item.label || item.title || existing.label || existing.title, active: activeValue });
+    } else {
+      // بند جديد من المستخدم
+      merged.set(key, { ...item, title: item.title || item.label, label: item.label || item.title });
+    }
+  }
+  return Array.from(merged.values());
+}
+
+// ===== v1.8.1: دالة دمج المصفوفات بالـ id =====
+function mergeArrayById(serverItems = [], incomingItems = []) {
+  const merged = new Map();
+  // الخادم أولاً (الأساس)
+  for (const item of serverItems) merged.set(String(item.id), item);
+  // الوارد يُحدّث أو يُضيف
+  for (const item of incomingItems) merged.set(String(item.id), { ...merged.get(String(item.id)), ...item });
+  return Array.from(merged.values());
+}
+
+
+function mergeLogsById(serverLogs = [], incomingLogs = [], limit = 500) {
+  const merged = new Map();
+  for (const item of serverLogs || []) {
+    if (!item || item.id === undefined || item.id === null) continue;
+    merged.set(String(item.id), item);
+  }
+  for (const item of incomingLogs || []) {
+    if (!item) continue;
+    const key = item.id !== undefined && item.id !== null ? String(item.id) : `${item.createdAt || ''}:${item.subject || ''}`;
+    merged.set(key, { ...(merged.get(key) || {}), ...item });
+  }
+  return Array.from(merged.values())
+    .sort((a, b) => String(b?.createdAt || '').localeCompare(String(a?.createdAt || '')))
+    .slice(0, limit);
+}
+
+function mergeMessagingState(serverMessaging = {}, incomingMessaging = {}) {
+  const server = serverMessaging || {};
+  const incoming = incomingMessaging || {};
+  const serverSettings = server.settings || {};
+  const incomingSettings = incoming.settings || {};
+  const serverIntegration = serverSettings.integration || {};
+  const incomingIntegration = incomingSettings.integration || {};
+  return {
+    ...server,
+    ...incoming,
+    settings: {
+      ...serverSettings,
+      ...incomingSettings,
+      channels: {
+        ...(serverSettings.channels || {}),
+        ...(incomingSettings.channels || {}),
+      },
+      operations: {
+        ...(serverSettings.operations || {}),
+        ...(incomingSettings.operations || {}),
+      },
+      automation: {
+        ...(serverSettings.automation || {}),
+        ...(incomingSettings.automation || {}),
+      },
+      privacy: {
+        ...(serverSettings.privacy || {}),
+        ...(incomingSettings.privacy || {}),
+      },
+      integration: {
+        ...serverIntegration,
+        ...incomingIntegration,
+        whatsapp: {
+          ...(serverIntegration.whatsapp || {}),
+          ...(incomingIntegration.whatsapp || {}),
+        },
+        sms: {
+          ...(serverIntegration.sms || {}),
+          ...(incomingIntegration.sms || {}),
+        },
+      },
+    },
+    rules: mergeArrayById(server.rules || [], incoming.rules || []),
+    templates: mergeArrayById(server.templates || [], incoming.templates || []),
+    logs: mergeLogsById(server.logs || [], incoming.logs || [], 500),
+  };
 }
 
 function parseTimeToMinutes(value = '00:00') {
@@ -954,6 +1333,19 @@ function clamp(value, min, max) {
 
 function toArabicDate(date = new Date()) {
   return new Intl.DateTimeFormat('ar-SA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+}
+function toHijriDateEnglish(isoDate) {
+  try {
+    const d = isoDate ? new Date(isoDate) : new Date();
+    const fmt = new Intl.DateTimeFormat('en-SA-u-ca-islamic-nu-latn', { year: 'numeric', month: '2-digit', day: '2-digit' });
+    const parts = fmt.formatToParts(d);
+    const day = parts.find((p) => p.type === 'day')?.value || '';
+    const month = parts.find((p) => p.type === 'month')?.value || '';
+    const year = parts.find((p) => p.type === 'year')?.value || '';
+    return `${year}/${month}/${day}`;
+  } catch (e) {
+    return isoDate || '';
+  }
 }
 
 function getTodayIso() {
@@ -1021,6 +1413,18 @@ function hydrateMessagingSettings(school) {
       delaySeconds: Math.max(0, Math.min(30, Number(settings.operations?.delaySeconds) || 0)),
       retryCount: Math.max(0, Math.min(5, Number(settings.operations?.retryCount) || 0)),
       retentionDays: Math.max(7, Math.min(365, Number(settings.operations?.retentionDays) || 90)),
+    },
+    automation: {
+      enabled: settings.automation?.enabled !== false,
+      lateAlerts: settings.automation?.lateAlerts !== false,
+      absenceAlerts: settings.automation?.absenceAlerts === true,
+      behaviorAlerts: settings.automation?.behaviorAlerts === true,
+      checkTime: String(settings.automation?.checkTime || '06:50'),
+    },
+    privacy: {
+      hideSensitiveData: settings.privacy?.hideSensitiveData !== false,
+      requireApprovalForBulk: settings.privacy?.requireApprovalForBulk !== false,
+      showSenderName: settings.privacy?.showSenderName !== false,
     },
     integration: {
       whatsapp: {
@@ -1535,7 +1939,7 @@ function buildServerParentPortalSummary(school, state) {
   };
 }
 function buildServerLessonAttendanceSummary(school) {
-  const sessions = Array.isArray(school?.lessonSessions) ? school.lessonSessions : [];
+  const sessions = Array.isArray(school?.lessonAttendanceSessions) ? school.lessonAttendanceSessions : [];
   if (!sessions.length) return null;
   const latestSession = sessions.sort((a, b) => String(b.dateIso || '').localeCompare(String(a.dateIso || ''))).find((s) => s.status !== 'archived') || sessions[0];
   if (!latestSession) return null;
@@ -2507,6 +2911,52 @@ async function buildParentProfile(state, phone) {
       schoolName: school?.name || '',
     }));
   });
+  // ===== استئذانات الطالب =====
+  const studentLinkedIds = new Set(students.map((item) => String(item.studentId || item.id || '')));
+  const leavePasses = schoolIds.flatMap((schoolId) => {
+    const school = (state.schools || []).find((item) => Number(item.id) === Number(schoolId));
+    if (!school) return [];
+    const allPasses = Array.isArray(school.leavePasses) ? school.leavePasses : [];
+    return allPasses
+      .filter((p) => {
+        const sid = String(p.studentId || '');
+        return studentLinkedIds.has(sid) || students.some((s) => String(s.studentId || s.id || '') === sid);
+      })
+      .map((p) => ({
+        id: p.id,
+        schoolId,
+        schoolName: school.name || '',
+        studentId: p.studentId || '',
+        studentName: p.studentName || '',
+        className: p.companyName || p.className || '',
+        destination: p.destination || 'guardian',
+        destinationLabel: p.destination === 'guardian' ? 'خروج مع ولي الأمر' : p.destination === 'agent' ? 'وكيل المدرسة' : p.destination === 'counselor' ? 'المرشد' : 'المعلم',
+        status: p.status || 'created',
+        statusLabel: (() => {
+          const s = String(p.status || '');
+          if (s === 'created') return 'جديد';
+          if (s === 'sent-manual' || s === 'sent-system') return 'تم الإرسال';
+          if (s === 'viewed') return 'تمت المشاهدة';
+          if (s === 'approved-agent' || s === 'approved-counselor') return 'موافق عليه';
+          if (s === 'released-guardian') return 'تم التسليم لولي الأمر';
+          if (s === 'released-teacher') return 'تم التسليم للمعلم';
+          if (s === 'completed') return 'مكتمل';
+          if (s === 'cancelled') return 'ملغي';
+          if (s === 'parent-requested') return 'طلب ولي الأمر';
+          if (s === 'parent-approved') return 'موافق من ولي الأمر';
+          return s;
+        })(),
+        note: p.note || '',
+        createdAt: p.createdAt || '',
+        updatedAt: p.updatedAt || '',
+        teacherName: p.teacherName || '',
+        isFromParent: p.isFromParent === true,
+        timeline: Array.isArray(p.timeline) ? p.timeline : [],
+      }))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+      .slice(0, 30);
+  });
+
   return {
     mobile: normalizedPhone,
     mobileMasked: maskPhone(normalizedPhone),
@@ -2529,6 +2979,7 @@ async function buildParentProfile(state, phone) {
     rewardCatalog,
     rewardProposals,
     rewardRedemptions,
+    leavePasses,
   };
 }
 
@@ -2869,16 +3320,40 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
   const recentAttendance = [...gateRecentEntries, ...lessonRecentEntries]
     .sort((a, b) => String(b.time || '').localeCompare(String(a.time || '')))
     .slice(0, 10);
+  // ===== attendanceTrend الموحد: يشمل البوابة + تحضير الحصص بدون تكرار =====
   const attendanceMap = new Map();
+  // 1) حضور البوابة (scanLog)
   state.scanLog.filter((item) => Number(item.schoolId) === Number(schoolId)).forEach((item) => {
-    const existing = attendanceMap.get(item.isoDate) || { day: item.date, attendance: 0, early: 0 };
+    const existing = attendanceMap.get(item.isoDate) || { day: toHijriDateEnglish(item.isoDate), isoDate: item.isoDate, attendance: 0, early: 0, presentIds: new Set() };
     if (!String(item.result || '').includes('فشل') && !String(item.result || '').includes('مسبق')) {
-      existing.attendance += 1;
-      if (String(item.result || '').includes('مبكر')) existing.early += 1;
+      const sid = String(item.studentId || '');
+      if (sid && !existing.presentIds.has(sid)) {
+        existing.presentIds.add(sid);
+        existing.attendance += 1;
+        if (String(item.result || '').includes('مبكر')) existing.early += 1;
+      }
     }
     attendanceMap.set(item.isoDate, existing);
   });
-  const attendanceTrend = [...attendanceMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-7).map(([, value]) => value);
+  // 2) حضور تحضير الحصص (lessonAttendanceSessions)
+  const allLessonSessions = Array.isArray(school.lessonAttendanceSessions) ? school.lessonAttendanceSessions : [];
+  allLessonSessions.forEach((session) => {
+    const sessionDate = session.dateIso || today;
+    const existing = attendanceMap.get(sessionDate) || { day: toHijriDateEnglish(sessionDate), isoDate: sessionDate, attendance: 0, early: 0, presentIds: new Set() };
+    (session.submissions || []).forEach((sub) => {
+      const absentSet = new Set((sub.absentStudentIds || []).map(String));
+      const allIds = Array.isArray(sub.allStudentIds) ? sub.allStudentIds : [];
+      const presentIds = Array.isArray(sub.presentStudentIds) ? sub.presentStudentIds.map(String) : allIds.filter((id) => !absentSet.has(String(id))).map(String);
+      presentIds.forEach((id) => {
+        if (!existing.presentIds.has(id)) {
+          existing.presentIds.add(id);
+          existing.attendance += 1;
+        }
+      });
+    });
+    attendanceMap.set(sessionDate, existing);
+  });
+  const attendanceTrend = [...attendanceMap.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-7).map(([, value]) => ({ day: value.day, attendance: value.attendance, early: value.early }));
   const teacherActivity = Object.values(actionsToday.reduce((acc, item) => {
     const key = `${item.actorName || 'غير محدد'}|${item.actorRole || 'teacher'}`;
     const row = acc[key] || { actorName: item.actorName || 'غير محدد', actorRole: item.actorRole || 'teacher', count: 0, rewardCount: 0, violationCount: 0, programCount: 0 };
@@ -2921,11 +3396,7 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
           violationsToday: archivedStudents.length,
           programsToday: leaderName && leaderName !== '—' ? 1 : 0,
         },
-        attendanceTrend: [
-          { day: 'نشط', attendance: activeStudents.length, early: importedCount },
-          { day: 'مؤرشف', attendance: archivedStudents.length, early: 0 },
-          { day: 'منقول', attendance: transfers.length, early: 0 },
-        ],
+        attendanceTrend: attendanceTrend,
         students: activeStudents.slice(0, 8).map((student, index) => ({
           id: student.id,
           name: student.fullName || student.name || `طالب ${index + 1}`,
@@ -2979,6 +3450,73 @@ function summarizeSchoolLivePayload(state, schoolId, screenConfig = null) {
     rewardStoreSummary: buildServerRewardStoreSummary(school, screenConfig),
     parentPortalSummary: buildServerParentPortalSummary(school, state),
     lessonAttendanceSummary: buildServerLessonAttendanceSummary(school),
+    nafisLeaderboard: (() => {
+      const nafisData = appMetaGetJson(`nafis_school_${schoolId}`) || {};
+      const attempts = nafisData.attempts || [];
+      const totalAttempts = attempts.length;
+      const totalCorrect = attempts.reduce((sum, a) => sum + Number(a.correct || 0), 0);
+      const totalQuestions = attempts.reduce((sum, a) => sum + Number(a.total || 0), 0);
+      const avgScore = totalAttempts > 0 ? Math.round((totalCorrect / Math.max(totalQuestions, 1)) * 100) : 0;
+      const studentMap = {};
+      for (const a of attempts) {
+        const sid = String(a.studentId || '');
+        if (!sid) continue;
+        if (!studentMap[sid]) studentMap[sid] = { studentId: sid, studentName: a.studentName || 'طالب', attempts: 0, correct: 0, total: 0 };
+        studentMap[sid].attempts++;
+        studentMap[sid].correct += Number(a.correct || 0);
+        studentMap[sid].total += Number(a.total || 0);
+      }
+      const leaderboard = Object.values(studentMap)
+        .map((s) => ({ ...s, avgScore: s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0 }))
+        .sort((a, b) => b.avgScore - a.avgScore || b.correct - a.correct)
+        .slice(0, 10);
+      const uniqueStudents = Object.keys(studentMap).length;
+      return { totalAttempts, totalCorrect, totalQuestions, avgScore, leaderboard, uniqueStudents };
+    })(),
+    nafisData: (() => {
+      const nafisData = appMetaGetJson(`nafis_school_${schoolId}`) || {};
+      const attempts = nafisData.attempts || [];
+      const totalAttempts = attempts.length;
+      const totalCorrect = attempts.reduce((sum, a) => sum + Number(a.correct || 0), 0);
+      const totalQuestions = attempts.reduce((sum, a) => sum + Number(a.total || 0), 0);
+      const correctRate = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
+      // Unique students
+      const studentMap = {};
+      for (const a of attempts) {
+        const sid = String(a.studentId || '');
+        if (!sid) continue;
+        if (!studentMap[sid]) studentMap[sid] = { studentId: sid, studentName: a.studentName || '', attempts: 0, correct: 0, total: 0 };
+        studentMap[sid].attempts++;
+        studentMap[sid].correct += Number(a.correct || 0);
+        studentMap[sid].total += Number(a.total || 0);
+      }
+      const uniqueStudents = Object.keys(studentMap).length;
+      const topStudentsNafis = Object.values(studentMap)
+        .map(s => ({ ...s, avgScore: s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0 }))
+        .sort((a, b) => b.avgScore - a.avgScore)
+        .slice(0, 10);
+      // Subject chart data
+      const subjectMap = {};
+      for (const a of attempts) {
+        const sub = String(a.subjectLabel || a.subject || '');
+        if (!sub) continue;
+        if (!subjectMap[sub]) subjectMap[sub] = { name: sub, count: 0, correct: 0 };
+        subjectMap[sub].count += Number(a.total || 0);
+        subjectMap[sub].correct += Number(a.correct || 0);
+      }
+      const subjectChartData = Object.values(subjectMap);
+      // Grade chart data
+      const gradeMap = {};
+      for (const a of attempts) {
+        const gr = String(a.gradeKey || a.className || '');
+        if (!gr) continue;
+        if (!gradeMap[gr]) gradeMap[gr] = { name: gr, count: 0, correct: 0 };
+        gradeMap[gr].count += Number(a.total || 0);
+        gradeMap[gr].correct += Number(a.correct || 0);
+      }
+      const gradeChartData = Object.values(gradeMap);
+      return { totalAttempts, uniqueStudents, totalAnswered: totalQuestions, correctRate, topStudentsNafis, subjectChartData, gradeChartData };
+    })(),
   };
 }
 
@@ -3318,7 +3856,27 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
   const next = structuredClone(state);
   const school = next.schools.find((item) => Number(item.id) === Number(schoolId));
   if (!school) return { ok: false, message: 'المدرسة غير موجودة.' };
-  const student = school.students.find((item) => Number(item.id) === Number(payload.studentId));
+  // ===== v1.8.1 FIX: البحث في school.students ثم structure.classrooms =====
+  // ===== v1.8.2 FIX: دعم composite ID (structure-classId-rawId) =====
+  const resolveRawStudentId = (compositeOrRaw) => {
+    const s = String(compositeOrRaw || '');
+    if (s.startsWith('structure-')) {
+      const parts = s.split('-');
+      return parts[parts.length - 1];
+    }
+    return s;
+  };
+  const rawStudentId = resolveRawStudentId(payload.studentId);
+  let student = (school.students || []).find((item) => String(item.id) === String(payload.studentId) || String(item.id) === rawStudentId);
+  let studentSource = 'school';
+  let classroomRef = null;
+  if (!student && Array.isArray(school?.structure?.classrooms)) {
+    for (const classroom of school.structure.classrooms) {
+      if (!Array.isArray(classroom.students)) continue;
+      const found = classroom.students.find((item) => String(item.id) === String(payload.studentId) || String(item.id) === rawStudentId);
+      if (found) { student = found; classroomRef = classroom; studentSource = 'structure'; break; }
+    }
+  }
   if (!student) return { ok: false, message: 'الطالب غير موجود.' };
   const actionType = payload.actionType === 'violation' ? 'violation' : 'reward';
   const catalog = actionType === 'violation' ? next.settings.actions?.violations || [] : next.settings.actions?.rewards || [];
@@ -3365,7 +3923,7 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
     schoolId: school.id,
     studentId: student.id,
     companyId: student.companyId,
-    student: student.name,
+    student: student.name || student.fullName || "طالب",
     actorName: actor?.name || actor?.username || 'مستخدم النظام',
     actorRole: actor?.role || 'teacher',
     method: payload.method || 'يدوي',
@@ -3381,7 +3939,7 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
     classroomId: payload.classroomId ? String(payload.classroomId) : null,
   };
   next.actionLog = [logEntry, ...next.actionLog].slice(0, 1200);
-  return { ok: true, state: hydrateSharedState(next), logEntry, student, message: `تم تنفيذ ${actionType === 'reward' ? 'المكافأة' : 'الخصم'} على ${student.name}.` };
+  return { ok: true, state: hydrateSharedState(next), logEntry, student, message: `تم تنفيذ ${actionType === 'reward' ? 'المكافأة' : 'الخصم'} على ${student.name || student.fullName || "طالب"}.` };
 }
 
 async function applyProgramToState(state, schoolId, payload, actor) {
@@ -3391,7 +3949,15 @@ async function applyProgramToState(state, schoolId, payload, actor) {
   const catalog = next.settings.actions?.programs || [];
   const definition = catalog.find((item) => String(item.id) === String(payload.definitionId));
   if (!definition) return { ok: false, message: 'نوع البرنامج غير موجود.' };
-  const linkedStudent = payload.studentId ? school.students.find((item) => Number(item.id) === Number(payload.studentId)) : null;
+  // ===== v1.8.1 FIX: البحث في school.students ثم structure.classrooms =====
+  let linkedStudent = payload.studentId ? school.students.find((item) => Number(item.id) === Number(payload.studentId)) : null;
+  if (!linkedStudent && payload.studentId && Array.isArray(school?.structure?.classrooms)) {
+    for (const classroom of school.structure.classrooms) {
+      if (!Array.isArray(classroom.students)) continue;
+      const found = classroom.students.find((item) => String(item.id) === String(payload.studentId));
+      if (found) { linkedStudent = found; break; }
+    }
+  }
   const resolvedCompanyId = linkedStudent?.companyId || (payload.companyId ? Number(payload.companyId) : null);
   const deltaPoints = Number(definition.points || 0);
   if (linkedStudent) linkedStudent.points = Number(linkedStudent.points || 0) + deltaPoints;
@@ -3419,14 +3985,19 @@ async function applyProgramToState(state, schoolId, payload, actor) {
     targetCount ? `العدد: ${targetCount}` : '',
     payload.note ? `ملاحظات: ${payload.note}` : '',
   ].filter(Boolean);
+  // إذا حدد المدير معلماً منفذاً محدداً
+  const finalActorName = payload.overrideActorName || actor?.name || actor?.username || 'مستخدم النظام';
+  const finalActorRole = payload.overrideActorRole || actor?.role || 'teacher';
+  const finalActorId = payload.overrideActorId || actor?.id || null;
   const logEntry = {
     id: Date.now(),
     schoolId: school.id,
     studentId: linkedStudent?.id || null,
     companyId: resolvedCompanyId,
     student: linkedStudent?.name || `برنامج: ${definition.title}`,
-    actorName: actor?.name || actor?.username || 'مستخدم النظام',
-    actorRole: actor?.role || 'teacher',
+    actorId: finalActorId,
+    actorName: finalActorName,
+    actorRole: finalActorRole,
     method: 'نموذج برنامج',
     actionType: 'program',
     actionTitle: definition.title,
@@ -3520,6 +4091,8 @@ function mimeTypeFor(filePath) {
     '.gif': 'image/gif',
     '.woff': 'font/woff',
     '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.otf': 'font/otf',
   }[ext] || 'application/octet-stream';
 }
 
@@ -3586,15 +4159,25 @@ function serveStatic(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const requestStart = Date.now();
+
   if (req.method === 'OPTIONS') {
+    const origin = req.headers?.origin || '';
+    const allowedOrigins = ['https://school.darh.net', 'https://www.school.darh.net', 'https://darh.net', 'https://www.darh.net'];
+    const corsOrigin = allowedOrigins.includes(origin) ? origin : 'https://school.darh.net';
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': corsOrigin,
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Session-Token',
-      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Max-Age': '86400',
     });
     res.end();
     return;
   }
+
+  // ===== v1.8.1: تطبيق الحماية الأمنية =====
+  if (applyServerMiddleware(req, res)) return;
 
   const reqUrl = new URL(req.url, `http://${req.headers.host}`);
   const token = parseAuthToken(req);
@@ -3605,9 +4188,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (reqUrl.pathname === '/api/bootstrap' && req.method === 'GET') {
-      const state = await getSharedState();
       const user = await getUserFromToken(token);
-      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(state), sessionUser: user });
+      if (!user) {
+        return sendJson(res, 401, { ok: false, message: 'يجب تسجيل الدخول أولاً.' });
+      }
+      const state = await getSharedState();
+      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(state, user), sessionUser: sanitizeUserForClient(user) });
     }
 
     if (reqUrl.pathname === '/api/auth/login' && req.method === 'POST') {
@@ -3922,6 +4508,14 @@ const server = http.createServer(async (req, res) => {
       void ensureDailyBackups('save', next);
       broadcastAllLive(next);
       audit({ username: actorFull.username, role: actorFull.role }, 'admin_reset_password', { targetUserId: targetUser.id, targetUsername: targetUser.username, targetRole: targetUser.role });
+      // ===== v1.8.1 FIX: إضافة إشعار داخلي للمستخدم المستهدف =====
+      next.notifications = Array.isArray(next.notifications) ? next.notifications : [];
+      next.notifications = [
+        { id: Date.now(), title: '🔐 تغيير كلمة المرور', body: `تم إعادة تعيين كلمة مرور حسابك بواسطة ${actorFull.name || actorFull.username}. إذا لم تطلب ذلك، تواصل مع الإدارة فوراً.`, time: 'الآن', forUserIds: [targetUser.id] },
+        ...next.notifications
+      ].slice(0, 200);
+      writeStateRow(next);
+      broadcastAllLive(next);
       return sendJson(res, 200, { ok: true, message: `تمت إعادة تعيين كلمة مرور المستخدم ${targetUser.name || targetUser.username} بنجاح.` });
     }
 
@@ -3932,9 +4526,10 @@ const server = http.createServer(async (req, res) => {
       const body = await readJsonBody(req);
       const incomingState = body.state || body;
       const currentState = await getSharedState();
+      console.log('[STATE-SAVE] actor=' + actor.role + '/' + actor.username + ' incoming_schools=' + (incomingState?.schools?.length || 0));
       const merged = mergeStateByRole(currentState, incomingState, actor);
       const saved = await saveSharedState(merged, actor);
-      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved), sessionUser: actor });
+      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved, actor), sessionUser: actor });
     }
 
     // ===== Endpoint خاص لحفظ سجل الحضور فوراً (بدون إرسال كل الـ state) =====
@@ -3970,19 +4565,19 @@ const server = http.createServer(async (req, res) => {
       if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه إعادة تهيئة المنصة.' });
       const fresh = createDefaultSharedState();
       await saveSharedState(fresh, actor);
-      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(fresh), sessionUser: actor });
+      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(fresh, actor), sessionUser: actor });
     }
 
     if (reqUrl.pathname === '/api/state/export' && req.method === 'GET') {
       const actor = await getUserFromToken(token);
       if (!actor) return sendJson(res, 401, { ok: false, message: 'يلزم تسجيل الدخول أولاً.' });
       const state = await getSharedState();
-      const payload = JSON.stringify(sanitizeStateForClient(state), null, 2);
+      const payload = JSON.stringify(sanitizeStateForClient(state, actor), null, 2);
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         'Content-Disposition': `attachment; filename="platform-state-export.json"`,
         'Content-Length': Buffer.byteLength(payload),
-        'Access-Control-Allow-Origin': '*',
+        // 'Access-Control-Allow-Origin': handled by security middleware,
       });
       res.end(payload);
       return;
@@ -4089,7 +4684,7 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { ok: false, message: 'بنية النسخة الاحتياطية غير صالحة أو لا تحتوي على بيانات مدارس.' });
         }
         const saved = await saveSharedState(stateToRestore, actor);
-        return sendJson(res, 200, { ok: true, message: `تمت استعادة النسخة الاحتياطية "${safeName}" بنجاح.`, state: sanitizeStateForClient(saved), sessionUser: actor });
+        return sendJson(res, 200, { ok: true, message: `تمت استعادة النسخة الاحتياطية "${safeName}" بنجاح.`, state: sanitizeStateForClient(saved, actor), sessionUser: actor });
       } catch (err) {
         return sendJson(res, 500, { ok: false, message: 'تعذر قراءة أو تطبيق النسخة الاحتياطية: ' + (err?.message || '') });
       }
@@ -4133,7 +4728,7 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, 400, { ok: false, message: 'بنية الملف غير صالحة. تأكد أن الملف نسخة احتياطية صحيحة من المنصة.' });
         }
         const saved = await saveSharedState(stateToRestore, actor);
-        return sendJson(res, 200, { ok: true, message: 'تمت استعادة النسخة من الملف بنجاح.', state: sanitizeStateForClient(saved), sessionUser: actor });
+        return sendJson(res, 200, { ok: true, message: 'تمت استعادة النسخة من الملف بنجاح.', state: sanitizeStateForClient(saved, actor), sessionUser: actor });
       } catch (err) {
         return sendJson(res, 500, { ok: false, message: 'تعذر قراءة أو تطبيق الملف: ' + (err?.message || '') });
       }
@@ -4190,7 +4785,7 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, {
           ok: true,
           message: `تم استيراد بيانات مدرسة "${schoolData.name}" بنجاح.`,
-          state: sanitizeStateForClient(saved),
+          state: sanitizeStateForClient(saved, actor),
           sessionUser: actor,
         });
       } catch (err) {
@@ -4221,7 +4816,7 @@ const server = http.createServer(async (req, res) => {
         smartLinks.gates = [...(smartLinks.gates || []), gate];
         school.smartLinks = smartLinks;
         const saved = await saveSharedState(next, actor);
-        return sendJson(res, 200, { ok: true, link: gate, state: sanitizeStateForClient(saved) });
+        return sendJson(res, 200, { ok: true, link: gate, state: sanitizeStateForClient(saved, actor) });
       }
       const screen = {
         id: `screen-${Date.now()}`,
@@ -4262,7 +4857,7 @@ const server = http.createServer(async (req, res) => {
       smartLinks.screens = [...(smartLinks.screens || []), screen];
       school.smartLinks = smartLinks;
       const saved = await saveSharedState(next, actor);
-      return sendJson(res, 200, { ok: true, link: screen, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, link: screen, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolDeviceUpdateMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links\/screen\/([^/]+)$/);
@@ -4314,7 +4909,7 @@ const server = http.createServer(async (req, res) => {
       if (body.sourceMode === 'school' || body.sourceMode === 'classroom') screen.sourceMode = body.sourceMode;
       if (body.linkedClassroomId !== undefined) screen.linkedClassroomId = body.linkedClassroomId ? String(body.linkedClassroomId) : '';
       const saved = await saveSharedState(next, actor);
-      return sendJson(res, 200, { ok: true, link: screen, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, link: screen, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolDeviceDeleteMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/device-links\/(gate|screen)\/([^/]+)$/);
@@ -4331,7 +4926,7 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'gate') school.smartLinks.gates = (school.smartLinks?.gates || []).filter((item) => item.id !== linkId);
       else school.smartLinks.screens = (school.smartLinks?.screens || []).filter((item) => item.id !== linkId);
       const saved = await saveSharedState(next, actor);
-      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolImportMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/students\/import$/);
@@ -4343,7 +4938,7 @@ const server = http.createServer(async (req, res) => {
       const imported = importStudentsIntoSchool(await getSharedState(), schoolId, Array.isArray(body.rows) ? body.rows : []);
       if (!imported.ok) return sendJson(res, 400, imported);
       const saved = await saveSharedState(imported.state, actor);
-      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved), added: imported.added, skipped: imported.skipped, companiesCreated: imported.companiesCreated });
+      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved, actor), added: imported.added, skipped: imported.skipped, companiesCreated: imported.companiesCreated });
     }
 
     const schoolAttendanceBindingMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/attendance-binding$/);
@@ -4362,7 +4957,7 @@ const server = http.createServer(async (req, res) => {
       school.structure = school.structure || {};
       school.structure.attendanceBinding = { sourceMode, linkedClassroomId };
       const saved = await saveSharedState(next, actor);
-      return sendJson(res, 200, { ok: true, attendanceBinding: school.structure.attendanceBinding, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, attendanceBinding: school.structure.attendanceBinding, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolReportMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/reports\/executive$/);
@@ -4384,7 +4979,7 @@ const server = http.createServer(async (req, res) => {
       const tested = await testSchoolMessagingIntegration(await getSharedState(), schoolId, body.channel === 'sms' ? 'sms' : body.channel === 'internal' ? 'internal' : 'whatsapp', body.settings || null);
       if (tested.state) {
         const saved = await saveSharedState(tested.state, actor);
-        return sendJson(res, tested.ok ? 200 : 400, { ok: tested.ok, message: tested.message, providerMessageId: tested.providerMessageId || '', state: sanitizeStateForClient(saved) });
+        return sendJson(res, tested.ok ? 200 : 400, { ok: tested.ok, message: tested.message, providerMessageId: tested.providerMessageId || '', state: sanitizeStateForClient(saved, actor) });
       }
       return sendJson(res, tested.ok ? 200 : 400, tested);
     }
@@ -4398,7 +4993,7 @@ const server = http.createServer(async (req, res) => {
       const processed = await processSchoolMessageSend(await getSharedState(), schoolId, actor, body || {});
       if (!processed.ok) return sendJson(res, 400, processed);
       const saved = await saveSharedState(processed.state, actor);
-      return sendJson(res, 200, { ok: true, message: processed.message, log: processed.log, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, message: processed.message, log: processed.log, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolMessagingSettingsMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/settings$/);
@@ -4425,7 +5020,7 @@ const server = http.createServer(async (req, res) => {
         },
       };
       const saved = await saveSharedState(next, actor);
-      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolMessagingTemplateSaveMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/templates\/save$/);
@@ -4445,7 +5040,7 @@ const server = http.createServer(async (req, res) => {
         ? school.messaging.templates.map((item) => String(item.id) !== String(body?.id) ? item : { ...item, ...(body || {}) })
         : [{ ...(body || {}), id: body?.id || Date.now(), active: body?.active !== false }, ...school.messaging.templates];
       const saved = await saveSharedState(next, actor);
-      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolMessagingTemplateDeleteMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/templates\/([^/]+)\/delete$/);
@@ -4461,7 +5056,7 @@ const server = http.createServer(async (req, res) => {
       school.messaging = school.messaging || {};
       school.messaging.templates = (school.messaging.templates || []).filter((item) => String(item.id) !== String(templateId));
       const saved = await saveSharedState(next, actor);
-      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolMessagingRuleSaveMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/rules\/save$/);
@@ -4481,7 +5076,7 @@ const server = http.createServer(async (req, res) => {
         ? school.messaging.rules.map((item) => String(item.id) !== String(body?.id) ? item : { ...item, ...(body || {}) })
         : [{ ...(body || {}), id: body?.id || Date.now(), active: body?.active !== false }, ...school.messaging.rules];
       const saved = await saveSharedState(next, actor);
-      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolMessagingRuleToggleMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/messages\/rules\/([^/]+)\/toggle$/);
@@ -4497,7 +5092,7 @@ const server = http.createServer(async (req, res) => {
       school.messaging = school.messaging || {};
       school.messaging.rules = (school.messaging.rules || []).map((item) => String(item.id) !== String(ruleId) ? item : { ...item, active: item?.active === false });
       const saved = await saveSharedState(next, actor);
-      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolStudentsMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/students$/);
@@ -4562,7 +5157,7 @@ const server = http.createServer(async (req, res) => {
       } else {
         updatedStudent = updatedSchool?.students?.find((item) => Number(item.id) === studentId) || null;
       }
-      return sendJson(res, 200, { ok: true, student: updatedStudent, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, student: updatedStudent, state: sanitizeStateForClient(saved, actor) });
     }
 
     // ===== API سقف نقاط المعلم اليومي =====
@@ -4584,7 +5179,7 @@ const server = http.createServer(async (req, res) => {
         classCaps: body?.classCaps && typeof body.classCaps === 'object' ? body.classCaps : {},
       };
       const saved = await saveSharedState(next, actor);
-      return sendJson(res, 200, { ok: true, message: 'تم حفظ إعدادات سقف النقاط بنجاح.', state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, message: 'تم حفظ إعدادات سقف النقاط بنجاح.', state: sanitizeStateForClient(saved, actor) });
     }
     // =====================================================
     const schoolActionApplyMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/actions\/apply$/);
@@ -4609,7 +5204,7 @@ const server = http.createServer(async (req, res) => {
         });
         if (automated?.state) saved = await saveSharedState(automated.state, actor);
       }
-      return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, student: applied.student, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, student: applied.student, state: sanitizeStateForClient(saved, actor) });
     }
 
     const schoolProgramApplyMatch = reqUrl.pathname.match(/^\/api\/schools\/(\d+)\/programs\/apply$/);
@@ -4621,7 +5216,7 @@ const server = http.createServer(async (req, res) => {
       const applied = await applyProgramToState(await getSharedState(), schoolId, body, actor);
       if (!applied.ok) return sendJson(res, 400, applied);
       const saved = await saveSharedState(applied.state, actor);
-      return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, state: sanitizeStateForClient(saved, actor) });
     }
 
     const publicGateMatch = reqUrl.pathname.match(/^\/api\/public\/gate\/([^/]+)$/);
@@ -4705,6 +5300,7 @@ const server = http.createServer(async (req, res) => {
           altLoginEnabled: portalSettings.loginMethods?.nationalId !== false,
           loginMethods: portalSettings.loginMethods || { nationalId: true, studentId: true, mobileNumber: true, email: false },
           allowRegistration: portalSettings.allowRegistration === true,
+          allowParentLeavePass: portalSettings.allowParentLeavePass !== false,
         },
       });
     }
@@ -4747,6 +5343,7 @@ const server = http.createServer(async (req, res) => {
         updatedPortal.loginMethods = { ...(currentPortal.loginMethods || {}), ...body.loginMethods };
       }
       if (typeof body.allowRegistration === 'boolean') updatedPortal.allowRegistration = body.allowRegistration;
+      if (typeof body.allowParentLeavePass === 'boolean') updatedPortal.allowParentLeavePass = body.allowParentLeavePass;
       const updated = {
         ...state,
         settings: {
@@ -4869,7 +5466,7 @@ const server = http.createServer(async (req, res) => {
         users: [...currentState.users, principalUser],
       });
       const saved = await saveSharedState(nextState, actor);
-      return sendJson(res, 200, { ok: true, school: newSchool, state: sanitizeStateForClient(saved) });
+      return sendJson(res, 200, { ok: true, school: newSchool, state: sanitizeStateForClient(saved, actor) });
     }
     // ===== نهاية إضافة مدرسة جديدة =====
     // ===== مسارات بوابة ولي الأمر =====
@@ -5249,6 +5846,80 @@ const server = http.createServer(async (req, res) => {
       } catch(e) { /* لا نوقف الطلب إذا فشل التجديد */ }
       return sendJson(res, 200, { ok: true, profile });
     }
+    // ===== ولي الأمر: طلب استئذان جديد =====
+    if (reqUrl.pathname === '/api/parent/leave-request' && req.method === 'POST') {
+      const profile = await getParentProfileFromToken(token);
+      if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
+      const body = await readJsonBody(req);
+      const schoolId = Number(body?.schoolId || 0);
+      const studentId = String(body?.studentId || '').trim();
+      const destination = String(body?.destination || 'guardian').trim();
+      const note = String(body?.note || '').trim();
+      const reason = String(body?.reason || '').trim();
+      if (!schoolId || !studentId) return sendJson(res, 400, { ok: false, message: 'يرجى تحديد المدرسة والطالب.' });
+      const state = await getSharedState();
+      // فحص تفعيل استئذان ولي الأمر
+      const portalSettings = state.settings?.parentPortal || {};
+      if (portalSettings.allowParentLeavePass === false) {
+        return sendJson(res, 403, { ok: false, message: 'خاصية استئذان ولي الأمر معطلة حالياً. تواصل مع إدارة المدرسة.' });
+      }
+      const school = (state.schools || []).find((s) => Number(s.id) === schoolId);
+      if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      const linkedStudents = getParentLinkedStudents(state, profile.mobile).filter((s) => Number(s.schoolId) === schoolId);
+      const student = linkedStudents.find((s) => String(s.studentId || s.id || '') === studentId);
+      if (!student) return sendJson(res, 403, { ok: false, message: 'الطالب غير مرتبط بهذا الحساب.' });
+      const passId = 'parent-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+      const now = nowIso();
+      const newPass = {
+        id: passId,
+        schoolId,
+        studentId,
+        studentName: student.name || 'طالب',
+        companyName: student.className || '',
+        className: student.className || '',
+        destination,
+        note: note || reason || '',
+        status: 'parent-requested',
+        isFromParent: true,
+        guardianMobile: profile.mobile,
+        guardianName: profile.guardianName || 'ولي الأمر',
+        createdAt: now,
+        updatedAt: now,
+        timeline: [{ status: 'parent-requested', time: now, by: 'ولي الأمر: ' + (profile.guardianName || profile.mobile) }],
+      };
+      const next = structuredClone(state);
+      const targetSchool = next.schools.find((s) => Number(s.id) === schoolId);
+      if (!Array.isArray(targetSchool.leavePasses)) targetSchool.leavePasses = [];
+      targetSchool.leavePasses.unshift(newPass);
+      await saveSharedState(next, null);
+      // إرسال تنبيه للمعلم/الإدارة
+      try {
+        const alertEntry = { id: Date.now(), title: '🚪 طلب استئذان من ولي الأمر', body: 'الطالب ' + (student.name || 'طالب') + ' من ' + (student.className || 'فصله') + ' — طلب ولي الأمر ' + (profile.guardianName || '') + ' استئذاناً.', time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [] };
+        const notifState = await getSharedState();
+        const notifSchool = notifState.schools.find((s) => Number(s.id) === schoolId);
+        if (notifSchool) {
+          if (!Array.isArray(notifSchool.notifications)) notifSchool.notifications = [];
+          notifSchool.notifications.unshift(alertEntry);
+          await saveSharedState(notifState, null);
+        }
+      } catch(e) { /* لا نوقف إذا فشل التنبيه */ }
+      const nextProfile = await buildParentProfile(await getSharedState(), profile.mobile);
+      return sendJson(res, 200, { ok: true, message: 'تم إرسال طلب الاستئذان للمدرسة بنجاح.', passId, profile: nextProfile });
+    }
+    // ===== ولي الأمر: بيانات حية (نقاط + استئذانات + تنبيهات) =====
+    if (reqUrl.pathname === '/api/parent/live-data' && req.method === 'GET') {
+      const profile = await getParentProfileFromToken(token);
+      if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
+      // إرجاع البيانات الحية فقط (أخف من bootstrap كامل)
+      return sendJson(res, 200, {
+        ok: true,
+        totalPoints: profile.totalPoints || 0,
+        students: (profile.students || []).map((s) => ({ studentId: s.studentId, name: s.name, points: s.points, attendanceRate: s.attendanceRate })),
+        leavePasses: (profile.leavePasses || []).slice(0, 10),
+        notificationHistory: (profile.notificationHistory || []).slice(0, 5),
+        ts: nowIso(),
+      });
+    }
 
     if (reqUrl.pathname === '/api/parent/portal-config' && req.method === 'GET') {
       // إرجاع إعدادات البوابة العامة بدون الحاجة لتسجيل دخول
@@ -5257,7 +5928,9 @@ const server = http.createServer(async (req, res) => {
       const firstSchool = (state.schools || []).find((s) => s && s.id);
       const schoolId = firstSchool ? Number(firstSchool.id) : 0;
       const settings = schoolId ? await getParentPortalSettings(schoolId) : { enabled: true, altLoginEnabled: true };
-      return sendJson(res, 200, { ok: true, altLoginEnabled: settings.altLoginEnabled !== false });
+      // قراءة allowParentLeavePass من shared_state مباشرة
+      const portalCfg = state.settings?.parentPortal || {};
+      return sendJson(res, 200, { ok: true, altLoginEnabled: settings.altLoginEnabled !== false, allowParentLeavePass: portalCfg.allowParentLeavePass !== false });
     }
 
 
@@ -5271,6 +5944,352 @@ const server = http.createServer(async (req, res) => {
 
 
     // ===== نافس: إحصائيات الطالب =====
+
+
+    // ===== نافس: بنك الأسئلة CRUD (للأدمن العام) =====
+    if (reqUrl.pathname === '/api/nafis/bank' && req.method === 'GET') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'فقط الأدمن العام يمكنه إدارة بنك الأسئلة.' });
+      const bankData = appMetaGetJson('nafis_question_bank') || null;
+      const rawQuestions = bankData ? (bankData.questions || []) : NAFIS_QUESTION_BANK.map((q, i) => ({ ...q, id: q.id || `builtin-${i}`, isBuiltIn: true, active: q.active !== false }));
+      // Mark built-in vs custom
+      const allActive = rawQuestions.filter(q => q.active !== false && !q.deletedAt);
+      const allDeleted = rawQuestions.filter(q => q.active === false || q.deletedAt);
+      const builtInCount = allActive.filter(q => q.isBuiltIn || q.source === 'builtin' || q.source === 'default' || (!q.source && !q.createdAt)).length;
+      const customCount = allActive.filter(q => !q.isBuiltIn && q.source && q.source !== 'builtin' && q.source !== 'default').length || Math.max(0, allActive.length - builtInCount);
+      // Build allQuestions with isBuiltIn flag
+      const allQuestions = allActive.map((q, i) => ({
+        ...q,
+        id: q.id || `q-${i}`,
+        isBuiltIn: q.isBuiltIn || q.source === 'builtin' || q.source === 'default' || (!q.source && !q.createdAt),
+      }));
+      const allDeletedQuestions = allDeleted.map((q, i) => ({
+        ...q,
+        id: q.id || `qd-${i}`,
+        isBuiltIn: q.isBuiltIn || q.source === 'builtin' || q.source === 'default' || (!q.source && !q.createdAt),
+      }));
+      return sendJson(res, 200, {
+        ok: true,
+        allQuestions,
+        allDeletedQuestions,
+        totalCount: allActive.length,
+        staticCount: builtInCount,
+        customCount: allActive.length - builtInCount,
+        deletedCount: allDeleted.length,
+        total: rawQuestions.length,
+        source: bankData ? 'custom' : 'default',
+      });
+    }
+
+    if (reqUrl.pathname === '/api/nafis/bank/add' && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const body = await readJsonBody(req);
+      const bankData = appMetaGetJson('nafis_question_bank') || { questions: [...NAFIS_QUESTION_BANK] };
+      const newQ = {
+        id: `q-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+        gradeKey: String(body.gradeKey || 'm3'),
+        subject: String(body.subject || 'math'),
+        question: String(body.question || '').trim(),
+        options: Array.isArray(body.options) ? body.options.map(o => String(o || '')) : ['', '', '', ''],
+        correctIndex: Number(body.correctIndex || 0),
+        explanation: String(body.explanation || '').trim(),
+        difficulty: String(body.difficulty || 'medium'),
+        source: String(body.source || 'custom'),
+        active: body.active !== false,
+        createdAt: new Date().toISOString(),
+      };
+      bankData.questions = [newQ, ...(bankData.questions || [])];
+      appMetaSetJson('nafis_question_bank', bankData);
+      return sendJson(res, 200, { ok: true, question: newQ, total: bankData.questions.length });
+    }
+
+    const nafisBankUpdateMatch = reqUrl.pathname.match(/^\/api\/nafis\/bank\/update\/(.+)$/);
+    if (nafisBankUpdateMatch && req.method === 'PUT') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const qId = nafisBankUpdateMatch[1];
+      const body = await readJsonBody(req);
+      const bankData = appMetaGetJson('nafis_question_bank') || { questions: [...NAFIS_QUESTION_BANK] };
+      const idx = bankData.questions.findIndex(q => String(q.id) === String(qId));
+      if (idx === -1) return sendJson(res, 404, { ok: false, message: 'السؤال غير موجود.' });
+      bankData.questions[idx] = { ...bankData.questions[idx], ...body, id: qId, updatedAt: new Date().toISOString() };
+      appMetaSetJson('nafis_question_bank', bankData);
+      return sendJson(res, 200, { ok: true, question: bankData.questions[idx] });
+    }
+
+    const nafisBankDeleteMatch = reqUrl.pathname.match(/^\/api\/nafis\/bank\/delete\/(.+)$/);
+    if (nafisBankDeleteMatch && req.method === 'DELETE') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const qId = nafisBankDeleteMatch[1];
+      const bankData = appMetaGetJson('nafis_question_bank') || { questions: [...NAFIS_QUESTION_BANK] };
+      const idx = bankData.questions.findIndex(q => String(q.id) === String(qId));
+      if (idx === -1) return sendJson(res, 404, { ok: false, message: 'السؤال غير موجود.' });
+      bankData.questions[idx] = { ...bankData.questions[idx], active: false, deletedAt: new Date().toISOString() };
+      appMetaSetJson('nafis_question_bank', bankData);
+      return sendJson(res, 200, { ok: true, message: 'تم حذف السؤال.' });
+    }
+
+    const nafisBankRestoreMatch = reqUrl.pathname.match(/^\/api\/nafis\/bank\/restore\/(.+)$/);
+    if (nafisBankRestoreMatch && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const qId = nafisBankRestoreMatch[1];
+      const bankData = appMetaGetJson('nafis_question_bank') || { questions: [...NAFIS_QUESTION_BANK] };
+      const idx = bankData.questions.findIndex(q => String(q.id) === String(qId));
+      if (idx === -1) return sendJson(res, 404, { ok: false, message: 'السؤال غير موجود.' });
+      bankData.questions[idx] = { ...bankData.questions[idx], active: true, deletedAt: undefined, restoredAt: new Date().toISOString() };
+      appMetaSetJson('nafis_question_bank', bankData);
+      return sendJson(res, 200, { ok: true, message: 'تم استعادة السؤال.' });
+    }
+
+    if (reqUrl.pathname === '/api/nafis/bank/import' && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor || actor.role !== 'superadmin') return sendJson(res, 403, { ok: false, message: 'غير مصرح.' });
+      const body = await readJsonBody(req);
+      const imported = Array.isArray(body.questions) ? body.questions : [];
+      if (!imported.length) return sendJson(res, 400, { ok: false, message: 'لا توجد أسئلة للاستيراد.' });
+      const bankData = appMetaGetJson('nafis_question_bank') || { questions: [...NAFIS_QUESTION_BANK] };
+      let added = 0;
+      for (const q of imported) {
+        if (!q.question || !q.gradeKey || !q.subject) continue;
+        bankData.questions.push({
+          id: `q-import-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+          gradeKey: String(q.gradeKey || ''),
+          subject: String(q.subject || ''),
+          question: String(q.question || '').trim(),
+          options: Array.isArray(q.options) ? q.options.map(o => String(o || '')) : ['', '', '', ''],
+          correctIndex: Number(q.correctIndex || 0),
+          explanation: String(q.explanation || '').trim(),
+          difficulty: String(q.difficulty || 'medium'),
+          source: 'import',
+          active: true,
+          createdAt: new Date().toISOString(),
+        });
+        added++;
+      }
+      appMetaSetJson('nafis_question_bank', bankData);
+      return sendJson(res, 200, { ok: true, message: `تم استيراد ${added} سؤال بنجاح.`, total: bankData.questions.length, added });
+    }
+
+
+
+    // ===== استئذان: حفظ آمن للاستئذانات فقط (بدون مسح بقية البيانات) =====
+    if (reqUrl.pathname === '/api/leave-passes/save' && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
+      const body = await readJsonBody(req);
+      const schoolId = Number(body.schoolId || actor.schoolId || 0);
+      if (!schoolId) return sendJson(res, 400, { ok: false, message: 'لم يتم تحديد المدرسة.' });
+      const passes = Array.isArray(body.leavePasses) ? body.leavePasses : [];
+      const current = await getSharedState();
+      const next = structuredClone(current);
+      const school = next.schools.find((s) => Number(s.id) === schoolId);
+      if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      // Merge: keep server passes + update matching ones from client
+      const serverPasses = Array.isArray(school.leavePasses) ? school.leavePasses : [];
+      const clientMap = new Map(passes.map((p) => [String(p.id), p]));
+      const statusOrder = { 'created': 0, 'sent-manual': 1, 'sent-system': 1, 'viewed': 2, 'approved-agent': 3, 'approved-counselor': 3, 'released-guardian': 5, 'released-teacher': 5, 'completed': 6, 'cancelled': 6 };
+      const merged = serverPasses.map((sp) => {
+        const cp = clientMap.get(String(sp.id));
+        if (!cp) return sp; // keep server version
+        // اختر النسخة ذات الحالة الأكثر تقدماً — الحالة الأعلى رتبة دائماً تفوز
+        const serverRank = statusOrder[String(sp.status || '')] ?? 0;
+        const clientRank = statusOrder[String(cp.status || '')] ?? 0;
+        if (clientRank > serverRank) return cp;  // العميل أكثر تقدماً
+        if (serverRank > clientRank) return sp;  // الخادم أكثر تقدماً — لا تتراجع
+        // نفس الرتبة: اختر الأحدث وقتاً
+        const serverTime = sp.updatedAt || sp.completedAt || sp.createdAt || '';
+        const clientTime = cp.updatedAt || cp.completedAt || cp.createdAt || '';
+        return clientTime > serverTime ? cp : sp;
+      });
+      // Add new passes from client that don't exist on server
+      const serverIds = new Set(serverPasses.map((p) => String(p.id)));
+      for (const cp of passes) {
+        if (!serverIds.has(String(cp.id))) merged.push(cp);
+      }
+      school.leavePasses = merged;
+      const saved = await saveSharedState(next, actor);
+      return sendJson(res, 200, { ok: true, message: 'تم حفظ الاستئذانات.', count: merged.length });
+    }
+
+    // ===== استئذان: تحديث حالة استئذان واحد (atomic update) =====
+    if (reqUrl.pathname === '/api/leave-passes/update-status' && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
+      const body = await readJsonBody(req);
+      const { leavePassId, status, schoolId: bodySchoolId, updatedByName, timeline } = body;
+      if (!leavePassId || !status) return sendJson(res, 400, { ok: false, message: 'بيانات غير مكتملة.' });
+      const schoolId = Number(bodySchoolId || actor.schoolId || 0);
+      const statusOrder = { 'created': 0, 'sent-manual': 1, 'sent-system': 1, 'viewed': 2, 'approved-agent': 3, 'approved-counselor': 3, 'released-guardian': 5, 'released-teacher': 5, 'completed': 6, 'cancelled': 6 };
+      const state = await getSharedState();
+      const next = structuredClone(state);
+      const school = next.schools.find((s) => Number(s.id) === schoolId);
+      if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      const passIdx = (school.leavePasses || []).findIndex((p) => String(p.id) === String(leavePassId));
+      if (passIdx === -1) return sendJson(res, 404, { ok: false, message: 'الاستئذان غير موجود.' });
+      const existing = school.leavePasses[passIdx];
+      const existingRank = statusOrder[String(existing.status || '')] ?? 0;
+      const newRank = statusOrder[String(status || '')] ?? 0;
+      // لا تتراجع عن حالة أكثر تقدماً
+      if (newRank < existingRank) {
+        return sendJson(res, 200, { ok: true, skipped: true, message: 'الحالة الحالية أكثر تقدماً، لم يتم التحديث.', pass: existing });
+      }
+      school.leavePasses[passIdx] = {
+        ...existing,
+        status,
+        updatedAt: new Date().toISOString(),
+        updatedByName: updatedByName || actor.name || '',
+        timeline: Array.isArray(timeline) ? timeline : existing.timeline,
+      };
+      const saved = await saveSharedState(next, actor);
+      const updatedPass = saved.schools.find(s => Number(s.id) === schoolId)?.leavePasses?.find(p => String(p.id) === String(leavePassId));
+      return sendJson(res, 200, { ok: true, message: 'تم تحديث حالة الاستئذان.', pass: updatedPass });
+    }
+    // ===== استئذان: طلبات معلقة للمعلم =====
+    if (reqUrl.pathname === '/api/leave-passes/pending' && req.method === 'GET') {
+      const actor = await getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
+      const state = await getSharedState();
+      const schoolId = Number(reqUrl.searchParams.get('schoolId') || actor.schoolId || 0);
+      const school = state.schools.find((s) => Number(s.id) === schoolId);
+      if (!school) return sendJson(res, 200, { ok: true, passes: [], count: 0 });
+      const allPasses = Array.isArray(school.leavePasses) ? school.leavePasses : [];
+      const activePasses = allPasses.filter((p) => !['completed', 'cancelled'].includes(String(p.status || '')));
+      // For teachers, only show passes assigned to them
+      const myPasses = actor.role === 'teacher'
+        ? activePasses.filter((p) => {
+            if (String(p.teacherUserId || '') !== String(actor.id || '')) return false;
+            // المعلم يرى في الجرس فقط الطلبات التي لم يتصرف بها بعد
+            return ['created', 'sent-system', 'sent-manual'].includes(String(p.status || ''));
+          })
+        : activePasses;
+      return sendJson(res, 200, { ok: true, passes: myPasses.slice(0, 20), count: myPasses.length });
+    }
+
+
+    // ===== استئذان: تعيين المعلم المختص =====
+    if (reqUrl.pathname.match(/^\/api\/leave-passes\/([^/]+)\/assign-teacher$/) && req.method === 'POST') {
+      const actor = await getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'غير مصرح.' });
+      const leavePassId = reqUrl.pathname.split('/')[3];
+      const body = await readJsonBody(req);
+      const { teacherUserId, teacherName } = body;
+      if (!teacherUserId) return sendJson(res, 400, { ok: false, message: 'يرجى تحديد المعلم.' });
+      const state = await getSharedState();
+      const next = structuredClone(state);
+      // البحث في جميع المدارس
+      let found = false;
+      for (const school of next.schools) {
+        const passIdx = (school.leavePasses || []).findIndex((p) => String(p.id) === String(leavePassId));
+        if (passIdx === -1) continue;
+        school.leavePasses[passIdx] = {
+          ...school.leavePasses[passIdx],
+          teacherUserId: String(teacherUserId),
+          teacherName: teacherName || String(teacherUserId),
+          updatedAt: new Date().toISOString(),
+          assignedByName: actor.name || actor.username || '',
+          assignedAt: new Date().toISOString(),
+        };
+        found = true;
+        break;
+      }
+      if (!found) return sendJson(res, 404, { ok: false, message: 'الاستئذان غير موجود.' });
+      await saveSharedState(next, actor);
+      return sendJson(res, 200, { ok: true, message: 'تم تعيين المعلم بنجاح.' });
+    }
+
+    // ===== نافس: لوحة تحليلية للمدرسة (للمعلم والمدير) =====
+    if (reqUrl.pathname === '/api/nafis/school-dashboard' && req.method === 'GET') {
+      const actor = await getUserFromToken(token);
+      if (!actor) return sendJson(res, 401, { ok: false, message: 'الجلسة منتهية أو غير صالحة.' });
+      const schoolId = Number(reqUrl.searchParams.get('schoolId') || actor.schoolId || 0);
+      if (!schoolId) return sendJson(res, 400, { ok: false, message: 'لم يتم تحديد المدرسة.' });
+      const state = await getSharedState();
+      const school = (state.schools || []).find((s) => Number(s.id) === schoolId);
+      if (!school) return sendJson(res, 404, { ok: false, message: 'المدرسة غير موجودة.' });
+      const nafisData = appMetaGetJson(`nafis_school_${schoolId}`) || {};
+      const attempts = nafisData.attempts || [];
+      const totalAttempts = attempts.length;
+      const totalCorrect = attempts.reduce((sum, a) => sum + Number(a.correct || 0), 0);
+      const totalQuestions = attempts.reduce((sum, a) => sum + Number(a.total || 0), 0);
+      const avgScore = totalAttempts > 0 ? Math.round((totalCorrect / Math.max(totalQuestions, 1)) * 100) : 0;
+      const correctRate = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
+      // Unique students
+      const studentMap = {};
+      for (const a of attempts) {
+        const sid = String(a.studentId || '');
+        if (!sid) continue;
+        if (!studentMap[sid]) studentMap[sid] = { studentId: sid, studentName: a.studentName || 'طالب', className: a.className || '', attempts: 0, correct: 0, total: 0, lastAttemptAt: '' };
+        studentMap[sid].attempts++;
+        studentMap[sid].correct += Number(a.correct || 0);
+        studentMap[sid].total += Number(a.total || 0);
+        if (a.completedAt > (studentMap[sid].lastAttemptAt || '')) studentMap[sid].lastAttemptAt = a.completedAt;
+      }
+      const uniqueStudents = Object.keys(studentMap).length;
+      // Top students
+      const topStudents = Object.values(studentMap)
+        .map((s) => ({ ...s, avgScore: s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0 }))
+        .sort((a, b) => b.avgScore - a.avgScore || b.correct - a.correct)
+        .slice(0, 15);
+      // By subject
+      const subjectMap = {};
+      for (const a of attempts) {
+        const sub = String(a.subject || a.subjectLabel || 'غير محدد');
+        if (!subjectMap[sub]) subjectMap[sub] = { subject: sub, subjectLabel: a.subjectLabel || sub, attempts: 0, correct: 0, total: 0 };
+        subjectMap[sub].attempts++;
+        subjectMap[sub].correct += Number(a.correct || 0);
+        subjectMap[sub].total += Number(a.total || 0);
+      }
+      const bySubject = Object.values(subjectMap).map((s) => ({ ...s, avgScore: s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0 }));
+      // Classroom stats
+      const classMap = {};
+      for (const a of attempts) {
+        const cls = String(a.className || a.classroomName || 'غير محدد');
+        if (!classMap[cls]) classMap[cls] = { className: cls, attempts: 0, correct: 0, total: 0, students: new Set() };
+        classMap[cls].attempts++;
+        classMap[cls].correct += Number(a.correct || 0);
+        classMap[cls].total += Number(a.total || 0);
+        if (a.studentId) classMap[cls].students.add(String(a.studentId));
+      }
+      const classroomStats = Object.values(classMap).map((c) => ({ className: c.className, attempts: c.attempts, correct: c.correct, total: c.total, students: c.students.size, avgScore: c.total > 0 ? Math.round((c.correct / c.total) * 100) : 0 }));
+      // Recent attempts
+      const recentAttempts = attempts.slice(0, 20).map((a) => ({
+        studentName: a.studentName || 'طالب',
+        subject: a.subjectLabel || a.subject || '',
+        correct: a.correct || 0,
+        total: a.total || 0,
+        score: a.total > 0 ? Math.round((Number(a.correct || 0) / Number(a.total || 1)) * 100) : 0,
+        completedAt: a.completedAt || a.createdAt || '',
+        className: a.className || '',
+      }));
+      // Daily stats (last 14 days)
+      const dayMap = {};
+      for (const a of attempts) {
+        const day = String(a.completedAt || a.createdAt || '').slice(0, 10);
+        if (!day) continue;
+        if (!dayMap[day]) dayMap[day] = { date: day, attempts: 0, correct: 0, total: 0, students: new Set() };
+        dayMap[day].attempts++;
+        dayMap[day].correct += Number(a.correct || 0);
+        dayMap[day].total += Number(a.total || 0);
+        if (a.studentId) dayMap[day].students.add(String(a.studentId));
+      }
+      const dailyStats = Object.values(dayMap)
+        .map((d) => ({ date: d.date, attempts: d.attempts, correct: d.correct, total: d.total, students: d.students.size, avgScore: d.total > 0 ? Math.round((d.correct / d.total) * 100) : 0 }))
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 14);
+      return sendJson(res, 200, {
+        ok: true,
+        summary: { totalAttempts, uniqueStudents, avgScore, correctRate, totalCorrect, totalQuestions },
+        bySubject,
+        classroomStats,
+        topStudents,
+        recentAttempts,
+        dailyStats,
+      });
+    }
+
     if (reqUrl.pathname === '/api/parent/nafis/student-stats' && req.method === 'GET') {
       const profile = await getParentProfileFromToken(token);
       if (!profile) return sendJson(res, 401, { ok: false, message: 'جلسة ولي الأمر غير صالحة أو منتهية.' });
@@ -5288,7 +6307,13 @@ const server = http.createServer(async (req, res) => {
       const totalQuestions = attempts.reduce((sum, a) => sum + Number(a.total || 0), 0);
       const avgScore = totalAttempts > 0 ? Math.round((totalCorrect / Math.max(totalQuestions, 1)) * 100) : 0;
       const recentAttempts = attempts.slice(-10).reverse();
-      return sendJson(res, 200, { ok: true, totalAttempts, totalCorrect, totalQuestions, avgScore, recentAttempts });
+      // استخراج gradeKey ونوع الاختبار للطالب
+      const classrooms = Array.isArray(school.structure?.classrooms) ? school.structure.classrooms : [];
+      const studentClassroom = classrooms.find((c) => Array.isArray(c.students) && c.students.some((s) => String(s.id || s.studentId || '') === studentId));
+      // إذا لم يُوجد الطالب في الـ classrooms، استخدم gradeKey من آخر محاولة
+      const gradeKey = studentClassroom?.gradeKey || (attempts.length > 0 ? (attempts[attempts.length - 1].gradeKey || '') : '');
+      const nafisLabel = gradeKey ? getNafisLabel(gradeKey) : 'نافس';
+      return sendJson(res, 200, { ok: true, totalAttempts, totalCorrect, totalQuestions, avgScore, recentAttempts, gradeKey, nafisLabel });
     }
 
     // ===== نافس: إحصائيات المدرسة =====
@@ -5462,6 +6487,9 @@ const server = http.createServer(async (req, res) => {
     if (error?.code === 413) return sendJson(res, 413, { ok: false, message: 'حجم الطلب كبير جدًا.' });
     console.error(error);
     return sendJson(res, 500, { ok: false, message: 'حدث خطأ داخلي في الخادم.' });
+  } finally {
+    // ===== v1.8.1: تسجيل الطلبات =====
+    logApiRequest(req, requestStart);
   }
 });
 
@@ -5517,9 +6545,20 @@ function renderParentPortalHtml() {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>بوابة ولي الأمر</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    @font-face {
+      font-family: 'HelveticaArabic';
+      src: url('/public/fonts/alfont_com_\u0647\u0644\u0641\u064a\u062a\u064a\u0643\u0627-\u0639\u0631\u0628\u064a-.ttf') format('truetype');
+      font-weight: 400;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'HelveticaArabic';
+      src: url('/public/fonts/HelveticaNeueW23forSKY-Bd.ttf') format('truetype');
+      font-weight: 700;
+      font-display: swap;
+    }
+  </style>
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- PWA Meta Tags -->
@@ -5536,7 +6575,7 @@ function renderParentPortalHtml() {
     /* ===== RESET & BASE ===== */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --font: 'Tajawal', system-ui, sans-serif;
+      --font: 'HelveticaArabic', 'Helvetica Neue', Helvetica, Arial, sans-serif;
       --bg: #f0f4f8;
       --card: #ffffff;
       --border: #e2e8f0;
@@ -5757,6 +6796,120 @@ function renderParentPortalHtml() {
       -webkit-overflow-scrolling: touch;
     }
 
+    /* ===== LEAVE PASSES ===== */
+    .leave-card {
+      background: var(--card);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .leave-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .leave-student-name {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .leave-meta {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .leave-status-badge {
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+    .leave-status-new { background: #dbeafe; color: #1d4ed8; }
+    .leave-status-pending { background: #fef3c7; color: #b45309; }
+    .leave-status-approved { background: #dcfce7; color: #15803d; }
+    .leave-status-completed { background: #f1f5f9; color: #475569; }
+    .leave-status-cancelled { background: #fff1f2; color: #be123c; }
+    .leave-status-parent { background: #ede9fe; color: #7c3aed; }
+    .leave-note {
+      font-size: 13px;
+      color: var(--muted);
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 8px 12px;
+      margin-top: 8px;
+      border-right: 3px solid var(--primary);
+    }
+    .leave-timeline {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .leave-timeline-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .leave-timeline-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--primary);
+      flex-shrink: 0;
+      margin-top: 3px;
+    }
+    .leave-request-form {
+      background: var(--card);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .leave-request-form h3 {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+    .form-group {
+      margin-bottom: 14px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .form-group select,
+    .form-group textarea,
+    .form-group input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 12px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text);
+      background: #f8fafc;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-group select:focus,
+    .form-group textarea:focus,
+    .form-group input:focus {
+      border-color: var(--primary);
+      background: #fff;
+    }
+    .form-group textarea {
+      resize: none;
+      min-height: 80px;
+    }
     /* ===== نافس: أزرار الاختبار ===== */
 .nafis-option {
   display: flex;
@@ -6778,8 +7931,42 @@ function renderParentPortalHtml() {
       <!-- end pageSettings -->
       <!-- ===== PAGE: NAFIS ===== -->
       <!-- ===== صفحة نافس الرئيسية ===== -->
+      <div id="pageLeave" class="page-section hidden">
+        <div class="page-title">الاستئذان والمغادرة</div>
+        <!-- نموذج طلب استئذان جديد -->
+        <div class="leave-request-form" id="leaveRequestForm">
+          <h3>🚪 طلب استئذان جديد</h3>
+          <div class="form-group">
+            <label>الطالب</label>
+            <select id="leaveStudentSelect">
+              <option value="">اختر الطالب...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>نوع المغادرة</label>
+            <select id="leaveDestinationSelect">
+              <option value="guardian">خروج مع ولي الأمر</option>
+              <option value="agent">تسليم لوكيل المدرسة</option>
+              <option value="counselor">تسليم للمرشد</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>سبب الاستئذان (اختياري)</label>
+            <textarea id="leaveNoteInput" placeholder="مثال: موعد طبي، ظرف عائلي..."></textarea>
+          </div>
+          <button class="btn btn-primary" id="submitLeaveBtn" onclick="submitLeaveRequest()" style="width:100%">
+            إرسال طلب الاستئذان للمدرسة
+          </button>
+          <div id="leaveSubmitMsg" style="margin-top:10px;font-size:14px;text-align:center;display:none"></div>
+        </div>
+        <!-- سجل الاستئذانات -->
+        <div class="page-title" style="font-size:16px;margin-top:8px">سجل الاستئذانات</div>
+        <div id="leavePassesList">
+          <div class="empty-state"><div class="empty-icon">📋</div><p>لا توجد استئذانات بعد.</p></div>
+        </div>
+      </div>
       <div id="pageNafis" class="page-section hidden">
-        <div class="page-title">🏆 اختبارات نافس</div>
+        <div class="page-title" id="nafisPageTitle">🏆 اختبارات نافس</div>
 
         <!-- Stats Grid -->
         <div class="stat-grid" id="nafisStatsGrid">
@@ -6796,7 +7983,7 @@ function renderParentPortalHtml() {
 
         <!-- زر بدء اختبار جديد -->
         <button class="btn btn-primary" id="nafisStartQuizBtn" onclick="showNafisSubjectPicker()" style="width:100%;margin-bottom:16px;display:none">
-          🎯 ابدأ اختبار نافس جديد
+          🎯 <span id="nafisStartBtnLabel">ابدأ اختبار نافس جديد</span>
         </button>
 
         <!-- Loading / Empty State -->
@@ -6806,8 +7993,8 @@ function renderParentPortalHtml() {
         </div>
         <div id="nafisEmpty" class="empty-state hidden">
           <div class="empty-icon">🏆</div>
-          <p>لا توجد محاولات في اختبارات نافس حتى الآن.</p>
-          <p style="font-size:12px;color:var(--muted);margin-top:8px">اضغط على زر "ابدأ اختبار نافس جديد" لبدء أول اختبار!</p>
+          <p id="nafisEmptyMsg">لا توجد محاولات في اختبارات نافس حتى الآن.</p>
+          <p id="nafisEmptyHint" style="font-size:12px;color:var(--muted);margin-top:8px">اضغط على زر "ابدأ اختبار نافس جديد" لبدء أول اختبار!</p>
         </div>
 
         <!-- Recent Attempts -->
@@ -6934,6 +8121,18 @@ function renderParentPortalHtml() {
         <span>التنبيهات</span>
         <span class="nav-badge hidden" id="notifBadge">0</span>
       </button>
+      <button class="nav-item" data-page="leave">
+        <span class="nav-icon" style="position:relative">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+            <polyline points="13 2 13 9 20 9"/>
+            <line x1="9" y1="14" x2="15" y2="14"/>
+            <line x1="9" y1="18" x2="12" y2="18"/>
+          </svg>
+          <span class="nav-badge hidden" id="leaveBadge" style="top:-4px;right:-4px">0</span>
+        </span>
+        <span>الاستئذان</span>
+      </button>
       <button class="nav-item" data-page="settings">
         <span class="nav-icon">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -7001,7 +8200,7 @@ function navigateTo(page) {
   activeNavPage = page;
   document.querySelectorAll('.page-section').forEach(el => el.classList.add('hidden'));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  const pageMap = { points: 'pagePoints', store: 'pageStore', notifications: 'pageNotifications', settings: 'pageSettings' , nafis: 'pageNafis' , nafisSubject: 'pageNafisSubject', nafisQuiz: 'pageNafisQuiz', nafisResult: 'pageNafisResult' };
+  const pageMap = { points: 'pagePoints', store: 'pageStore', notifications: 'pageNotifications', settings: 'pageSettings', leave: 'pageLeave', nafis: 'pageNafis', nafisSubject: 'pageNafisSubject', nafisQuiz: 'pageNafisQuiz', nafisResult: 'pageNafisResult' };
   const pageEl = $(pageMap[page]);
   if (pageEl) pageEl.classList.remove('hidden');
   const navEl = document.querySelector('[data-page="' + page + '"]');
@@ -7012,11 +8211,18 @@ function navigateTo(page) {
     const notifBadge = $('notifBadge');
     if (notifBadge) notifBadge.classList.add('hidden');
   }
+  // عند فتح صفحة الاستئذان: تحديث القائمة وإخفاء الـ badge
+  if (page === 'leave') {
+    renderLeavePasses();
+    const leaveBadge = $('leaveBadge');
+    if (leaveBadge) leaveBadge.classList.add('hidden');
+    try { localStorage.setItem('parent_leave_read_at', new Date().toISOString()); } catch(e) {}
+  }
 }
 
 /* ===== RENDER HELPERS ===== */
 function formatDate(str) {
-  if (!str) return '—';
+  if (!str) return '&mdash;';
   try {
     const d = new Date(str);
     return d.toLocaleDateString('ar-SA', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -7038,7 +8244,7 @@ function renderStudentsList() {
   if (!container) return;
   const students = profileData.students || [];
   if (!students.length) {
-    container.innerHTML = '<div class="empty-state"><div class="empty-icon">👨‍👩‍👧</div><p>لا يوجد أبناء مرتبطون بهذا الرقم.</p></div>';
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67</div><p>لا يوجد أبناء مرتبطون بهذا الرقم.</p></div>';
     return;
   }
   container.innerHTML = students.map(student => {
@@ -7061,21 +8267,115 @@ function renderStudentsList() {
         : '<div class="empty-state" style="padding:20px"><p>لا توجد خصومات في هذه الفترة.</p></div>';
     } else {
       tabContent = attendance
-        ? '<div class="action-item"><div><div class="action-title">آخر حضور</div><div class="action-meta">' + (attendance.isoDate || '') + ' ' + (attendance.time || '') + ' • ' + (attendance.result || '') + ' • ' + (attendance.gateName || '—') + '</div></div><span class="pill pill-teal">' + (student.attendanceRate || 0) + '%</span></div>'
+        ? '<div class="action-item"><div><div class="action-title">آخر حضور</div><div class="action-meta">' + (attendance.isoDate || '') + ' ' + (attendance.time || '') + ' &bull; ' + (attendance.result || '') + ' &bull; ' + (attendance.gateName || '&mdash;') + '</div></div><span class="pill pill-teal">' + (student.attendanceRate || 0) + '%</span></div>'
         : '<div class="empty-state" style="padding:20px"><p>لا يوجد سجل حضور بعد.</p></div>';
     }
     return '<div class="student-card">'
       + '<div class="student-header">'
-      + '<div><div class="student-name">' + (student.name || 'طالب') + '</div><div class="student-meta">' + (student.schoolName || '') + ' • ' + (student.className || '—') + '</div></div>'
+      + '<div><div class="student-name">' + (student.name || 'طالب') + '</div><div class="student-meta">' + (student.schoolName || '') + ' &bull; ' + (student.className || '&mdash;') + '</div></div>'
       + '<div class="student-points-badge"><div class="pts">' + (student.points || 0) + '</div><div class="pts-lbl">نقطة</div></div>'
       + '</div>'
       + '<div class="student-stats">'
       + '<span class="student-stat-chip">الحضور: ' + (student.attendanceRate || 0) + '%</span>'
-      + '<span class="student-stat-chip pill ' + (student.status === 'active' ? 'pill-green' : 'pill-slate') + '">' + (student.status || '—') + '</span>'
+      + '<span class="student-stat-chip pill ' + (student.status === 'active' ? 'pill-green' : 'pill-slate') + '">' + (student.status || '&mdash;') + '</span>'
       + '</div>'
       + tabContent
       + '</div>';
   }).join('');
+}
+
+// ===== LEAVE PASSES FUNCTIONS =====
+function renderLeavePasses() {
+  if (!profileData) return;
+  const passes = profileData.leavePasses || [];
+  const container = $('leavePassesList');
+  if (!container) return;
+  // تحديث قائمة الطلاب في نموذج الطلب
+  const studentSelect = $('leaveStudentSelect');
+  if (studentSelect) {
+    const students = profileData.students || [];
+    studentSelect.innerHTML = '<option value="">اختر الطالب...</option>' +
+      students.map(s => '<option value="' + s.studentId + '" data-school="' + s.schoolId + '">' + (s.name || 'طالب') + ' — ' + (s.schoolName || '') + '</option>').join('');
+  }
+  if (!passes.length) {
+    container.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><p>لا توجد استئذانات بعد.</p></div>';
+    return;
+  }
+  container.innerHTML = passes.map(p => {
+    const statusClass = (() => {
+      const s = String(p.status || '');
+      if (s === 'created' || s === 'parent-requested') return 'leave-status-new';
+      if (s === 'sent-manual' || s === 'sent-system' || s === 'viewed') return 'leave-status-pending';
+      if (s === 'approved-agent' || s === 'approved-counselor' || s === 'parent-approved') return 'leave-status-approved';
+      if (s === 'completed' || s === 'released-guardian' || s === 'released-teacher') return 'leave-status-completed';
+      if (s === 'cancelled') return 'leave-status-cancelled';
+      return 'leave-status-parent';
+    })();
+    const timelineHtml = (p.timeline && p.timeline.length > 1)
+      ? '<div class="leave-timeline">' + p.timeline.map(t => '<div class="leave-timeline-item"><div class="leave-timeline-dot"></div><div>' + (t.status || '') + (t.by ? ' — ' + t.by : '') + (t.time ? ' <span style="opacity:0.6">(' + formatDate(t.time) + ')</span>' : '') + '</div></div>').join('') + '</div>'
+      : '';
+    return '<div class="leave-card">'
+      + '<div class="leave-card-header">'
+      + '<div>'
+      + '<div class="leave-student-name">' + (p.studentName || 'طالب') + (p.isFromParent ? ' <span style="font-size:11px;color:#7c3aed;font-weight:600">• طلب ولي الأمر</span>' : '') + '</div>'
+      + '<div class="leave-meta">' + (p.schoolName || '') + (p.className ? ' • ' + p.className : '') + ' • ' + (p.destinationLabel || p.destination || '') + '</div>'
+      + '<div class="leave-meta" style="margin-top:2px">' + formatDate(p.createdAt) + '</div>'
+      + '</div>'
+      + '<span class="leave-status-badge ' + statusClass + '">' + (p.statusLabel || p.status || '') + '</span>'
+      + '</div>'
+      + (p.note ? '<div class="leave-note">' + p.note + '</div>' : '')
+      + timelineHtml
+      + '</div>';
+  }).join('');
+}
+
+async function submitLeaveRequest() {
+  const studentSelect = $('leaveStudentSelect');
+  const destinationSelect = $('leaveDestinationSelect');
+  const noteInput = $('leaveNoteInput');
+  const msgEl = $('leaveSubmitMsg');
+  const btn = $('submitLeaveBtn');
+  if (!studentSelect || !studentSelect.value) {
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#be123c'; msgEl.textContent = 'يرجى اختيار الطالب أولاً.'; }
+    return;
+  }
+  const selectedOption = studentSelect.options[studentSelect.selectedIndex];
+  const schoolId = Number(selectedOption?.dataset?.school || 0);
+  const studentId = studentSelect.value;
+  const destination = destinationSelect?.value || 'guardian';
+  const note = noteInput?.value?.trim() || '';
+  if (!schoolId) {
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#be123c'; msgEl.textContent = 'تعذر تحديد المدرسة. يرجى المحاولة مرة أخرى.'; }
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'جاري الإرسال...'; }
+  if (msgEl) msgEl.style.display = 'none';
+  try {
+    const token = getToken();
+    const data = await api('/api/parent/leave-request', {
+      method: 'POST',
+      headers: { 'X-Session-Token': token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schoolId, studentId, destination, note }),
+    });
+    if (data.ok) {
+      if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#15803d'; msgEl.textContent = '✅ تم إرسال طلب الاستئذان للمدرسة بنجاح.'; }
+      if (noteInput) noteInput.value = '';
+      if (studentSelect) studentSelect.value = '';
+      // تحديث البيانات
+      if (data.profile) {
+        profileData = data.profile;
+        renderLeavePasses();
+        const sp = $('statTotalPoints'); if (sp) sp.textContent = profileData.totalPoints || 0;
+      }
+      playNotificationSound('info');
+    } else {
+      if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#be123c'; msgEl.textContent = '❌ ' + (data.message || 'حدث خطأ. يرجى المحاولة مرة أخرى.'); }
+    }
+  } catch(e) {
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.style.color = '#be123c'; msgEl.textContent = '❌ تعذر الاتصال بالخادم. يرجى المحاولة مرة أخرى.'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'إرسال طلب الاستئذان للمدرسة'; }
+  }
 }
 
 function renderActionItem(a) {
@@ -7084,7 +8384,7 @@ function renderActionItem(a) {
   const ptsText = (pts > 0 ? '+' : '') + pts + ' نقطة';
   return '<div class="action-item">'
     + '<div><div class="action-title">' + (a.title || 'إجراء') + '</div>'
-    + '<div class="action-meta">' + (a.actorName || '—') + ' • ' + formatDate(a.createdAt) + (a.note ? ' • ' + a.note : '') + '</div></div>'
+    + '<div class="action-meta">' + (a.actorName || '&mdash;') + ' &bull; ' + formatDate(a.createdAt) + (a.note ? ' &bull; ' + a.note : '') + '</div></div>'
     + '<span class="action-pts ' + ptsClass + '">' + ptsText + '</span>'
     + '</div>';
 }
@@ -7112,7 +8412,7 @@ function renderRewardCatalog() {
           return '<div class="reward-item">' + img
             + '<div class="reward-body">'
             + '<div class="reward-title">' + (item.title || 'جائزة') + '</div>'
-            + '<div class="reward-meta">' + (item.schoolName || '') + ' • ' + (item.donorName || (item.source === 'parent' ? 'ولي أمر' : 'إدارة المدرسة')) + '</div>'
+            + '<div class="reward-meta">' + (item.schoolName || '') + ' &bull; ' + (item.donorName || (item.source === 'parent' ? 'ولي أمر' : 'إدارة المدرسة')) + '</div>'
             + '<div class="reward-footer">'
             + '<span class="pill pill-teal">' + (item.pointsCost || 0) + ' نقطة</span>'
             + '<span class="pill pill-slate">متبقي: ' + (item.remainingQuantity || 0) + '/' + (item.quantity || 0) + '</span>'
@@ -7120,7 +8420,7 @@ function renderRewardCatalog() {
             + (item.note ? '<div style="margin-top:8px;font-size:13px;color:var(--muted);line-height:1.7">' + item.note + '</div>' : '')
             + '</div></div>';
         }).join('')
-      : '<div class="empty-state"><div class="empty-icon">🎁</div><p>لا توجد جوائز معتمدة في المتجر حتى الآن.</p></div>';
+      : '<div class="empty-state"><div class="empty-icon">\ud83c\udf81</div><p>لا توجد جوائز معتمدة في المتجر حتى الآن.</p></div>';
   }
   fillRedeemDropdowns(schools, studentsBySchool, catalog);
   renderStoreHistory();
@@ -7131,7 +8431,7 @@ function fillRedeemDropdowns(schools, studentsBySchool, catalog) {
     const schoolId = $('rewardRedeemSchool') ? $('rewardRedeemSchool').value : '';
     const students = studentsBySchool[schoolId] || [];
     if ($('rewardRedeemStudent')) {
-      $('rewardRedeemStudent').innerHTML = students.map(s => '<option value="' + (s.studentId || s.id || '') + '">' + (s.name || 'طالب') + ' — ' + (s.points || 0) + ' نقطة</option>').join('') || '<option value="">لا يوجد طلاب</option>';
+      $('rewardRedeemStudent').innerHTML = students.map(s => '<option value="' + (s.studentId || s.id || '') + '">' + (s.name || 'طالب') + ' &mdash; ' + (s.points || 0) + ' نقطة</option>').join('') || '<option value="">لا يوجد طلاب</option>';
     }
     fillItems();
   }
@@ -7139,7 +8439,7 @@ function fillRedeemDropdowns(schools, studentsBySchool, catalog) {
     const schoolId = $('rewardRedeemSchool') ? $('rewardRedeemSchool').value : '';
     const items = catalog.filter(item => String(item.schoolId || '') === String(schoolId || ''));
     if ($('rewardRedeemItem')) {
-      $('rewardRedeemItem').innerHTML = items.map(item => '<option value="' + (item.id || '') + '">' + (item.title || 'جائزة') + ' — ' + (item.pointsCost || 0) + ' نقطة</option>').join('') || '<option value="">لا توجد جوائز معتمدة</option>';
+      $('rewardRedeemItem').innerHTML = items.map(item => '<option value="' + (item.id || '') + '">' + (item.title || 'جائزة') + ' &mdash; ' + (item.pointsCost || 0) + ' نقطة</option>').join('') || '<option value="">لا توجد جوائز معتمدة</option>';
     }
   }
   fillStudents();
@@ -7153,13 +8453,13 @@ function renderStoreHistory() {
   const phEl = $('rewardProposalHistory');
   if (phEl) {
     phEl.innerHTML = proposals.length
-      ? proposals.slice(0, 5).map(item => '<div class="notif-item"><div class="notif-header"><div class="notif-title">' + (item.title || 'جائزة') + '</div><span class="pill ' + (item.status === 'approved' ? 'pill-green' : item.status === 'rejected' ? 'pill-red' : 'pill-amber') + '">' + (item.status === 'approved' ? 'قُبل' : item.status === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد') + '</span></div><div class="notif-meta">' + (item.schoolName || '') + ' • ' + formatDate(item.createdAt) + ' • ' + (item.quantity || 1) + ' قطعة</div>' + (item.decisionNote || item.note ? '<div class="notif-body">' + (item.decisionNote || item.note) + '</div>' : '') + '</div>').join('')
+      ? proposals.slice(0, 5).map(item => '<div class="notif-item"><div class="notif-header"><div class="notif-title">' + (item.title || 'جائزة') + '</div><span class="pill ' + (item.status === 'approved' ? 'pill-green' : item.status === 'rejected' ? 'pill-red' : 'pill-amber') + '">' + (item.status === 'approved' ? 'قُبل' : item.status === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد') + '</span></div><div class="notif-meta">' + (item.schoolName || '') + ' &bull; ' + formatDate(item.createdAt) + ' &bull; ' + (item.quantity || 1) + ' قطعة</div>' + (item.decisionNote || item.note ? '<div class="notif-body">' + (item.decisionNote || item.note) + '</div>' : '') + '</div>').join('')
       : '<div class="empty-state" style="padding:20px"><p>لم يتم إرسال مقترحات حتى الآن.</p></div>';
   }
   const rhEl = $('rewardRedeemHistory');
   const rhStoreEl = $('rewardRedeemHistoryStore');
   const redeemHtml = redemptions.length
-    ? redemptions.slice(0, 5).map(item => '<div class="notif-item"><div class="notif-header"><div class="notif-title">' + (item.itemTitle || 'جائزة') + '</div><span class="pill ' + (item.status === 'approved' ? 'pill-green' : item.status === 'rejected' ? 'pill-red' : 'pill-amber') + '">' + (item.status === 'approved' ? 'معتمد' : item.status === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد') + '</span></div><div class="notif-meta">' + (item.studentName || 'طالب') + ' • ' + (item.schoolName || '') + ' • ' + formatDate(item.createdAt) + '</div>' + (item.decisionNote || item.note ? '<div class="notif-body">' + (item.decisionNote || item.note) + '</div>' : '') + '</div>').join('')
+    ? redemptions.slice(0, 5).map(item => '<div class="notif-item"><div class="notif-header"><div class="notif-title">' + (item.itemTitle || 'جائزة') + '</div><span class="pill ' + (item.status === 'approved' ? 'pill-green' : item.status === 'rejected' ? 'pill-red' : 'pill-amber') + '">' + (item.status === 'approved' ? 'معتمد' : item.status === 'rejected' ? 'مرفوض' : 'بانتظار الاعتماد') + '</span></div><div class="notif-meta">' + (item.studentName || 'طالب') + ' &bull; ' + (item.schoolName || '') + ' &bull; ' + formatDate(item.createdAt) + '</div>' + (item.decisionNote || item.note ? '<div class="notif-body">' + (item.decisionNote || item.note) + '</div>' : '') + '</div>').join('')
     : '<div class="empty-state" style="padding:20px"><p>لم يتم إرسال طلبات استبدال حتى الآن.</p></div>';
   if (rhEl) rhEl.innerHTML = redeemHtml;
   if (rhStoreEl) rhStoreEl.innerHTML = redeemHtml;
@@ -7232,12 +8532,12 @@ function renderNotifications() {
           + '<div class="notif-title" style="color:' + titleColor + ';">' + (item.title || 'تنبيه') + '</div>'
           + pointsBadge
           + '</div>'
-          + '<div class="notif-body">' + (item.body || '—') + '</div>'
-          + '<div class="notif-meta">' + [item.studentName, item.schoolName, item.channel, item.recipientMasked || item.recipient, formatDate(item.sentAt || item.createdAt)].filter(Boolean).join(' • ') + '</div>'
+          + '<div class="notif-body">' + (item.body || '&mdash;') + '</div>'
+          + '<div class="notif-meta">' + [item.studentName, item.schoolName, item.channel, item.recipientMasked || item.recipient, formatDate(item.sentAt || item.createdAt)].filter(Boolean).join(' &bull; ') + '</div>'
           + (item.reason ? '<div style="margin-top:6px;font-size:12px;color:var(--danger)">سبب التعثر: ' + item.reason + '</div>' : '')
           + '</div>';
       }).join('')
-    : '<div class="empty-state"><div class="empty-icon">🔔</div><p>لا توجد تنبيهات مطابقة.</p></div>';
+    : '<div class="empty-state"><div class="empty-icon">\ud83d\udd14</div><p>لا توجد تنبيهات مطابقة.</p></div>';
 }
 
 function renderExtraContacts() {
@@ -7246,7 +8546,7 @@ function renderExtraContacts() {
   const el = $('extraContactsList');
   if (!el) return;
   el.innerHTML = contacts.length
-    ? contacts.map(item => '<div class="contact-row"><div class="contact-info"><div class="contact-num">' + (item.mobileMasked || item.mobile || '') + '</div><div class="contact-meta">' + (item.label || 'رقم إضافي') + ' • ' + (item.channel || 'whatsapp') + ' • ' + formatDate(item.verifiedAt) + '</div></div><span class="pill pill-teal">موثّق ✓</span></div>').join('')
+    ? contacts.map(item => '<div class="contact-row"><div class="contact-info"><div class="contact-num">' + (item.mobileMasked || item.mobile || '') + '</div><div class="contact-meta">' + (item.label || 'رقم إضافي') + ' &bull; ' + (item.channel || 'whatsapp') + ' &bull; ' + formatDate(item.verifiedAt) + '</div></div><span class="pill pill-teal">موثّق \u2713</span></div>').join('')
     : '<div class="empty-state" style="padding:20px"><p>لا توجد أرقام إضافية مرتبطة حتى الآن.</p></div>';
 }
 
@@ -7273,8 +8573,8 @@ function renderPrimaryChangeRequest() {
   if (!el) return;
   if (!req) { el.innerHTML = 'لا يوجد طلب قائم حاليًا.'; return; }
   const statusText = req.status === 'pending' ? 'بانتظار الاعتماد' : (req.status || 'pending');
-  el.innerHTML = '<div style="font-weight:800">' + (req.requestedMobileMasked || req.requestedMobile || '—') + '</div>'
-    + '<div style="font-size:12px;color:var(--muted);margin-top:4px">الحالة: ' + statusText + ' • ' + formatDate(req.requestedAt) + '</div>'
+  el.innerHTML = '<div style="font-weight:800">' + (req.requestedMobileMasked || req.requestedMobile || '&mdash;') + '</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:4px">الحالة: ' + statusText + ' &bull; ' + formatDate(req.requestedAt) + '</div>'
     + (req.note ? '<div style="font-size:12px;margin-top:4px">' + req.note + '</div>' : '');
 }
 
@@ -7346,19 +8646,19 @@ function renderPointsChart(profile) {
         legend: { display: false },
         tooltip: {
           rtl: true,
-          titleFont: { family: 'Tajawal', size: 12 },
-          bodyFont: { family: 'Tajawal', size: 12 },
+          titleFont: { family: 'HelveticaArabic', size: 12 },
+          bodyFont: { family: 'HelveticaArabic', size: 12 },
         }
       },
       scales: {
         x: {
           grid: { display: false },
-          ticks: { font: { family: 'Tajawal', size: 10 }, color: '#94a3b8' }
+          ticks: { font: { family: 'HelveticaArabic', size: 10 }, color: '#94a3b8' }
         },
         y: {
           beginAtZero: true,
           grid: { color: 'rgba(148,163,184,0.15)' },
-          ticks: { font: { family: 'Tajawal', size: 10 }, color: '#94a3b8', stepSize: 5 }
+          ticks: { font: { family: 'HelveticaArabic', size: 10 }, color: '#94a3b8', stepSize: 5 }
         }
       }
     }
@@ -7382,6 +8682,7 @@ function renderProfile(profile) {
   renderNotificationSettings();
   renderPrimaryChangeRequest();
   renderPointsChart(profile);
+  renderLeavePasses();
   // Show main app
   $('loginScreen').classList.add('hidden');
   $('mainApp').classList.remove('hidden');
@@ -7418,7 +8719,7 @@ async function showNafisSubjectPicker() {
   navigateTo('nafisSubject');
   const sel = $('nafisStudentSelect');
   const studentId = sel ? sel.value : '';
-  const schoolId = sel ? sel.dataset.schoolId : '';
+  const schoolId = sel ? (sel.options[sel.selectedIndex]?.dataset?.schoolId || '') : '';
   if (!studentId || !schoolId) return;
   const loading = $('nafisSubjectLoading');
   const list = $('nafisSubjectList');
@@ -7436,12 +8737,20 @@ async function showNafisSubjectPicker() {
     const btns = $('nafisSubjectButtons');
     if (btns) {
       btns.innerHTML = nafisCurrentSubjects.map((s) => {
-        const icons = { math: '🔢', arabic: '📖', science: '🔬', physics: '⚡', chemistry: '🧪', biology: '🌿', social: '🌍' };
-        return '<button class="btn btn-outline" onclick="startNafisQuiz(' + JSON.stringify(s.key) + ')" style="width:100%;font-size:16px;padding:14px">' + (icons[s.key] || '\u{1F4DA}') + ' ' + s.label + '</button>';
+        const icons = { math: '\ud83d\udd22', arabic: '\ud83d\udcd6', science: '\ud83d\udd2c', physics: '\u26a1', chemistry: '\ud83e\uddea', biology: '\ud83c\udf3f', social: '\ud83c\udf0d' };
+        return '<button class="btn btn-outline nafis-subject-btn" data-subject="' + s.key + '" style="width:100%;font-size:16px;padding:14px">' + (icons[s.key] || '\u{1F4DA}') + ' ' + s.label + '</button>';
       }).join('');
     }
     if (loading) loading.classList.add('hidden');
     if (list) list.style.display = 'block';
+    // إضافة event listeners لأزرار المواد
+    if (btns) {
+      btns.querySelectorAll('.nafis-subject-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          startNafisQuiz(this.getAttribute('data-subject'));
+        });
+      });
+    }
   } catch(e) {
     if (loading) loading.classList.add('hidden');
     showToast('تعذّر تحميل المواد. حاول مجدداً.', 'error');
@@ -7458,7 +8767,7 @@ let nafisTimeLeft = 0;
 async function startNafisQuiz(subject) {
   const sel = $('nafisStudentSelect');
   const studentId = sel ? sel.value : '';
-  const schoolId = sel ? sel.dataset.schoolId : '';
+  const schoolId = sel ? (sel.options[sel.selectedIndex]?.dataset?.schoolId || '') : '';
   if (!studentId || !schoolId) return;
   navigateTo('nafisQuiz');
   try {
@@ -7512,7 +8821,7 @@ function renderNafisQuestion() {
   const bar = $('nafisProgressBar');
   if (bar) bar.style.width = ((nafisCurrentQuestion / total) * 100) + '%';
   const skill = $('nafisQuizSkill');
-  if (skill) skill.textContent = (q.skill || '') + (q.difficulty ? ' • ' + { easy: 'سهل', medium: 'متوسط', hard: 'صعب' }[q.difficulty] || q.difficulty : '');
+  if (skill) skill.textContent = (q.skill || '') + (q.difficulty ? ' &bull; ' + { easy: 'سهل', medium: 'متوسط', hard: 'صعب' }[q.difficulty] || q.difficulty : '');
   const question = $('nafisQuizQuestion');
   if (question) question.textContent = q.question;
   const options = $('nafisQuizOptions');
@@ -7528,7 +8837,7 @@ function renderNafisQuestion() {
   const nextBtn = $('nafisNextBtn');
   if (nextBtn) {
     nextBtn.style.display = nafisUserAnswers[nafisCurrentQuestion] >= 0 ? 'block' : 'none';
-    nextBtn.textContent = nafisCurrentQuestion === total - 1 ? '✅ إنهاء الاختبار' : 'التالي ←';
+    nextBtn.textContent = nafisCurrentQuestion === total - 1 ? '\u2705 إنهاء الاختبار' : 'التالي \u2190';
   }
 }
 
@@ -7544,7 +8853,7 @@ function selectNafisAnswer(idx) {
   const nextBtn = $('nafisNextBtn');
   if (nextBtn) {
     nextBtn.style.display = 'block';
-    nextBtn.textContent = nafisCurrentQuestion === (nafisQuizData?.questions?.length || 10) - 1 ? '✅ إنهاء الاختبار' : 'التالي ←';
+    nextBtn.textContent = nafisCurrentQuestion === (nafisQuizData?.questions?.length || 10) - 1 ? '\u2705 إنهاء الاختبار' : 'التالي \u2190';
   }
 }
 
@@ -7584,10 +8893,10 @@ function renderNafisResult(result) {
   const correct = result.correct || 0;
   const total = result.total || 0;
   // الإيموجي حسب النتيجة
-  const emoji = score >= 90 ? '🥇' : score >= 75 ? '🥈' : score >= 60 ? '🥉' : score >= 40 ? '📚' : '💪';
+  const emoji = score >= 90 ? '\ud83e\udd47' : score >= 75 ? '\ud83e\udd48' : score >= 60 ? '\ud83e\udd49' : score >= 40 ? '\ud83d\udcda' : '\ud83d\udcaa';
   const el = $('nafisResultEmoji'); if (el) el.textContent = emoji;
   const scoreEl = $('nafisResultScore'); if (scoreEl) { scoreEl.textContent = score + '%'; scoreEl.style.color = score >= 75 ? '#15803d' : score >= 50 ? '#b45309' : '#dc2626'; }
-  const labelEl = $('nafisResultLabel'); if (labelEl) labelEl.textContent = score >= 90 ? 'ممتاز! أداء رائع 🌟' : score >= 75 ? 'جيد جداً! استمر 👍' : score >= 60 ? 'جيد، يمكنك التحسين 📈' : score >= 40 ? 'تحتاج مزيداً من التدريب 📖' : 'لا تستسلم، حاول مجدداً 💪';
+  const labelEl = $('nafisResultLabel'); if (labelEl) labelEl.textContent = score >= 90 ? 'ممتاز! أداء رائع \ud83c\udf1f' : score >= 75 ? 'جيد جداً! استمر \ud83d\udc4d' : score >= 60 ? 'جيد، يمكنك التحسين \ud83d\udcc8' : score >= 40 ? 'تحتاج مزيداً من التدريب \ud83d\udcd6' : 'لا تستسلم، حاول مجدداً \ud83d\udcaa';
   const fracEl = $('nafisResultFraction'); if (fracEl) fracEl.textContent = correct + ' / ' + total + ' إجابة صحيحة';
   // تفاصيل الأسئلة
   const details = $('nafisResultDetails');
@@ -7596,14 +8905,14 @@ function renderNafisResult(result) {
       const q = nafisQuizData.questions[i];
       const color = d.isCorrect ? '#15803d' : '#dc2626';
       const bg = d.isCorrect ? '#dcfce7' : '#fff1f2';
-      const icon = d.isCorrect ? '✅' : '❌';
+      const icon = d.isCorrect ? '\u2705' : '\u274c';
       const selectedText = q ? (q.options[d.selectedAnswer] || '-') : '-';
       const correctText = q ? (q.options[d.correctAnswer] || '-') : '-';
       return '<div style="padding:10px 0;border-bottom:1px solid var(--border)">'
         + '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">' + icon + ' ' + (q ? q.question : 'سؤال ' + (i+1)) + '</div>'
         + (d.isCorrect ? '' : '<div style="font-size:12px;color:#dc2626">إجابتك: ' + selectedText + '</div>')
         + '<div style="font-size:12px;color:#15803d">الإجابة الصحيحة: ' + correctText + '</div>'
-        + (d.explanation ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">💡 ' + d.explanation + '</div>' : '')
+        + (d.explanation ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">\ud83d\udca1 ' + d.explanation + '</div>' : '')
         + '</div>';
     }).join('');
   }
@@ -7634,7 +8943,7 @@ async function loadNafisStats() {
   const sel = $('nafisStudentSelect');
   if (!sel || !sel.value) return;
   const studentId = sel.value;
-  const schoolId = sel.options[sel.selectedIndex]?.dataset?.school || '';
+  const schoolId = sel.options[sel.selectedIndex]?.dataset?.schoolId || '';
   const loading = $('nafisLoading');
   const empty = $('nafisEmpty');
   const list = $('nafisAttemptsList');
@@ -7648,6 +8957,17 @@ async function loadNafisStats() {
       headers: { 'X-Session-Token': getToken() }
     });
     nafisStudentData = data;
+    // تحديث اسم الاختبار حسب المرحلة
+    const lbl = data.nafisLabel || 'نافس';
+    const nafisIcon = lbl === 'تحصيلي' ? '\ud83d\udcca' : lbl === 'تقييم' ? '\u2705' : '\ud83c\udfc6';
+    const nafisPageTitle = $('nafisPageTitle');
+    if (nafisPageTitle) nafisPageTitle.textContent = nafisIcon + ' اختبارات ' + lbl;
+    const nafisStartBtnLabel = $('nafisStartBtnLabel');
+    if (nafisStartBtnLabel) nafisStartBtnLabel.textContent = 'ابدأ اختبار ' + lbl + ' جديد';
+    const nafisEmptyMsg = $('nafisEmptyMsg');
+    if (nafisEmptyMsg) nafisEmptyMsg.textContent = 'لا توجد محاولات في اختبارات ' + lbl + ' حتى الآن.';
+    const nafisEmptyHint = $('nafisEmptyHint');
+    if (nafisEmptyHint) nafisEmptyHint.textContent = 'اضغط على زر "ابدأ اختبار ' + lbl + ' جديد" لبدء أول اختبار!';
     // Update stats
     const sa = $('nafisStatAttempts'); if (sa) sa.textContent = data.totalAttempts || 0;
     const sc = $('nafisStatCorrect'); if (sc) sc.textContent = data.totalCorrect || 0;
@@ -7659,14 +8979,14 @@ async function loadNafisStats() {
     }
     // Render attempts
     if (list) {
-      list.innerHTML = '<div class="card"><div class="card-title"><span class="icon">📝</span> آخر المحاولات</div>'
+      list.innerHTML = '<div class="card"><div class="card-title"><span class="icon">\ud83d\udcdd</span> آخر المحاولات</div>'
         + (data.recentAttempts || []).map(a => {
             const pct = a.total > 0 ? Math.round((a.correct / a.total) * 100) : 0;
             const color = pct >= 80 ? '#15803d' : pct >= 60 ? '#b45309' : '#be123c';
             const bg = pct >= 80 ? '#dcfce7' : pct >= 60 ? '#fef3c7' : '#fff1f2';
             return '<div class="action-item">'
               + '<div><div class="action-title">' + (a.subject || 'اختبار نافس') + (a.grade ? ' - ' + a.grade : '') + '</div>'
-              + '<div class="action-meta">' + formatDate(a.createdAt || a.date) + (a.note ? ' • ' + a.note : '') + '</div></div>'
+              + '<div class="action-meta">' + formatDate(a.createdAt || a.date) + (a.note ? ' &bull; ' + a.note : '') + '</div></div>'
               + '<span style="background:' + bg + ';color:' + color + ';font-weight:900;font-size:13px;padding:3px 10px;border-radius:20px">'
               + a.correct + '/' + a.total + ' (' + pct + '%)</span>'
               + '</div>';
@@ -7684,10 +9004,10 @@ async function loadNafisStats() {
           const lb = $('nafisLeaderboard');
           if (lb) {
             lb.innerHTML = lbData.leaderboard.map((s, i) => {
-              const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + '.';
+              const medal = i === 0 ? '\ud83e\udd47' : i === 1 ? '\ud83e\udd48' : i === 2 ? '\ud83e\udd49' : (i + 1) + '.';
               return '<div class="action-item">'
                 + '<div><div class="action-title">' + medal + ' ' + (s.studentName || 'طالب') + '</div>'
-                + '<div class="action-meta">' + s.attempts + ' محاولة • ' + s.correct + ' صحيحة</div></div>'
+                + '<div class="action-meta">' + s.attempts + ' محاولة &bull; ' + s.correct + ' صحيحة</div></div>'
                 + '<span class="pill pill-teal">' + s.avgScore + '%</span>'
                 + '</div>';
             }).join('');
@@ -8109,6 +9429,13 @@ async function loadPortalConfig() {
         altSep.style.display = '';
       }
     }
+    // إخفاء/إظهار نموذج الاستئذان بناءً على إعداد الأدمن
+    const leaveForm = $('leaveRequestForm');
+    if (leaveForm) {
+      if (data.allowParentLeavePass === false) {
+        leaveForm.innerHTML = '<div style="text-align:center;padding:20px;background:#fef2f2;border-radius:12px;border:1px solid #fecaca"><div style="font-size:32px">🚫</div><div style="font-weight:bold;color:#dc2626;margin-top:8px">خاصية استئذان ولي الأمر معطلة حالياً</div><div style="color:#6b7280;margin-top:6px;font-size:14px">تواصل مع إدارة المدرسة للمزيد من المعلومات.</div></div>';
+      }
+    }
   } catch(e) { /* في حال فشل التحميل نترك الزر ظاهراً */ }
 }
 
@@ -8207,11 +9534,11 @@ function showInAppNotification(title, body, type) {
   if (!banner) {
     banner = document.createElement('div');
     banner.id = 'inAppNotifBanner';
-    banner.style.cssText = 'position:fixed;top:16px;right:16px;left:16px;z-index:9999;max-width:420px;margin:0 auto;background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff;border-radius:20px;padding:16px 18px;box-shadow:0 8px 32px rgba(15,118,110,0.35);font-family:Tajawal,sans-serif;direction:rtl;display:none;transition:all 0.3s ease;';
+    banner.style.cssText = 'position:fixed;top:16px;right:16px;left:16px;z-index:9999;max-width:420px;margin:0 auto;background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff;border-radius:20px;padding:16px 18px;box-shadow:0 8px 32px rgba(15,118,110,0.35);font-family:HelveticaArabic,"Helvetica Neue",Helvetica,Arial,sans-serif;direction:rtl;display:none;transition:all 0.3s ease;';
     document.body.appendChild(banner);
   }
-  const icon = type === 'reward' ? '⭐' : type === 'violation' ? '⚠️' : '🔔';
-  banner.innerHTML = '<div style="display:flex;align-items:flex-start;gap:12px"><div style="font-size:24px;flex-shrink:0">' + icon + '</div><div style="flex:1"><div style="font-weight:800;font-size:15px;margin-bottom:4px">' + (title || 'تنبيه جديد') + '</div><div style="font-size:13px;opacity:0.9;line-height:1.5">' + (body || '') + '</div></div><button id="notifBannerClose" style="background:rgba(255,255,255,0.2);border:0;color:#fff;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;flex-shrink:0">×</button></div>';
+  const icon = type === 'reward' ? '\u2b50' : type === 'violation' ? '\u26a0\ufe0f' : '\ud83d\udd14';
+  banner.innerHTML = '<div style="display:flex;align-items:flex-start;gap:12px"><div style="font-size:24px;flex-shrink:0">' + icon + '</div><div style="flex:1"><div style="font-weight:800;font-size:15px;margin-bottom:4px">' + (title || 'تنبيه جديد') + '</div><div style="font-size:13px;opacity:0.9;line-height:1.5">' + (body || '') + '</div></div><button id="notifBannerClose" style="background:rgba(255,255,255,0.2);border:0;color:#fff;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;flex-shrink:0">\u00D7</button></div>';
   const closeBtn = document.getElementById('notifBannerClose');
   if (closeBtn) closeBtn.onclick = function() { banner.style.display = 'none'; };
   if (type === 'violation') banner.style.background = 'linear-gradient(135deg,#be123c,#e11d48)';
@@ -8255,8 +9582,24 @@ async function pollNewNotifications() {
         // تحديث البيانات
         profileData = profile;
         renderNotifications();
+        renderStudentsList();
         const sp = $('statTotalPoints'); if (sp) sp.textContent = profile.totalPoints || 0;
         renderPointsChart(profile);
+        // تحديث الاستئذانات وشارتها
+        if (typeof renderLeavePasses === 'function') {
+          renderLeavePasses();
+          const newPasses = (profile.leavePasses || []).filter(p => !['completed','cancelled'].includes(String(p.status||'')));
+          let lastLeaveRead = '';
+          try { lastLeaveRead = localStorage.getItem('parent_leave_read_at') || ''; } catch(e) {}
+          const unreadLeave = lastLeaveRead
+            ? newPasses.filter(p => (p.updatedAt || p.createdAt || '') > lastLeaveRead).length
+            : newPasses.length;
+          const leaveBadge = $('leaveBadge');
+          if (leaveBadge) {
+            if (unreadLeave > 0 && activeNavPage !== 'leave') { leaveBadge.textContent = unreadLeave; leaveBadge.classList.remove('hidden'); }
+            else leaveBadge.classList.add('hidden');
+          }
+        }
         // تحديث شارة التنبيهات بناءً على آخر وقت قراءة
         const notifBadge = $('notifBadge');
         if (notifBadge) {
@@ -8284,8 +9627,8 @@ function startNotificationPolling() {
     const history = profileData?.notificationHistory || [];
     _lastNotifTimestamp = history[0]?.createdAt || history[0]?.sentAt || new Date().toISOString();
   }, 500);
-  // فحص كل 10 ثوانٍ لتسريع التنبيهات
-  _notifPollingInterval = setInterval(pollNewNotifications, 10000);
+  // فحص كل 8 ثوانٍ لتسريع التنبيهات والاستئذانات
+  _notifPollingInterval = setInterval(pollNewNotifications, 8000);
 }
 
 // تشغيل الفحص بعد تحميل البيانات - يُستدعى من داخل renderProfile الأصلية
@@ -8348,10 +9691,11 @@ function renderParentRequestsAdminHtml() {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>اعتماد طلبات أولياء الأمور - منصة الشركة المثالية</title>
-  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet" />
   <style>
+    @font-face{font-family:'HelveticaArabic';src:url('/public/fonts/HelveticaNeueW23forSKY-Reg.ttf') format('truetype');font-weight:400;font-display:swap}
+    @font-face{font-family:'HelveticaArabic';src:url('/public/fonts/HelveticaNeueW23forSKY-Bd.ttf') format('truetype');font-weight:700;font-display:swap}
     :root{--bg:#f8fafc;--card:#fff;--line:#e2e8f0;--text:#0f172a;--muted:#64748b;--primary:#0f766e;--danger:#be123c;--ok:#166534}
-    *{box-sizing:border-box}body{margin:0;font-family:'Tajawal',system-ui,sans-serif;background:linear-gradient(180deg,#f8fafc,#eef6ff);color:var(--text)}
+    *{box-sizing:border-box}body{margin:0;font-family:'HelveticaArabic','Helvetica Neue',Helvetica,Arial,sans-serif;background:linear-gradient(180deg,#f8fafc,#eef6ff);color:var(--text)}
     .wrap{max-width:1180px;margin:0 auto;padding:24px}.hero{background:linear-gradient(135deg,#0f766e,#1d4ed8);color:#fff;border-radius:28px;padding:24px;box-shadow:0 20px 60px rgba(15,23,42,.12)}
     .hero h1{margin:0 0 8px;font-size:30px}.hero p{margin:0;color:#dbeafe;line-height:1.8}.toolbar,.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
     .card{margin-top:18px;background:var(--card);border:1px solid var(--line);border-radius:24px;padding:18px;box-shadow:0 10px 30px rgba(15,23,42,.05)}
@@ -8379,7 +9723,7 @@ function renderParentRequestsAdminHtml() {
           <button class="btn alt" id="openMainBtn">فتح المنصة الرئيسية</button>
         </div>
       </div>
-      <div class="card" style="margin-top:14px"><div class="grid grid-2"><div><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:800;font-size:18px">سياسة تحديث الرقم الأساسي</div><div class="muted small" id="policyMeta">الوضع الافتراضي: تلقائي</div></div><div class="toolbar"><select id="policyMode" style="min-width:180px"><option value="auto">اعتماد تلقائي (افتراضي)</option><option value="manual">اعتماد يدوي</option></select><button class="btn" id="savePolicyBtn">حفظ السياسة</button></div></div></div><div><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:800;font-size:18px">بوابة ولي الأمر</div><div class="muted small" id="portalMeta">الحالة الحالية: مفعلة</div></div><div class="toolbar"><select id="portalEnabled" style="min-width:180px"><option value="enabled">مفعلة</option><option value="disabled">مقفلة</option></select><button class="btn" id="savePortalBtn">حفظ الحالة</button></div></div><div style="margin-top:10px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px"><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:700;font-size:14px">الدخول البديل برقم الهوية</div><div class="muted small" id="altLoginMeta">يسمح لولي الأمر بالدخول عبر رقم الجوال + رقم هوية الطالب</div></div><div class="toolbar"><select id="altLoginEnabled" style="min-width:160px"><option value="enabled">مفعّل</option><option value="disabled">معطّل</option></select><button class="btn" id="saveAltLoginBtn">حفظ</button></div></div></div></div></div><div id="alertsBox" class="muted" style="margin-top:10px;line-height:1.9">لا توجد إشعارات حديثة.</div></div><div class="filters" style="margin-top:12px">
+      <div class="card" style="margin-top:14px"><div class="grid grid-2"><div><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:800;font-size:18px">سياسة تحديث الرقم الأساسي</div><div class="muted small" id="policyMeta">الوضع الافتراضي: تلقائي</div></div><div class="toolbar"><select id="policyMode" style="min-width:180px"><option value="auto">اعتماد تلقائي (افتراضي)</option><option value="manual">اعتماد يدوي</option></select><button class="btn" id="savePolicyBtn">حفظ السياسة</button></div></div></div><div><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:800;font-size:18px">بوابة ولي الأمر</div><div class="muted small" id="portalMeta">الحالة الحالية: مفعلة</div></div><div class="toolbar"><select id="portalEnabled" style="min-width:180px"><option value="enabled">مفعلة</option><option value="disabled">مقفلة</option></select><button class="btn" id="savePortalBtn">حفظ الحالة</button></div></div><div style="margin-top:10px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px"><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:700;font-size:14px">الدخول البديل برقم الهوية</div><div class="muted small" id="altLoginMeta">يسمح لولي الأمر بالدخول عبر رقم الجوال + رقم هوية الطالب</div></div><div class="toolbar"><select id="altLoginEnabled" style="min-width:160px"><option value="enabled">مفعّل</option><option value="disabled">معطّل</option></select><button class="btn" id="saveAltLoginBtn">حفظ</button></div></div></div><div style="margin-top:10px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px"><div class="toolbar" style="justify-content:space-between"><div><div style="font-weight:700;font-size:14px">استئذان ولي الأمر</div><div class="muted small" id="leavePassMeta">يسمح لولي الأمر بإرسال طلب استئذان لابنه من البوابة</div></div><div class="toolbar"><select id="leavePassEnabled" style="min-width:160px"><option value="enabled">مفعّل</option><option value="disabled">معطّل</option></select><button class="btn" id="saveLeavePassBtn">حفظ</button></div></div></div></div></div><div id="alertsBox" class="muted" style="margin-top:10px;line-height:1.9">لا توجد إشعارات حديثة.</div></div><div class="filters" style="margin-top:12px">
         <div style="min-width:200px;flex:1"><select id="statusFilter"><option value="all">كل الحالات</option><option value="pending">بانتظار الاعتماد</option><option value="approved">المعتمدة</option><option value="rejected">المرفوضة</option></select></div>
         <div style="min-width:220px;flex:1"><input id="searchInput" placeholder="بحث باسم الطالب أو الرقم أو المدرسة" /></div>
       </div>
@@ -8401,7 +9745,7 @@ function render(list){var rows=(list||[]).filter(matches);$('requestsList').inne
   var students=(item.studentNames||[]).join('، ')||'—';
   return '<div class="item">'
   + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">'
-  + '<div><div style="font-size:20px;font-weight:800">'+(item.guardianName||'ولي الأمر')+'</div><div class="muted small">'+schools+' • '+(item.studentsCount||0)+' طالب/ـة</div></div>'
+  + '<div><div style="font-size:20px;font-weight:800">'+(item.guardianName||'ولي الأمر')+'</div><div class="muted small">'+schools+' \u2022 '+(item.studentsCount||0)+' طالب/ـة</div></div>'
   + '<span class="pill '+statusClass(item.status)+'">'+statusLabel(item.status)+'</span></div>'
   + '<div class="chips"><span class="chip">الحالي: '+(item.currentPhoneMasked||item.currentPhone||'—')+'</span><span class="chip">الجديد: '+(item.requestedMobileMasked||item.requestedMobile||'—')+'</span><span class="chip">وقت الطلب: '+(item.requestedAt||'—')+'</span></div>'
   + '<div style="margin-top:12px;line-height:1.9"><b>الطلاب:</b> '+students+'</div>'
@@ -8414,11 +9758,11 @@ async function bootstrap(){
   try{
     var data=await api('/api/admin/parent-primary-requests');
     $('actorName').textContent=(data.actor&&data.actor.fullName)||'المستخدم';
-    $('actorMeta').textContent='الدور: '+((data.actor&&data.actor.role)||'—')+' • الطلبات: '+((data.requests&&data.requests.length)||0);
+    $('actorMeta').textContent='الدور: '+((data.actor&&data.actor.role)||'—')+' \u2022 الطلبات: '+((data.requests&&data.requests.length)||0);
     window.__parentRequests=data.requests||[];
-    var policy=(data.policy||{mode:'auto'}); $('policyMode').value=policy.mode||'auto'; $('policyMeta').textContent='الوضع الحالي: '+((policy.mode==='manual')?'يدوي':'تلقائي')+(policy.updatedAt?' • آخر تحديث: '+policy.updatedAt:'');
-    var portal=(data.portalSettings||{enabled:true,altLoginEnabled:true}); $('portalEnabled').value=portal.enabled===false?'disabled':'enabled'; $('portalMeta').textContent='الحالة الحالية: '+(portal.enabled===false?'مقفلة':'مفعلة')+(portal.updatedAt?' • آخر تحديث: '+portal.updatedAt:''); $('altLoginEnabled').value=portal.altLoginEnabled===false?'disabled':'enabled'; $('altLoginMeta').textContent='الدخول البديل: '+(portal.altLoginEnabled===false?'معطّل ← لن يظهر زر الدخول البديل في البوابة':'مفعّل ← يمكن لولي الأمر الدخول برقم الجوال + رقم هوية الطالب');
-    var alerts=(data.alerts||[]); $('alertsBox').innerHTML=alerts.length?alerts.slice(0,5).map(function(a){return '<div style="padding:10px 12px;border:1px solid #e2e8f0;border-radius:14px;margin-top:8px;background:#f8fafc"><b>'+(a.guardianName||'ولي الأمر')+'</b> • '+(a.message||'')+'<div class="small muted">'+(a.createdAt||'')+'</div></div>';}).join(''):'لا توجد إشعارات حديثة.';
+    var policy=(data.policy||{mode:'auto'}); $('policyMode').value=policy.mode||'auto'; $('policyMeta').textContent='الوضع الحالي: '+((policy.mode==='manual')?'يدوي':'تلقائي')+(policy.updatedAt?' \u2022 آخر تحديث: '+policy.updatedAt:'');
+    var portal=(data.portalSettings||{enabled:true,altLoginEnabled:true}); $('portalEnabled').value=portal.enabled===false?'disabled':'enabled'; $('portalMeta').textContent='الحالة الحالية: '+(portal.enabled===false?'مقفلة':'مفعلة')+(portal.updatedAt?' • آخر تحديث: '+portal.updatedAt:''); $('altLoginEnabled').value=portal.altLoginEnabled===false?'disabled':'enabled'; $('altLoginMeta').textContent='الدخول البديل: '+(portal.altLoginEnabled===false?'معطّل ← لن يظهر زر الدخول البديل في البوابة':'مفعّل ← يمكن لولي الأمر الدخول برقم الجوال + رقم هوية الطالب'); $('leavePassEnabled').value=portal.allowParentLeavePass===false?'disabled':'enabled'; $('leavePassMeta').textContent='استئذان ولي الأمر: '+(portal.allowParentLeavePass===false?'معطّل ← لن يظهر نموذج الاستئذان في البوابة':'مفعّل ← يمكن لولي الأمر إرسال طلب استئذان من البوابة');
+    var alerts=(data.alerts||[]); $('alertsBox').innerHTML=alerts.length?alerts.slice(0,5).map(function(a){return '<div style="padding:10px 12px;border:1px solid #e2e8f0;border-radius:14px;margin-top:8px;background:#f8fafc"><b>'+(a.guardianName||'ولي الأمر')+'</b> \u2022 '+(a.message||'')+'<div class="small muted">'+(a.createdAt||'')+'</div></div>';}).join(''):'لا توجد إشعارات حديثة.';
     render(window.__parentRequests);
   }catch(e){
     setMessage('pageMsg',e.message||'تعذر تحميل الطلبات.',true);
@@ -8439,6 +9783,7 @@ $('refreshBtn').onclick=bootstrap;
 $('savePolicyBtn').onclick=async function(){ try{ var data=await api('/api/admin/parent-primary-requests/policy',{method:'POST',body:{mode:$('policyMode').value}}); setMessage('pageMsg',data.message||'تم تحديث السياسة.',false); await bootstrap(); }catch(e){ setMessage('pageMsg',e.message||'تعذر تحديث السياسة.',true); } };
 $('savePortalBtn').onclick=async function(){ try{ var data=await api('/api/admin/parent-primary-requests/portal-settings',{method:'POST',body:{enabled:$('portalEnabled').value!=='disabled'}}); setMessage('pageMsg',data.message||'تم تحديث حالة البوابة.',false); await bootstrap(); }catch(e){ setMessage('pageMsg',e.message||'تعذر تحديث حالة البوابة.',true); } };
 $('saveAltLoginBtn').onclick=async function(){ try{ var data=await api('/api/admin/parent-primary-requests/portal-settings',{method:'POST',body:{altLoginEnabled:$('altLoginEnabled').value!=='disabled'}}); setMessage('pageMsg',data.message||'تم تحديث إعداد الدخول البديل.',false); await bootstrap(); }catch(e){ setMessage('pageMsg',e.message||'تعذر تحديث إعداد الدخول البديل.',true); } };
+$('saveLeavePassBtn').onclick=async function(){ try{ var data=await api('/api/admin/parent-primary-requests/portal-settings',{method:'POST',body:{allowParentLeavePass:$('leavePassEnabled').value!=='disabled'}}); setMessage('pageMsg',data.message||'تم تحديث إعداد الاستئذان.',false); await bootstrap(); }catch(e){ setMessage('pageMsg',e.message||'تعذر تحديث إعداد الاستئذان.',true); } };
 $('openMainBtn').onclick=function(){ location.href='/'; };
 bootstrap();
 </script>

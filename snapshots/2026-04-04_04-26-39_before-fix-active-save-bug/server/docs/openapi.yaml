@@ -1,0 +1,218 @@
+openapi: 3.0.3
+info:
+  title: منصة الشركة المثالية API
+  description: |
+    نظام إدارة تعليمي متكامل للمدارس السعودية
+    
+    ## المصادقة
+    يتم تمرير الجلسة عبر header:
+    `X-Session-Token: <token>`
+    
+    ## الأدوار
+    - `superadmin` — الأدمن العام
+    - `principal` — مدير المدرسة
+    - `supervisor` — المشرف
+    - `gate` — بوابة الحضور
+    - `teacher` — المعلم
+    - `student` — الطالب
+  version: 1.8.1
+  contact:
+    name: فريق التطوير
+
+servers:
+  - url: http://localhost:4000
+    description: التطوير المحلي
+
+tags:
+  - name: Health
+    description: فحص حالة الخادم
+  - name: Auth
+    description: المصادقة وإدارة الجلسات
+  - name: State
+    description: إدارة حالة المنصة
+  - name: Attendance
+    description: تسجيل الحضور
+  - name: Backups
+    description: النسخ الاحتياطي
+  - name: Schools
+    description: إدارة المدارس
+  - name: Parents
+    description: بوابة ولي الأمر
+
+paths:
+  /api/health:
+    get:
+      tags: [Health]
+      summary: فحص صحة الخادم
+      responses:
+        '200':
+          description: الخادم يعمل
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+                  service: { type: string, example: ideal-company-platform-server }
+                  time: { type: string, format: date-time }
+                  version: { type: string, example: v1.8.1 }
+
+  /api/bootstrap:
+    get:
+      tags: [Health]
+      summary: تهيئة التطبيق (جلب الحالة + الجلسة)
+      parameters:
+        - in: header
+          name: X-Session-Token
+          schema: { type: string }
+      responses:
+        '200':
+          description: نجاح
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  state: { type: object }
+                  sessionUser: { type: object, nullable: true }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: تسجيل الدخول بكلمة المرور
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, minLength: 1 }
+                password: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: تم تسجيل الدخول بنجاح
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  token: { type: string }
+                  user: { type: object }
+        '401':
+          description: بيانات غير صحيحة
+        '423':
+          description: الحساب مقفل مؤقتاً
+        '429':
+          description: تجاوز الحد الأقصى للمحاولات
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: تسجيل الخروج
+      parameters:
+        - in: header
+          name: X-Session-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: تم تسجيل الخروج
+
+  /api/auth/request-otp:
+    post:
+      tags: [Auth]
+      summary: طلب رمز تحقق OTP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier]
+              properties:
+                identifier: { type: string }
+                delivery: { type: string, enum: [email, sms, whatsapp] }
+      responses:
+        '200':
+          description: تم إرسال الرمز
+        '429':
+          description: تجاوز الحد الأقصى
+
+  /api/state/save:
+    post:
+      tags: [State]
+      summary: حفظ حالة المنصة
+      parameters:
+        - in: header
+          name: X-Session-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                state: { type: object }
+      responses:
+        '200':
+          description: تم الحفظ
+        '429':
+          description: تجاوز حد الحفظ
+
+  /api/attendance/scan:
+    post:
+      tags: [Attendance]
+      summary: تسجيل حضور طالب
+      parameters:
+        - in: header
+          name: X-Session-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scanEntry]
+              properties:
+                scanEntry:
+                  type: object
+                  required: [studentId, schoolId]
+                  properties:
+                    studentId: { type: integer }
+                    schoolId: { type: integer }
+                    method: { type: string, enum: [QR, face, barcode] }
+                    isoDate: { type: string, format: date }
+      responses:
+        '200':
+          description: تم تسجيل الحضور
+
+  /api/backups/list:
+    get:
+      tags: [Backups]
+      summary: قائمة النسخ الاحتياطية
+      description: متاح فقط للأدمن العام
+      parameters:
+        - in: header
+          name: X-Session-Token
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: قائمة النسخ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  global: { type: array }
+                  schools: { type: array }
+                  retentionDays: { type: integer }

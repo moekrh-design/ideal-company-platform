@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /api/
+Disallow: /admin/
+Disallow: /ws/
+Allow: /
+Sitemap: https://school.darh.net/sitemap.xml
