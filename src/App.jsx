@@ -4713,6 +4713,10 @@ export default function App() {
         setSyncStatus("saving");
         const response = await apiRequest("/api/state/save", { method: "POST", token, body: { state: sharedState } });
         saveServerCache(response.state || sharedState);
+        // تحديث schools من response لضمان ظهور البيانات المحمية في الواجهة
+        if (response.state?.schools?.length) {
+          setSchools(function(prev) { return mergeSchoolsFromResponse(prev, response.state.schools); });
+        }
         setSyncStatus("saved");
       } catch (error) {
         console.error(error);
