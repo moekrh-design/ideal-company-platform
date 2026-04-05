@@ -63,6 +63,7 @@ import {
   Info,
   ChevronDown,
   AlertCircle,
+  Globe,
 } from "lucide-react";
 import {
   Bar,
@@ -98,6 +99,7 @@ import LeavePassesPage from './pages/LeavePassesPage';
 import LessonAttendanceSessionsPage from './pages/LessonAttendanceSessionsPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
+import AdminAllSchoolsSettings from './pages/AdminAllSchoolsSettings';
 import UsersPage from './pages/UsersPage';
 import MessagingCenterPage from './pages/MessagingCenterPage';
 import RewardStorePage from './pages/RewardStorePage';
@@ -934,6 +936,7 @@ const navItems = [
   { key: "schoolStructure", label: "إعدادات المدرسة (الهيكل)", icon: School, permission: "settings", group: "الإعدادات" },
   { key: "users", label: "المستخدمون", icon: ShieldCheck, permission: "users", group: "الإعدادات" },
   { key: "platformAuth", label: "الدخول والمصادقة", icon: ShieldCheck, permission: "settings", roles: ["superadmin"], group: "الإعدادات" },
+  { key: "adminAllSchoolsSettings", label: "إعدادات المنصة", icon: Globe, permission: "settings", roles: ["superadmin"], group: "الإعدادات" },
 ];
 
 const principalDelegableRoles = ["agent", "counselor", "gate", "supervisor", "teacher", "student"];
@@ -7105,6 +7108,8 @@ ${buildLessonSessionLink(sessionId)}
         return <SettingsPage selectedSchool={selectedSchool} settings={settings} attendanceMethod={attendanceMethod} users={users} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onRestoreBackup={restoreBackup} onResetData={resetData} onExportBackup={exportBackup} onImportStudents={handleImportStudentsFromExcel} onDownloadTemplate={downloadStudentImportTemplate} setAttendanceMethod={setAttendanceMethod} onUpdateSchoolBranding={handleUpdateSchoolBranding} />;
       case "platformAuth":
         return <PlatformAuthSettingsPage selectedSchool={selectedSchool} settings={settings} attendanceMethod={attendanceMethod} users={users} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onRestoreBackup={restoreBackup} onResetData={resetData} onExportBackup={exportBackup} onImportStudents={handleImportStudentsFromExcel} onDownloadTemplate={downloadStudentImportTemplate} setAttendanceMethod={setAttendanceMethod} />;
+      case "adminAllSchoolsSettings":
+        return <AdminAllSchoolsSettings settings={settings} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onApplyServerState={applyServerStatePayload} />;
       case "classes":
         return <ClassesPage selectedSchool={selectedSchool} />;
       default:
