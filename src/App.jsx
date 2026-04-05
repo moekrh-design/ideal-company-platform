@@ -4265,33 +4265,83 @@ export default function App() {
           }
         }
       });
-      // --- تنبيهات تحضير الحصص (للمعلم فقط) ---
-      if (isTeacher) {
+      // --- تنبيهات تحضير الحصص (للمعلم والمدير والوكيل) ---
+      {
         const lessonSessions = getLessonAttendanceSessions(selectedSchool);
-        const openSessions = lessonSessions.filter((session) => {
-          if (session.status === 'closed') return false;
-          const targets = session.targetTeacherIds || [];
-          if (targets.length && !targets.map(String).includes(String(currentUser.id))) return false;
-          const alreadySubmitted = (session.submissions || []).some((sub) => String(sub.teacherId) === String(currentUser.id));
-          return !alreadySubmitted;
-        });
-        openSessions.forEach((session) => {
-          const sentAt = (session.teacherInvites || []).find((inv) => String(inv.teacherId) === String(currentUser.id))?.sentAt;
-          if (!sentAt) return;
-          const elapsedMin = (now - new Date(sentAt).getTime()) / 60000;
-          const key = `ls-${session.id}`;
-          const alerted = soundAlertsRef.current[key] || 0;
-          // كل 5 دقائق يأتي تنبيه
-          const level = Math.min(Math.floor(elapsedMin / 5), 4);
-          if (level > 0 && level > alerted) {
-            playAlertBeep(Math.min(level, 4));
-            soundAlertsRef.current[key] = level;
-            setNotifications((prev) => [
-              { id: Date.now(), title: '📋 لم تُغلق تحضير الحصة', body: `مضى ${Math.floor(elapsedMin)} دقيقة على طلب تحضير ${buildLessonAttendanceSessionLabel(session)} ولم تعتمده بعد.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [currentUser.id] },
-              ...prev,
-            ].slice(0, 30));
-          }
-        });
+        if (isTeacher) {
+          // المعلم: تنبيه كل 5 دقائق إذا لم يُغلق التحضير المطلوب منه
+          const openSessions = lessonSessions.filter((session) => {
+            if (session.status === 'closed') return false;
+            const targets = session.targetTeacherIds || [];
+            if (targets.length && !targets.map(String).includes(String(currentUser.id))) return false;
+            const alreadySubmitted = (session.submissions || []).some((sub) => String(sub.teacherId) === String(currentUser.id));
+            return !alreadySubmitted;
+          });
+          openSessions.forEach((session) => {
+            const sentAt = (session.teacherInvites || []).find((inv) => String(inv.teacherId) === String(currentUser.id))?.sentAt;
+            if (!sentAt) return;
+            const elapsedMin = (now - new Date(sentAt).getTime()) / 60000;
+            const key = `ls-${session.id}`;
+            const alerted = soundAlertsRef.current[key] || 0;
+            // كل 5 دقائق يأتي تنبيه (حتى 4 مرات)
+            const level = Math.min(Math.floor(elapsedMin / 5), 4);
+            if (level > 0 && level > alerted) {
+              playAlertBeep(Math.min(level, 4));
+              soundAlertsRef.current[key] = level;
+              setNotifications((prev) => [
+                { id: Date.now(), title: '📋 لم تُغلق تحضير الحصة', body: `مضى ${Math.floor(elapsedMin)} دقيقة على طلب تحضير ${buildLessonAttendanceSessionLabel(session)} ولم تعتمده بعد.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [currentUser.id] },
+                ...prev,
+              ].slice(0, 30));
+            }
+          });
+        }
+        if (isManager) {
+          // المدير/الوكيل/السوبرأدمين: تنبيه إذا مضى 5 دقائق على جلسة تحضير مفتوحة ولم يُغلقها المعلم
+          const pendingSessions = lessonSessions.filter((session) => {
+            if (session.status === 'closed') return false;
+            // الجلسة مفتوحة وفيها معلمون لم يُقدِّموا التحضير بعد
+            const targets = Array.isArray(session.targetTeacherIds) && session.targetTeacherIds.length
+              ? session.targetTeacherIds
+              : (session.teacherInvites || []).map((inv) => inv.teacherId);
+            if (!targets.length) return false;
+            const submittedIds = (session.submissions || []).map((sub) => String(sub.teacherId));
+            const pendingTeachers = targets.filter((tid) => !submittedIds.includes(String(tid)));
+            return pendingTeachers.length > 0;
+          });
+          pendingSessions.forEach((session) => {
+            const createdAt = session.createdAt ? new Date(session.createdAt).getTime() : null;
+            if (!createdAt) return;
+            const elapsedMin = (now - createdAt) / 60000;
+            const key = `ls-mgr-${session.id}`;
+            const alerted = soundAlertsRef.current[key] || 0;
+            // تنبيه المدير كل 5 دقائق (حتى 4 مرات)
+            const level = Math.min(Math.floor(elapsedMin / 5), 4);
+            if (level > 0 && level > alerted) {
+              playAlertBeep(Math.min(level, 3));
+              soundAlertsRef.current[key] = level;
+              // حساب عدد المعلمين المتأخرين
+              const targets2 = Array.isArray(session.targetTeacherIds) && session.targetTeacherIds.length
+                ? session.targetTeacherIds
+                : (session.teacherInvites || []).map((inv) => inv.teacherId);
+              const submittedIds2 = (session.submissions || []).map((sub) => String(sub.teacherId));
+              const pendingCount = targets2.filter((tid) => !submittedIds2.includes(String(tid))).length;
+              setNotifications((prev) => [
+                { id: Date.now(), title: `📋 تحضير لم يُغلق (${Math.floor(elapsedMin)} د)`, body: `جلسة ${buildLessonAttendanceSessionLabel(session)}: ${pendingCount} معلم لم يُغلق التحضير بعد.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [] },
+                ...prev,
+              ].slice(0, 30));
+            }
+          });
+          // تنظيف مفاتيح جلسات المدير المغلقة
+          Object.keys(soundAlertsRef.current).forEach((key) => {
+            if (key.startsWith('ls-mgr-')) {
+              const sessionId = key.replace('ls-mgr-', '');
+              const session = lessonSessions.find((s) => String(s.id) === sessionId);
+              if (!session || session.status === 'closed') {
+                delete soundAlertsRef.current[key];
+              }
+            }
+          });
+        }
       }
     }, 30000); // فحص كل 30 ثانية
     return () => clearInterval(interval);
