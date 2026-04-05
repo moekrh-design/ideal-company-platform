@@ -1103,10 +1103,22 @@ function SettingsPage({ selectedSchool, settings, attendanceMethod, users, schoo
               <div className="rounded-3xl bg-slate-50 p-5 ring-1 ring-slate-200">
                 <div className="font-bold text-slate-800">نسخة احتياطية واستعادة</div>
                 <div className="mt-2 text-sm leading-7 text-slate-600">يمكنك أخذ نسخة كاملة من المدارس والطلاب والإعدادات وسجل الحضور والإجراءات، ثم استعادتها لاحقًا داخل نفس الواجهة.</div>
-                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                   <button onClick={onExportBackup} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-700 px-4 py-3 font-bold text-white"><Download className="h-4 w-4" /> تصدير JSON</button>
                   <button onClick={() => fileRef.current?.click()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 font-bold text-slate-700"><Upload className="h-4 w-4" /> استعادة نسخة</button>
                   <button onClick={onResetData} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-rose-50 px-4 py-3 font-bold text-rose-700"><RefreshCw className="h-4 w-4" /> إعادة ضبط تجريبية</button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm('سيتم مسح الكاش المحلي وإعادة تحميل البيانات من الخادم. هل تريد المتابعة؟')) {
+                        localStorage.clear();
+                        sessionStorage.clear();
+                        window.location.reload(true);
+                      }
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-amber-50 px-4 py-3 font-bold text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100"
+                  >
+                    <RefreshCcw className="h-4 w-4" /> مسح الكاش وإعادة التحميل
+                  </button>
                 </div>
                 <input ref={fileRef} type="file" accept="application/json" className="hidden" onChange={handleRestoreFile} />
               </div>
