@@ -1179,7 +1179,9 @@ export function createDefaultState() {
 
 // سطر 1653 من App.jsx الأصلي
 export function buildHydratedClientState(parsed = {}, uiState = {}) {
-  const schools = hydrateSchools(parsed.schools?.length ? parsed.schools : initialSchools);
+  // [FIX-v1.8.2] استخدام مصفوفة فارغة بدلاً من initialSchools عند غياب البيانات
+  // السبب: initialSchools تحتوي بيانات تجريبية تُرسل للخادم وتُصفِّر بيانات المدارس الحقيقية
+  const schools = hydrateSchools(parsed.schools?.length ? parsed.schools : []);
   const defaults = createDefaultState();
   return {
     ...defaults,
