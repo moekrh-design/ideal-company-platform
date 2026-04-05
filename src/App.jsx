@@ -427,44 +427,66 @@ function getTickerTheme(bg) {
 
 const initialSchools = [
   {
-    id: 1,
-    name: "متوسطة الأبناء الثالثة",
-    city: "أبها",
-    code: "ABH-003",
-    manager: "أ. خالد العمري",
-    status: "نشطة",
-    companies: [
-      { id: 101, name: "شركة الأمل", className: "1/1", leader: "أحمد الحربي", points: 980, early: 18, behavior: 96, initiatives: 6 },
-      { id: 102, name: "شركة التميز", className: "1/2", leader: "ياسر القحطاني", points: 940, early: 16, behavior: 92, initiatives: 4 },
-      { id: 103, name: "شركة النمير", className: "2/1", leader: "يزن عسيري", points: 910, early: 15, behavior: 90, initiatives: 5 },
-      { id: 104, name: "شركة المجد", className: "2/2", leader: "بندر عسيري", points: 860, early: 13, behavior: 88, initiatives: 3 },
-    ],
-    students: [
-      { id: 1, name: "أحمد إبراهيم أحمد الحربي", nationalId: "1100000011", grade: "الأول متوسط", companyId: 101, barcode: "ST-0001-ABH", faceReady: true, status: "مبكر", attendanceRate: 99, points: 138 },
-      { id: 2, name: "ياسر مفلح علي القحطاني", nationalId: "1100000012", grade: "الأول متوسط", companyId: 101, barcode: "ST-0002-ABH", faceReady: false, status: "في الوقت", attendanceRate: 96, points: 121 },
-      { id: 3, name: "يزن عامر إبراهيم عسيري", nationalId: "1100000013", grade: "الأول متوسط", companyId: 102, barcode: "ST-0003-ABH", faceReady: true, status: "مبكر", attendanceRate: 98, points: 130 },
-      { id: 4, name: "بندر هادي المحب عسيري", nationalId: "1100000014", grade: "الثاني متوسط", companyId: 103, barcode: "ST-0004-ABH", faceReady: true, status: "متأخر", attendanceRate: 87, points: 97 },
-      { id: 5, name: "سعد سالم مسفر الشهراني", nationalId: "1100000015", grade: "الثاني متوسط", companyId: 104, barcode: "ST-0005-ABH", faceReady: false, status: "في الوقت", attendanceRate: 95, points: 115 },
-      { id: 6, name: "عبدالرحمن فهد الشمراني", nationalId: "1100000016", grade: "الثاني متوسط", companyId: 104, barcode: "ST-0006-ABH", faceReady: true, status: "مبكر", attendanceRate: 100, points: 140 },
-    ],
+    "id": 1,
+    "name": "متوسطة الأبناء الثالثة",
+    "city": "أبها",
+    "code": "ABH-003",
+    "manager": "",
+    "status": "نشطة",
+    "companies": [],
+    "students": []
   },
   {
-    id: 2,
-    name: "مدرسة الرياض النموذجية",
-    city: "الرياض",
-    code: "RYD-011",
-    manager: "أ. عبدالله الدوسري",
-    status: "نشطة",
-    companies: [
-      { id: 201, name: "شركة الريادة", className: "1/1", leader: "عبدالله الدوسري", points: 1005, early: 20, behavior: 97, initiatives: 7 },
-      { id: 202, name: "شركة المستقبل", className: "1/2", leader: "فهد العتيبي", points: 965, early: 17, behavior: 94, initiatives: 5 },
-    ],
-    students: [
-      { id: 7, name: "عبدالله سالم الدوسري", nationalId: "1100000021", grade: "الأول متوسط", companyId: 201, barcode: "ST-0007-RYD", faceReady: true, status: "مبكر", attendanceRate: 97, points: 136 },
-      { id: 8, name: "فهد محمد العتيبي", nationalId: "1100000022", grade: "الأول متوسط", companyId: 202, barcode: "ST-0008-RYD", faceReady: true, status: "في الوقت", attendanceRate: 95, points: 118 },
-      { id: 9, name: "تركي حامد المطيري", nationalId: "1100000023", grade: "الثاني متوسط", companyId: 202, barcode: "ST-0009-RYD", faceReady: false, status: "مبكر", attendanceRate: 98, points: 124 },
-    ],
+    "id": 2,
+    "name": "مدرسة الرياض النموذجية",
+    "city": "الرياض",
+    "code": "RYD-011",
+    "manager": "",
+    "status": "نشطة",
+    "companies": [],
+    "students": []
   },
+  {
+    "id": 3,
+    "name": "ابتدائية الأبناء الرابعة",
+    "city": "خميس مشيط",
+    "code": "61506",
+    "manager": "خالد جابر الفيفي",
+    "status": "نشطة",
+    "companies": [],
+    "students": []
+  },
+  {
+    "id": 4,
+    "name": "ثانوية الشيخ محمد بن عثيمين",
+    "city": "الخرج",
+    "code": "116117",
+    "manager": "محمد عواض الثقفي",
+    "status": "نشطة",
+    "companies": [
+      {
+        "id": 1,
+        "name": "غير محدد - الفصل 1",
+        "className": "غير محدد - الفصل 1",
+        "leader": "—",
+        "points": 0,
+        "early": 0,
+        "behavior": 100,
+        "initiatives": 0
+      }
+    ],
+    "students": []
+  },
+  {
+    "id": 5,
+    "name": "متوسطة الأبناء الثالثة",
+    "city": "خميس مشيط",
+    "code": "61511",
+    "manager": "عبدالله سعيد الخفاجي",
+    "status": "نشطة",
+    "companies": [],
+    "students": []
+  }
 ];
 
 const initialScanLog = [
@@ -4436,7 +4458,7 @@ export default function App() {
         if (cancelled) return;
         const uiState = loadUiState();
         const next = buildHydratedClientState(response.state || {}, uiState);
-        setSchools(next.schools);
+        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); });
         setUsers(next.users);
         setScanLog(next.scanLog);
         setActionLog(next.actionLog || []);
@@ -4662,7 +4684,7 @@ export default function App() {
       // إذا أعاد الخادم state كاملة، نُحدِّث البيانات فوراً بدون الحاجة لإعادة تحميل الصفحة
       if (response.state) {
         const next = buildHydratedClientState(response.state, loadUiState());
-        setSchools(next.schools);
+        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); });
         setUsers(next.users);
         setScanLog(next.scanLog);
         setActionLog(next.actionLog || []);
