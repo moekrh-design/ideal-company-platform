@@ -9879,3 +9879,38 @@ function scheduleNextMidnightBackup() {
   }, msUntilMidnight);
 }
 scheduleNextMidnightBackup();
+
+// ===== إغلاق تلقائي لجلسات التحضير القديمة (أكثر من 6 ساعات) =====
+async function autoCloseOldLessonSessions() {
+  try {
+    const state = await getSharedState();
+    if (!state || !Array.isArray(state.schools)) return;
+    const now = Date.now();
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
+    let changed = false;
+    for (const school of state.schools) {
+      if (!Array.isArray(school.lessonAttendanceSessions)) continue;
+      for (const session of school.lessonAttendanceSessions) {
+        if (session.status === "closed") continue;
+        const createdAt = session.createdAt ? new Date(session.createdAt).getTime() : null;
+        if (!createdAt) continue;
+        if (now - createdAt > SIX_HOURS) {
+          session.status = "closed";
+          session.autoClosedAt = new Date().toISOString();
+          session.autoCloseReason = "auto-closed after 6 hours";
+          changed = true;
+          console.log("[auto-close] Closed old lesson session:", session.id, "| school:", school.name);
+        }
+      }
+    }
+    if (changed) {
+      await saveSharedState(state);
+      console.log("[auto-close] Saved state after closing old sessions.");
+    }
+  } catch (err) {
+    console.error("[auto-close] Error:", err.message);
+  }
+}
+// تشغيل الإغلاق التلقائي عند بدء الخادم وكل ساعة
+autoCloseOldLessonSessions();
+setInterval(autoCloseOldLessonSessions, 60 * 60 * 1000); // كل ساعة
