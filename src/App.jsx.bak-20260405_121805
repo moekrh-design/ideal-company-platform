@@ -6692,15 +6692,11 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
     // حفظ التحضير على الخادم
     try {
       const token = getSessionToken();
-      const serverResp = await apiRequest(`/api/lesson-sessions/${sessionId}/submit`, {
+      await apiRequest(`/api/lesson-sessions/${sessionId}/submit`, {
         method: 'POST',
         token,
         body: { schoolId: selectedSchool.id, submission },
       });
-      // ✅ إصلاح: تطبيق state السيرفر لضمان التزامن الكامل مع شاشة العرض
-      if (serverResp?.state) {
-        applyServerStatePayload(serverResp.state, loadUiState());
-      }
     } catch (err) {
       console.error('فشل حفظ التحضير على الخادم:', err);
     }

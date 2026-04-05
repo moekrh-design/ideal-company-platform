@@ -511,15 +511,11 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
       });
       setStatusMessage(result?.message || (result?.ok ? "تم حفظ البرنامج." : "تعذر حفظ البرنامج."));
       if (result?.ok) {
-        const programDelta = Number(selectedDefinition?.points || 0);
-        // ✅ إصلاح: تشغيل التأثير البصري للبرامج كما هو في المكافآت والخصم
-        setExecutionEffect({ type: 'program', points: programDelta, title: selectedDefinition?.title || 'برنامج', at: Date.now() });
-        setTimeout(() => setExecutionEffect(null), 2800);
         setLastExecution({
           type: 'program',
           title: selectedDefinition?.title || 'برنامج',
           studentName: programTargetType === 'student' ? programStudent?.name : null,
-          deltaPoints: programDelta,
+          deltaPoints: Number(selectedDefinition?.points || 0),
           method: 'نموذج برنامج',
           at: new Date().toISOString(),
           message: result?.message || 'تم حفظ البرنامج بنجاح.',
@@ -565,26 +561,22 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
     ? Number(identifiedStudent.points || 0) + Number(selectedDefinition.points || 0)
     : null;
 
-  // مكوّن التأثير البصري الاحترافي عند تنفيذ المكافأة أو الخصم أو البرنامج
+  // مكوّن التأثير البصري الاحترافي عند تنفيذ المكافأة أو الخصم
   const renderExecutionEffect = () => {
     if (!executionEffect) return null;
     const isReward = executionEffect.type === 'reward';
     const isViolation = executionEffect.type === 'violation';
-    const isProgram = executionEffect.type === 'program';
-    const bgColor = isReward ? '#10b981' : isViolation ? '#ef4444' : '#7c3aed';
-    const gradientEnd = isReward ? '#059669' : isViolation ? '#dc2626' : '#4f46e5';
+    const bgColor = isReward ? '#10b981' : isViolation ? '#ef4444' : '#3b82f6';
     const emoji = isReward ? '⭐' : isViolation ? '⚠️' : '🏆';
     const pointsText = executionEffect.points > 0 ? `+${executionEffect.points}` : String(executionEffect.points);
-    const particles = Array.from({ length: isReward ? 14 : isProgram ? 10 : 6 }, (_, i) => ({
+    const particles = Array.from({ length: isReward ? 12 : 6 }, (_, i) => ({
       id: i,
-      x: (Math.random() - 0.5) * 340,
-      y: -(Math.random() * 220 + 80),
+      x: (Math.random() - 0.5) * 300,
+      y: -(Math.random() * 200 + 80),
       rotate: Math.random() * 720 - 360,
-      size: Math.random() * 12 + 5,
+      size: Math.random() * 10 + 6,
       color: isReward
         ? ['#fbbf24','#34d399','#60a5fa','#f472b6','#a78bfa'][i % 5]
-        : isProgram
-        ? ['#c4b5fd','#818cf8','#6366f1','#a78bfa','#7c3aed'][i % 5]
         : ['#f87171','#fb923c','#fbbf24'][i % 3],
     }));
     const effectContent = (
@@ -628,7 +620,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
               exit={{ scale: 0.8, opacity: 0, y: -30 }}
               transition={{ duration: 0.55, times: [0, 0.6, 1], ease: 'backOut' }}
               style={{
-                background: `linear-gradient(135deg, ${bgColor}, ${gradientEnd})`,
+                background: `linear-gradient(135deg, ${bgColor}, ${isReward ? '#059669' : isViolation ? '#dc2626' : '#2563eb'})`,
                 borderRadius: 32,
                 padding: '28px 40px',
                 textAlign: 'center',
