@@ -1685,60 +1685,12 @@ function createDefaultState() {
 function mergeSchoolsFromResponse(existingSchools, incomingSchools) {
   if (!Array.isArray(incomingSchools) || incomingSchools.length === 0) return existingSchools;
   if (!Array.isArray(existingSchools) || existingSchools.length === 0) return incomingSchools;
-
-  // دمج ذكي دائماً: نُحدِّث كل مدرسة واردة مع الحفاظ على بيانات الطلاب الموجودة
-  const existingMap = {};
-  for (const s of existingSchools) { existingMap[String(s.id)] = s; }
-
-  const mergedIncoming = incomingSchools.map(function(incoming) {
-    const existing = existingMap[String(incoming.id)];
-    if (!existing) return incoming;
-
-    // حماية students المباشرة: إذا الوارد فارغ والموجود يحتوي طلاباً
-    const existingStudents = Array.isArray(existing.students) ? existing.students : [];
-    const incomingStudents = Array.isArray(incoming.students) ? incoming.students : [];
-    let finalStudents = incomingStudents;
-    if (existingStudents.length > 0 && incomingStudents.length === 0) {
-      finalStudents = existingStudents;
-    } else if (existingStudents.length > 0 && incomingStudents.length < existingStudents.length * 0.5) {
-      const inIds = new Set(incomingStudents.map(function(s) { return String(s.id); }));
-      const missing = existingStudents.filter(function(s) { return !inIds.has(String(s.id)); });
-      finalStudents = [...incomingStudents, ...missing];
-    }
-
-    // حماية companies: إذا الوارد فارغ والموجود يحتوي شركات
-    const existingCompanies = Array.isArray(existing.companies) ? existing.companies : [];
-    const incomingCompanies = Array.isArray(incoming.companies) ? incoming.companies : [];
-    let finalCompanies = incomingCompanies;
-    if (existingCompanies.length > 0 && incomingCompanies.length === 0) {
-      finalCompanies = existingCompanies;
-    } else if (existingCompanies.length > 0 && incomingCompanies.length < existingCompanies.length * 0.5) {
-      const inCIds = new Set(incomingCompanies.map(function(c) { return String(c.id); }));
-      const missingC = existingCompanies.filter(function(c) { return !inCIds.has(String(c.id)); });
-      finalCompanies = [...incomingCompanies, ...missingC];
-    }
-
-    // حماية structure.classrooms
-    const existingClassrooms = (existing.structure && Array.isArray(existing.structure.classrooms)) ? existing.structure.classrooms : [];
-    const incomingClassrooms = (incoming.structure && Array.isArray(incoming.structure.classrooms)) ? incoming.structure.classrooms : [];
-    const existingStructStudents = existingClassrooms.reduce(function(sum, c) { return sum + (Array.isArray(c.students) ? c.students.length : 0); }, 0);
-    const incomingStructStudents = incomingClassrooms.reduce(function(sum, c) { return sum + (Array.isArray(c.students) ? c.students.length : 0); }, 0);
-    let finalStructure = incoming.structure;
-    if (existingStructStudents > 0 && incomingStructStudents === 0) {
-      finalStructure = existing.structure;
-    } else if (existingStructStudents > 0 && incomingStructStudents < existingStructStudents * 0.5) {
-      const inCRIds = new Set(incomingClassrooms.map(function(c) { return String(c.id); }));
-      const missingCR = existingClassrooms.filter(function(c) { return !inCRIds.has(String(c.id)); });
-      finalStructure = { ...(incoming.structure || {}), classrooms: [...incomingClassrooms, ...missingCR] };
-    }
-
-    return { ...incoming, students: finalStudents, companies: finalCompanies, structure: finalStructure };
-  });
-
-  // الحفاظ على المدارس الموجودة غير الواردة
-  const incomingIds = new Set(incomingSchools.map(function(s) { return String(s.id); }));
-  const keptSchools = existingSchools.filter(function(s) { return !incomingIds.has(String(s.id)); });
-  return [...mergedIncoming, ...keptSchools];
+  // إذا كانت المدارس الواردة أكثر أو مساوية للموجودة، استخدمها مباشرة
+  if (incomingSchools.length >= existingSchools.length) return incomingSchools;
+  // المدارس الواردة أقل: دمج ذكي - نُحدِّث الواردة ونحتفظ بالباقية
+  const incomingIds = new Set(incomingSchools.map(function(s) { return s.id; }));
+  const keptSchools = existingSchools.filter(function(s) { return !incomingIds.has(s.id); });
+  return [...incomingSchools, ...keptSchools];
 }
 function buildHydratedClientState(parsed = {}, uiState = {}) {
   const schools = hydrateSchools(parsed.schools?.length ? parsed.schools : initialSchools);
