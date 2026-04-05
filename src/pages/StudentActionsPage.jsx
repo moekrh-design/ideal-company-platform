@@ -456,7 +456,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
         definitionId: definitionOverride.id,
         specialDefinition: definitionOverride?.scope === 'special' ? definitionOverride : null,
         note,
-        method: methodOverride || (identifyMethod === "face" ? "بصمة وجه" : identifyMethod === "barcode" ? "QR مباشر" : "إدخال رقم الطالب"),
+        method: methodOverride || (identifyMethod === "face" ? "بصمة وجه" : identifyMethod === "barcode" ? "QR مباشر" : "يدوي"),
       });
       setStatusMessage(result?.message || (result?.ok ? "تم تنفيذ الإجراء." : "تعذر تنفيذ الإجراء."));
       if (result?.ok) {
@@ -870,7 +870,7 @@ function StudentActionsPage({ selectedSchool, currentUser, settings, actionLog, 
       ) : (
         <>
           <div className="mb-4 grid grid-cols-3 gap-2 rounded-2xl bg-white p-1 ring-1 ring-slate-200">
-            {[['barcode', 'QR مباشر'], ['face', 'بصمة وجه'], ['manual', 'إدخال رقم']].map(([key, label]) => (
+            {[['barcode', 'QR مباشر'], ['face', 'بصمة وجه'], ['manual', 'يدوي']].map(([key, label]) => (
               <button key={key} onClick={() => setIdentifyMethod(key)} className={`rounded-xl px-3 py-3 text-sm font-bold ${identifyMethod === key ? 'bg-sky-700 text-white' : 'text-slate-600'}`}>{label}</button>
             ))}
           </div>
