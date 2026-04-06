@@ -4719,7 +4719,7 @@ export default function App() {
     const token = getSessionToken();
     if (!token) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
+    saveTimerRef.current = setTimeout(async () => { if (false) { // AUTO-SAVE DISABLED
       try {
         setSyncStatus("saving");
         const response = await apiRequest("/api/state/save", { method: "POST", token, body: { state: sharedState } });
