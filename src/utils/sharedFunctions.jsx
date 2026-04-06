@@ -2737,7 +2737,7 @@ export const SPECIAL_ITEM_TEMPLATES = {
 
 
 export const defaultSettings = {
-  platformName: "منصة المدرسة المثالية",
+  platformName: "منصة الشركة المثالية",
   academicYear: "1447",
   dayStart: "06:45",
   adminName: "الإدارة العامة",
@@ -2812,7 +2812,7 @@ export const defaultSettings = {
       forceForSelected: false,
     },
     email: {
-      fromName: 'منصة المدرسة المثالية',
+      fromName: 'منصة الشركة المثالية',
       fromEmail: '',
       smtpHost: '',
       smtpPort: 587,
@@ -2877,7 +2877,7 @@ export const navItems = [
   { key: "nafisBank", label: "بنك أسئلة نافس", icon: BookOpen, permission: "settings", roles: ["superadmin"], group: "التحفيز والمتابعة" },
   // ── الأجهزة والربط ──
   { key: "deviceDisplays", label: "الشاشات والبوابات", icon: ExternalLink, permission: "deviceDisplays", group: "الأجهزة والربط" },
-  { key: "students", label: "شؤون الطلاب", icon: GraduationCap, permission: "students", group: "الأجهزة والربط" },
+  { key: "students", label: "البصمة والمعرفات", icon: GraduationCap, permission: "students", group: "الأجهزة والربط" },
   // ── الإعدادات ──
   { key: "settings", label: "إعدادات المدرسة", icon: Settings, permission: "settings", group: "الإعدادات" },
   { key: "schoolStructure", label: "إعدادات المدرسة (الهيكل)", icon: School, permission: "settings", group: "الإعدادات" },

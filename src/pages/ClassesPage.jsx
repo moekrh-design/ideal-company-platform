@@ -127,7 +127,7 @@ export default function ClassesPage({ selectedSchool }) {
             `).join('')}
           </tbody>
         </table>
-        <div class="footer">تم الطباعة بتاريخ ${new Date().toLocaleDateString('ar-SA')} — منصة المدرسة المثالية</div>
+        <div class="footer">تم الطباعة بتاريخ ${new Date().toLocaleDateString('ar-SA')} — منصة الشركة المثالية</div>
       </body>
       </html>
     `;
