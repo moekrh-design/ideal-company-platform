@@ -602,7 +602,7 @@ async function saveSharedState(state, actor = null) {
   }
   // ===== حماية حرجة: منع حذف المستخدمين =====
   if (Array.isArray(current.users) && Array.isArray(state.users)) {
-    if (state.users.length < current.users.length * 0.5) {
+    if (state.users.length < current.users.length) {
       // فقدان أكثر من نصف المستخدمين — استخدم مستخدمي الخادم
       console.warn(`[PROTECT] Prevented user loss (${state.users.length} < ${current.users.length}). Keeping server users.`);
       state.users = current.users;
