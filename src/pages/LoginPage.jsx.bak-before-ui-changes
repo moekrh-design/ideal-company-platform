@@ -136,7 +136,7 @@ function LoginPage({ settings, users, schools, onLogin, onRequestOtp, onVerifyOt
             </div>
 
             <h1 className="mt-6 text-4xl font-black leading-tight md:text-5xl">
-              {settings?.platformName || 'منصة المدرسة المثالية'}
+              {settings?.platformName || 'منصة الشركة المثالية'}
             </h1>
 
             <p className="mt-5 max-w-xl text-base leading-8 text-white/85 md:text-lg">
@@ -177,7 +177,7 @@ function LoginPage({ settings, users, schools, onLogin, onRequestOtp, onVerifyOt
                 </p>
               </div>
 
-              <div className="mt-6 flex flex-wrap justify-center gap-3 hidden">
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
                 {authConfig.allowPasswordLogin && (
                   <button
                     type="button"
@@ -424,10 +424,6 @@ function LoginPage({ settings, users, schools, onLogin, onRequestOtp, onVerifyOt
             </div>
           </div>
         </div>
-
-      </div>
-      <div className="fixed bottom-0 left-0 right-0 py-3 text-center text-xs text-slate-400 bg-white/80 backdrop-blur-sm">
-        جميع الحقوق محفوظة &copy; {new Date().getFullYear()} — منصة المدرسة المثالية
       </div>
     </div>
   );

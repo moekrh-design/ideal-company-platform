@@ -54,7 +54,7 @@ export const defaultActionCatalog = {
 };
 
 export const defaultSettings = {
-  platformName: "منصة المدرسة المثالية",
+  platformName: "منصة الشركة المثالية",
   academicYear: "1447",
   dayStart: "06:45",
   adminName: "الإدارة العامة",
@@ -83,7 +83,7 @@ export const defaultSettings = {
       forceForSelected: false,
     },
     email: {
-      fromName: "منصة المدرسة المثالية",
+      fromName: "منصة الشركة المثالية",
       fromEmail: "",
       smtpHost: "",
       smtpPort: 587,

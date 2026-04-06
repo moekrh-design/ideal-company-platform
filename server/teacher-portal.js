@@ -339,7 +339,7 @@ export function renderTeacherPortalHtml() {
       <div class="login-logo">
         <div class="login-logo-icon">🏫</div>
         <div class="login-title">بوابة المعلم</div>
-        <div class="login-sub">منصة الشركة المثالية</div>
+        <div class="login-sub">منصة المدرسة المثالية</div>
       </div>
       <div class="form-group">
         <label class="form-label" for="loginUsername">اسم المستخدم</label>

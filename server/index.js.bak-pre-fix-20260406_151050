@@ -305,7 +305,9 @@ async function verifyPassword(plainPassword, storedPassword) {
 }
 
 async function normalizeUsersForStorage(users = [], existingUsers = [], schools = []) {
-  const preparedUsers = ensureDemoUsers(users || [], schools || []);
+  // [FIX-v1.8.2] حذف المستخدمين التجريبيين بعد ensureDemoUsers لمنع ظهورهم في صفحة المستخدمين
+  const _demoUsernames = new Set(['manager.demo', 'teacher.demo', 'agent.demo', 'counselor.demo']);
+  const preparedUsers = ensureDemoUsers(users || [], schools || []).filter(u => !_demoUsernames.has(String(u.username || '').toLowerCase()));
   const existingMap = new Map((existingUsers || []).map((user) => [user.id, user]));
   const results = [];
   for (const user of preparedUsers) {
@@ -675,6 +677,22 @@ async function saveSharedState(state, actor = null) {
       }
     }
   }
+  // ===== [FIX-v1.8.3] حماية المستخدمين: منع حذف مستخدمين موجودين في الخادم =====
+  // المشكلة: المعلم يُرسل state بـ users مُصفّاة (مدرسته فقط) فيُحذف باقي المستخدمين
+  // الحل: دمج المستخدمين الواردين مع الموجودين في الخادم بحيث لا يُحذف أي مستخدم
+  if (Array.isArray(current.users) && current.users.length > 0) {
+    if (!Array.isArray(state.users) || state.users.length === 0) {
+      console.warn(`[PROTECT-USERS] Incoming state has no users! Keeping all ${current.users.length} server users.`);
+      state.users = current.users;
+    } else {
+      const incomingUserIds = new Set(state.users.map(u => String(u.id)));
+      const missingUsers = current.users.filter(u => !incomingUserIds.has(String(u.id)));
+      if (missingUsers.length > 0) {
+        console.warn(`[PROTECT-USERS] Prevented deletion of ${missingUsers.length} users: ${missingUsers.map(u => u.name || u.username).join(', ')}`);
+        state.users = [...state.users, ...missingUsers];
+      }
+    }
+  }
   const hydrated = await normalizeStateForStorage(state, current);
   writeStateRow(hydrated, actor);
   void ensureDailyBackups('save', hydrated);
@@ -773,7 +791,7 @@ async function notifyAuthSecurityAlert(state, payload = {}) {
   for (const admin of admins) {
     try {
       if (channels.email && admin.email) {
-        await sendAuthEmail(authSettings.email || {}, admin.email, '000000', { customSubject: 'تنبيه أمني في منصة المدرسة المثالية', customText: message });
+        await sendAuthEmail(authSettings.email || {}, admin.email, '000000', { customSubject: 'تنبيه أمني في منصة الشركة المثالية', customText: message });
       }
     } catch {}
     try {
@@ -921,7 +939,7 @@ async function sendAuthEmail(config, to, code, context = {}) {
     auth: { user: config.smtpUsername, pass: config.smtpPassword },
   });
   await transporter.sendMail({
-    from: `"${config.fromName || 'منصة المدرسة المثالية'}" <${config.fromEmail}>`,
+    from: `"${config.fromName || 'منصة الشركة المثالية'}" <${config.fromEmail}>`,
     to,
     subject: 'رمز التحقق لتسجيل الدخول',
     text: `رمز التحقق الخاص بك هو: ${code}
@@ -971,11 +989,11 @@ async function runAuthDeliveryTest(state, actor, body = {}) {
   if (!targetPhone) throw new Error('أدخل رقم جوال صالحًا لاختبار القناة.');
   const integration = authSettings.integrations || defaultSettings.auth.integrations;
   if (delivery === 'sms') {
-    const sent = await sendSmsMessage(integration.sms || {}, targetPhone, `رسالة اختبار من منصة المدرسة المثالية للتحقق من قناة OTP. الوقت: ${new Date().toLocaleString('ar-SA')}`);
+    const sent = await sendSmsMessage(integration.sms || {}, targetPhone, `رسالة اختبار من منصة الشركة المثالية للتحقق من قناة OTP. الوقت: ${new Date().toLocaleString('ar-SA')}`);
     return { message: 'تم تنفيذ اختبار SMS بنجاح.', destinationPreview: maskPhone(targetPhone), providerMessageId: sent.providerMessageId || '' };
   }
   if (delivery === 'whatsapp') {
-    const sent = await sendWhatsappCloudMessage(integration.whatsapp || {}, targetPhone, `رسالة اختبار من منصة المدرسة المثالية للتحقق من قناة OTP.
+    const sent = await sendWhatsappCloudMessage(integration.whatsapp || {}, targetPhone, `رسالة اختبار من منصة الشركة المثالية للتحقق من قناة OTP.
 الوقت: ${new Date().toLocaleString('ar-SA')}`);
     return { message: 'تم تنفيذ اختبار واتساب بنجاح.', destinationPreview: maskPhone(targetPhone), providerMessageId: sent.providerMessageId || '' };
   }
@@ -1962,7 +1980,7 @@ async function testSchoolMessagingIntegration(state, schoolId, channel, settings
     const cfg = settings.integration.whatsapp || {};
     if (!cfg.phoneNumberId || !cfg.accessToken || !cfg.testRecipient) return { ok: false, message: 'أكمل Phone Number ID وAccess Token ورقم الاختبار أولاً.' };
     try {
-      const sent = await sendWhatsappCloudMessage(cfg, cfg.testRecipient, 'رسالة اختبار من منصة المدرسة المثالية. تم التحقق من الربط بنجاح.');
+      const sent = await sendWhatsappCloudMessage(cfg, cfg.testRecipient, 'رسالة اختبار من منصة الشركة المثالية. تم التحقق من الربط بنجاح.');
       school.messaging.settings.integration.whatsapp.status = 'مرتبط';
       school.messaging.settings.integration.whatsapp.lastCheckedAt = now;
       return { ok: true, state: hydrateSharedState(next), message: 'تم إرسال رسالة اختبار واتساب بنجاح.', providerMessageId: sent.providerMessageId || '' };
@@ -1976,7 +1994,7 @@ async function testSchoolMessagingIntegration(state, schoolId, channel, settings
     const cfg = settings.integration.sms || {};
     if (!cfg.apiUrl || !cfg.senderId || !cfg.testRecipient || !(cfg.apiKey || (cfg.username && cfg.password))) return { ok: false, message: 'أكمل بيانات مزود SMS ورقم الاختبار أولاً.' };
     try {
-      const sent = await sendSmsMessage(cfg, cfg.testRecipient, 'رسالة اختبار من منصة المدرسة المثالية. تم التحقق من الربط بنجاح.');
+      const sent = await sendSmsMessage(cfg, cfg.testRecipient, 'رسالة اختبار من منصة الشركة المثالية. تم التحقق من الربط بنجاح.');
       school.messaging.settings.integration.sms.status = 'مرتبط';
       school.messaging.settings.integration.sms.lastCheckedAt = now;
       return { ok: true, state: hydrateSharedState(next), message: 'تم إرسال رسالة اختبار SMS بنجاح.', providerMessageId: sent.providerMessageId || '' };
@@ -4055,9 +4073,10 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
   }
   // ===================================================
   const company = school.companies.find((item) => item.id === student.companyId);
-  student.points = Number(student.points || 0) + deltaPoints;
+  const pointsDelta = actionType === 'reward' ? deltaPoints : -deltaPoints;
+  student.points = Number(student.points || 0) + pointsDelta;
   if (company) {
-    company.points = Number(company.points || 0) + deltaPoints;
+    company.points = Number(company.points || 0) + pointsDelta;
     company.behavior = clamp(Number(company.behavior || 0) + (actionType === 'reward' ? 1 : -1), 0, 100);
   }
   const now = new Date();
@@ -4078,7 +4097,7 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
     date: toArabicDate(now),
     isoDate: getTodayIso(),
     time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
-    deltaPoints,
+    deltaPoints: pointsDelta,
     classroomId: payload.classroomId ? String(payload.classroomId) : null,
   };
   next.actionLog = [logEntry, ...next.actionLog].slice(0, 1200);
@@ -4291,7 +4310,7 @@ function serveStatic(req, res) {
   // index.html لا يُخزَّن مؤقتاً لضمان تحميل أحدث نسخة دائماً
   const isAsset = pathname.startsWith('/assets/');
   const cacheHeader = isAsset
-    ? 'public, max-age=31536000, immutable'
+    ? 'no-cache, no-store, must-revalidate'
     : 'no-cache, no-store, must-revalidate';
 
   res.writeHead(200, {
@@ -5347,6 +5366,8 @@ const server = http.createServer(async (req, res) => {
         });
         if (automated?.state) saved = await saveSharedState(automated.state, actor);
       }
+      // ✅ إصلاح: بث التحديث لشاشة العرض فوراً بعد حفظ المكافأة/الخصم
+      broadcastAllLive(saved);
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, student: applied.student, state: sanitizeStateForClient(saved, actor) });
     }
 
@@ -5359,6 +5380,8 @@ const server = http.createServer(async (req, res) => {
       const applied = await applyProgramToState(await getSharedState(), schoolId, body, actor);
       if (!applied.ok) return sendJson(res, 400, applied);
       const saved = await saveSharedState(applied.state, actor);
+      // ✅ إصلاح: بث التحديث لشاشة العرض فوراً بعد حفظ البرنامج
+      broadcastAllLive(saved);
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, state: sanitizeStateForClient(saved, actor) });
     }
 
@@ -5884,7 +5907,7 @@ const server = http.createServer(async (req, res) => {
       const delivery = await trySendOtpToChannel({
         channel: 'sms',
         recipient: mobile,
-        message: `رمز التحقق لتحديث الرقم الأساسي في منصة المدرسة المثالية هو: ${code}`,
+        message: `رمز التحقق لتحديث الرقم الأساسي في منصة الشركة المثالية هو: ${code}`,
       });
       const response = { ok: true, message: delivery.ok ? 'تم إرسال رمز التحقق إلى الرقم الجديد.' : 'تم إنشاء طلب التحقق. أكمل بالرمز الظاهر للاختبار.' };
       if (!delivery.ok) response.previewCode = code;
@@ -6666,10 +6689,11 @@ const server = http.createServer(async (req, res) => {
       const updatedSchools = [...currentState.schools];
       updatedSchools[schoolIdx] = updatedSchool;
       const newState = { ...currentState, schools: updatedSchools };
-      await saveSharedState(newState, actor);
+      const saved = await saveSharedState(newState, actor);
       // إرسال تحديث فوري لشاشات العرض
-      broadcastAllLive(newState);
-      return sendJson(res, 200, { ok: true, message: 'تم حفظ التحضير بنجاح.' });
+      broadcastAllLive(saved);
+      // ✅ إصلاح: إرجاع state المحدّث حتى يبقى الـ frontend متزامناً مع شاشة العرض
+      return sendJson(res, 200, { ok: true, message: 'تم حفظ التحضير بنجاح.', state: sanitizeStateForClient(saved) });
     }
     // ===== نهاية تحضير الحصص =====
 
@@ -9886,7 +9910,7 @@ function renderParentRequestsAdminHtml() {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>اعتماد طلبات أولياء الأمور - منصة المدرسة المثالية</title>
+  <title>اعتماد طلبات أولياء الأمور - منصة الشركة المثالية</title>
   <style>
     @font-face{font-family:'HelveticaArabic';src:url('/public/fonts/HelveticaNeueW23forSKY-Reg.ttf') format('truetype');font-weight:400;font-display:swap}
     @font-face{font-family:'HelveticaArabic';src:url('/public/fonts/HelveticaNeueW23forSKY-Bd.ttf') format('truetype');font-weight:700;font-display:swap}

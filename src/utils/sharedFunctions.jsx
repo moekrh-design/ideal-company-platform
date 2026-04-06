@@ -1186,9 +1186,7 @@ export function buildHydratedClientState(parsed = {}, uiState = {}) {
   return {
     ...defaults,
     schools,
-    // [FIX-v1.8.2] استخدام مصفوفة فارغة بدلاً من createDefaultUsers عند غياب البيانات
-    // السبب: createDefaultUsers تُنشئ مستخدمين تجريبيين تُرسل للخادم وتُلوث بيانات المستخدمين الحقيقيين
-    users: hydrateUsers(parsed.users?.length ? parsed.users : [], schools),
+    users: hydrateUsers(parsed.users?.length ? parsed.users : createDefaultUsers(schools), schools),
     currentUserId: uiState.currentUserId || null,
     selectedSchoolId: uiState.selectedSchoolId || schools[0]?.id || 1,
     activePage: uiState.activePage || "dashboard",
@@ -2739,7 +2737,7 @@ export const SPECIAL_ITEM_TEMPLATES = {
 
 
 export const defaultSettings = {
-  platformName: "منصة الشركة المثالية",
+  platformName: "منصة المدرسة المثالية",
   academicYear: "1447",
   dayStart: "06:45",
   adminName: "الإدارة العامة",
@@ -2814,7 +2812,7 @@ export const defaultSettings = {
       forceForSelected: false,
     },
     email: {
-      fromName: 'منصة الشركة المثالية',
+      fromName: 'منصة المدرسة المثالية',
       fromEmail: '',
       smtpHost: '',
       smtpPort: 587,
