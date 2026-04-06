@@ -4554,7 +4554,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [publicMode]);
+  }, [publicMode, booting]));
 
 
   useEffect(() => {
@@ -4719,7 +4719,7 @@ export default function App() {
     const token = getSessionToken();
     if (!token) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => { if (false) { // AUTO-SAVE DISABLED
+    saveTimerRef.current = setTimeout(async () => {
       try {
         setSyncStatus("saving");
         const response = await apiRequest("/api/state/save", { method: "POST", token, body: { state: sharedState } });
@@ -4769,7 +4769,7 @@ export default function App() {
       setSyncStatus("online");
       pushNotification("تسجيل دخول", `تم الدخول بحساب ${response.user?.name || user?.name || username}.`);
       // === FIX: إعادة تحميل الصفحة بعد الدخول لضمان تحميل كل البيانات ===
-      setTimeout(() => { if (getSessionToken()) window.location.reload(); }, 800);
+      setBooting(true); // triggers bootstrap re-run
       return { ok: true };
     } catch (error) {
       console.error(error);
