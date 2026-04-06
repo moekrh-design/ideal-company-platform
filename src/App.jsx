@@ -4768,6 +4768,8 @@ export default function App() {
       setEditingUserId(null);
       setSyncStatus("online");
       pushNotification("تسجيل دخول", `تم الدخول بحساب ${response.user?.name || user?.name || username}.`);
+      // === FIX: إعادة تحميل الصفحة بعد الدخول لضمان تحميل كل البيانات ===
+      setTimeout(() => { window.location.reload(); }, 300);
       return { ok: true };
     } catch (error) {
       console.error(error);
