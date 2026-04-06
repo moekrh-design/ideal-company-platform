@@ -1,23 +1,107 @@
 import React from 'react';
+import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import { cx } from '../../utils/helpers';
 
-export function Input({ label, className = "", ...props }) {
+// ─── رسالة خطأ الحقل ───────────────────────────────────────────────────────
+export function FieldError({ error }) {
+  if (!error) return null;
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">{label}</span>
-      <input {...props} className={cx("w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none", className)} />
-    </label>
+    <div className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-rose-600">
+      <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+      <span>{error}</span>
+    </div>
   );
 }
 
-export function Select({ label, className = "", children, ...props }) {
+// ─── بانر خطأ النموذج الكامل ────────────────────────────────────────────────
+export function FormError({ errors }) {
+  const messages = Object.values(errors || {}).filter(Boolean);
+  if (!messages.length) return null;
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-bold text-slate-700">{label}</span>
-      <select {...props} className={cx("w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none", className)}>
+    <div className="rounded-2xl bg-rose-50 p-4 ring-1 ring-rose-200">
+      <div className="flex items-start gap-2">
+        <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-rose-600" />
+        <div>
+          <div className="text-sm font-bold text-rose-800">يرجى تصحيح الأخطاء التالية:</div>
+          <ul className="mt-1.5 space-y-1">
+            {messages.map((msg, i) => (
+              <li key={i} className="text-xs text-rose-700">• {msg}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── رسالة نجاح ─────────────────────────────────────────────────────────────
+export function FormSuccess({ message }) {
+  if (!message) return null;
+  return (
+    <div className="flex items-center gap-2 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-200">
+      <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-emerald-600" />
+      <span className="text-sm font-medium text-emerald-800">{message}</span>
+    </div>
+  );
+}
+
+// ─── Input مع دعم الأخطاء ───────────────────────────────────────────────────
+export function Input({ label, className = "", error, required, hint, ...props }) {
+  const hasError = Boolean(error);
+  return (
+    <div className="block">
+      {label && (
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className={cx("block text-sm font-bold", hasError ? "text-rose-700" : "text-slate-700")}>
+            {label}
+            {required && <span className="mr-1 text-rose-500">*</span>}
+          </span>
+          {hint && <span className="text-xs text-slate-400">{hint}</span>}
+        </div>
+      )}
+      <input
+        {...props}
+        className={cx(
+          "w-full rounded-2xl border px-4 py-3 text-sm outline-none transition-colors",
+          hasError
+            ? "border-rose-300 bg-rose-50 text-rose-900 placeholder-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+            : "border-slate-200 bg-white focus:border-sky-400 focus:ring-2 focus:ring-sky-50",
+          className
+        )}
+      />
+      <FieldError error={error} />
+    </div>
+  );
+}
+
+// ─── Select مع دعم الأخطاء ──────────────────────────────────────────────────
+export function Select({ label, className = "", children, error, required, hint, ...props }) {
+  const hasError = Boolean(error);
+  return (
+    <div className="block">
+      {label && (
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className={cx("block text-sm font-bold", hasError ? "text-rose-700" : "text-slate-700")}>
+            {label}
+            {required && <span className="mr-1 text-rose-500">*</span>}
+          </span>
+          {hint && <span className="text-xs text-slate-400">{hint}</span>}
+        </div>
+      )}
+      <select
+        {...props}
+        className={cx(
+          "w-full rounded-2xl border px-4 py-3 text-sm outline-none transition-colors",
+          hasError
+            ? "border-rose-300 bg-rose-50 text-rose-900 focus:border-rose-400"
+            : "border-slate-200 bg-white focus:border-sky-400",
+          className
+        )}
+      >
         {children}
       </select>
-    </label>
+      <FieldError error={error} />
+    </div>
   );
 }
 

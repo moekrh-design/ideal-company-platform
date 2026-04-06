@@ -28,7 +28,9 @@ git pull origin main --no-rebase 2>&1 | tee -a "$LOG_FILE"
 # 3. تثبيت الحزم إذا تغيرت
 # =====================================================
 echo "--- تثبيت الحزم ---" | tee -a "$LOG_FILE"
-npm install --production 2>&1 | tail -3 | tee -a "$LOG_FILE"
+npm install
+echo "--- بناء الواجهة ---" | tee -a "$LOG_FILE"
+npm run build 2>&1 | tail -5 | tee -a "$LOG_FILE"
 
 # =====================================================
 # 4. إعادة تشغيل الخادم

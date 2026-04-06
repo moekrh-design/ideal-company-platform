@@ -63,7 +63,6 @@ import {
   Info,
   ChevronDown,
   AlertCircle,
-  Globe,
 } from "lucide-react";
 import {
   Bar,
@@ -99,7 +98,6 @@ import LeavePassesPage from './pages/LeavePassesPage';
 import LessonAttendanceSessionsPage from './pages/LessonAttendanceSessionsPage';
 import ReportsPage from './pages/ReportsPage';
 import SettingsPage from './pages/SettingsPage';
-import AdminAllSchoolsSettings from './pages/AdminAllSchoolsSettings';
 import UsersPage from './pages/UsersPage';
 import MessagingCenterPage from './pages/MessagingCenterPage';
 import RewardStorePage from './pages/RewardStorePage';
@@ -143,8 +141,8 @@ const UI_STATE_KEY = "ideal-company-platform-ui-v8";
 const SERVER_CACHE_KEY = "ideal-company-platform-server-cache-v8";
 const SESSION_TOKEN_KEY = "ideal-company-platform-session-token-v8";
 const BACKUP_VERSION = 8;
-const APP_VERSION = "v1.8.0";
-const APP_VERSION_DATE = "2026-03-27";
+const APP_VERSION = "v1.8.1";
+const APP_VERSION_DATE = "2026-04-03";
 const GATE_OFFLINE_QUEUE_PREFIX = "ideal-company-platform-gate-offline-queue-v1";
 const GATE_SYNC_LOG_PREFIX = "ideal-company-platform-gate-sync-log-v1";
 
@@ -429,66 +427,44 @@ function getTickerTheme(bg) {
 
 const initialSchools = [
   {
-    "id": 1,
-    "name": "متوسطة الأبناء الثالثة",
-    "city": "أبها",
-    "code": "ABH-003",
-    "manager": "",
-    "status": "نشطة",
-    "companies": [],
-    "students": []
-  },
-  {
-    "id": 2,
-    "name": "مدرسة الرياض النموذجية",
-    "city": "الرياض",
-    "code": "RYD-011",
-    "manager": "",
-    "status": "نشطة",
-    "companies": [],
-    "students": []
-  },
-  {
-    "id": 3,
-    "name": "ابتدائية الأبناء الرابعة",
-    "city": "خميس مشيط",
-    "code": "61506",
-    "manager": "خالد جابر الفيفي",
-    "status": "نشطة",
-    "companies": [],
-    "students": []
-  },
-  {
-    "id": 4,
-    "name": "ثانوية الشيخ محمد بن عثيمين",
-    "city": "الخرج",
-    "code": "116117",
-    "manager": "محمد عواض الثقفي",
-    "status": "نشطة",
-    "companies": [
-      {
-        "id": 1,
-        "name": "غير محدد - الفصل 1",
-        "className": "غير محدد - الفصل 1",
-        "leader": "—",
-        "points": 0,
-        "early": 0,
-        "behavior": 100,
-        "initiatives": 0
-      }
+    id: 1,
+    name: "متوسطة الأبناء الثالثة",
+    city: "أبها",
+    code: "ABH-003",
+    manager: "أ. خالد العمري",
+    status: "نشطة",
+    companies: [
+      { id: 101, name: "شركة الأمل", className: "1/1", leader: "أحمد الحربي", points: 980, early: 18, behavior: 96, initiatives: 6 },
+      { id: 102, name: "شركة التميز", className: "1/2", leader: "ياسر القحطاني", points: 940, early: 16, behavior: 92, initiatives: 4 },
+      { id: 103, name: "شركة النمير", className: "2/1", leader: "يزن عسيري", points: 910, early: 15, behavior: 90, initiatives: 5 },
+      { id: 104, name: "شركة المجد", className: "2/2", leader: "بندر عسيري", points: 860, early: 13, behavior: 88, initiatives: 3 },
     ],
-    "students": []
+    students: [
+      { id: 1, name: "أحمد إبراهيم أحمد الحربي", nationalId: "1100000011", grade: "الأول متوسط", companyId: 101, barcode: "ST-0001-ABH", faceReady: true, status: "مبكر", attendanceRate: 99, points: 138 },
+      { id: 2, name: "ياسر مفلح علي القحطاني", nationalId: "1100000012", grade: "الأول متوسط", companyId: 101, barcode: "ST-0002-ABH", faceReady: false, status: "في الوقت", attendanceRate: 96, points: 121 },
+      { id: 3, name: "يزن عامر إبراهيم عسيري", nationalId: "1100000013", grade: "الأول متوسط", companyId: 102, barcode: "ST-0003-ABH", faceReady: true, status: "مبكر", attendanceRate: 98, points: 130 },
+      { id: 4, name: "بندر هادي المحب عسيري", nationalId: "1100000014", grade: "الثاني متوسط", companyId: 103, barcode: "ST-0004-ABH", faceReady: true, status: "متأخر", attendanceRate: 87, points: 97 },
+      { id: 5, name: "سعد سالم مسفر الشهراني", nationalId: "1100000015", grade: "الثاني متوسط", companyId: 104, barcode: "ST-0005-ABH", faceReady: false, status: "في الوقت", attendanceRate: 95, points: 115 },
+      { id: 6, name: "عبدالرحمن فهد الشمراني", nationalId: "1100000016", grade: "الثاني متوسط", companyId: 104, barcode: "ST-0006-ABH", faceReady: true, status: "مبكر", attendanceRate: 100, points: 140 },
+    ],
   },
   {
-    "id": 5,
-    "name": "متوسطة الأبناء الثالثة",
-    "city": "خميس مشيط",
-    "code": "61511",
-    "manager": "عبدالله سعيد الخفاجي",
-    "status": "نشطة",
-    "companies": [],
-    "students": []
-  }
+    id: 2,
+    name: "مدرسة الرياض النموذجية",
+    city: "الرياض",
+    code: "RYD-011",
+    manager: "أ. عبدالله الدوسري",
+    status: "نشطة",
+    companies: [
+      { id: 201, name: "شركة الريادة", className: "1/1", leader: "عبدالله الدوسري", points: 1005, early: 20, behavior: 97, initiatives: 7 },
+      { id: 202, name: "شركة المستقبل", className: "1/2", leader: "فهد العتيبي", points: 965, early: 17, behavior: 94, initiatives: 5 },
+    ],
+    students: [
+      { id: 7, name: "عبدالله سالم الدوسري", nationalId: "1100000021", grade: "الأول متوسط", companyId: 201, barcode: "ST-0007-RYD", faceReady: true, status: "مبكر", attendanceRate: 97, points: 136 },
+      { id: 8, name: "فهد محمد العتيبي", nationalId: "1100000022", grade: "الأول متوسط", companyId: 202, barcode: "ST-0008-RYD", faceReady: true, status: "في الوقت", attendanceRate: 95, points: 118 },
+      { id: 9, name: "تركي حامد المطيري", nationalId: "1100000023", grade: "الثاني متوسط", companyId: 202, barcode: "ST-0009-RYD", faceReady: false, status: "مبكر", attendanceRate: 98, points: 124 },
+    ],
+  },
 ];
 
 const initialScanLog = [
@@ -882,7 +858,7 @@ const permissionDefinitions = [
   { key: "companies", label: "الشركات والفصول" },
   { key: "students", label: "الطلاب" },
   { key: "attendance", label: "الحضور الذكي" },
-  { key: "actions", label: "إجراءات" },
+  { key: "actions", label: "إجراءات الطلاب" },
   { key: "points", label: "ترتيب الفصول" },
   { key: "reports", label: "مركز التقارير" },
   { key: "deviceDisplays", label: "الشاشات والبوابات" },
@@ -909,7 +885,7 @@ const navItems = [
   { key: "schools", label: "المدارس", icon: Building2, permission: "schools" },
   { key: "attendance", label: "الحضور الذكي", icon: ScanLine, permission: "attendance" },
   { key: "lessonAttendanceSessions", label: "تحضير الحصص", icon: ClipboardList, permission: "actions", roles: ["superadmin", "principal", "supervisor", "teacher"] },
-  { key: "actions", label: "إجراءات", icon: ClipboardCheck, permission: "actions" },
+  { key: "actions", label: "إجراءات الطلاب", icon: ClipboardCheck, permission: "actions" },
   { key: "leavePasses", label: "الاستئذان", icon: ClipboardList, permission: "leavePass", roles: ["superadmin", "principal", "supervisor", "teacher"] },
   { key: "leavePassAgentDesk", label: "استئذان الوكيل", icon: ShieldCheck, permission: "leavePass", roles: ["agent"] },
   { key: "leavePassCounselorDesk", label: "استئذان المرشد", icon: UserCheck, permission: "leavePass", roles: ["counselor"] },
@@ -936,7 +912,6 @@ const navItems = [
   { key: "schoolStructure", label: "إعدادات المدرسة (الهيكل)", icon: School, permission: "settings", group: "الإعدادات" },
   { key: "users", label: "المستخدمون", icon: ShieldCheck, permission: "users", group: "الإعدادات" },
   { key: "platformAuth", label: "الدخول والمصادقة", icon: ShieldCheck, permission: "settings", roles: ["superadmin"], group: "الإعدادات" },
-  { key: "adminAllSchoolsSettings", label: "إعدادات المنصة", icon: Globe, permission: "settings", roles: ["superadmin"], group: "الإعدادات" },
 ];
 
 const principalDelegableRoles = ["agent", "counselor", "gate", "supervisor", "teacher", "student"];
@@ -1677,82 +1652,9 @@ function createDefaultState() {
   };
 }
 
-
-// ===== دالة دمج المدارس: تُحافظ على المدارس الموجودة وتُحدِّث فقط الواردة =====
-// المشكلة: عند استقبال استجابة من الخادم بمدرسة واحدة (للمعلم/المدير)
-// تُستبدل جميع المدارس بمدرسة واحدة في واجهة الأدمن
-// الحل: دمج المدارس الواردة مع المدارس الموجودة بدلاً من الاستبدال
-function mergeSchoolsFromResponse(existingSchools, incomingSchools) {
-  if (!Array.isArray(incomingSchools) || incomingSchools.length === 0) return existingSchools;
-  if (!Array.isArray(existingSchools) || existingSchools.length === 0) return incomingSchools;
-
-  // دمج ذكي دائماً: نُحدِّث كل مدرسة واردة مع الحفاظ على بيانات الطلاب الموجودة
-  const existingMap = {};
-  for (const s of existingSchools) { existingMap[String(s.id)] = s; }
-
-  const mergedIncoming = incomingSchools.map(function(incoming) {
-    const existing = existingMap[String(incoming.id)];
-    if (!existing) return incoming;
-
-    // حماية students المباشرة: إذا الوارد فارغ والموجود يحتوي طلاباً
-    const existingStudents = Array.isArray(existing.students) ? existing.students : [];
-    const incomingStudents = Array.isArray(incoming.students) ? incoming.students : [];
-    let finalStudents = incomingStudents;
-    if (existingStudents.length > 0 && incomingStudents.length === 0) {
-      finalStudents = existingStudents;
-    } else if (existingStudents.length > 0 && incomingStudents.length < existingStudents.length * 0.5) {
-      const inIds = new Set(incomingStudents.map(function(s) { return String(s.id); }));
-      const missing = existingStudents.filter(function(s) { return !inIds.has(String(s.id)); });
-      finalStudents = [...incomingStudents, ...missing];
-    }
-
-    // حماية companies: إذا الوارد فارغ والموجود يحتوي شركات
-    const existingCompanies = Array.isArray(existing.companies) ? existing.companies : [];
-    const incomingCompanies = Array.isArray(incoming.companies) ? incoming.companies : [];
-    let finalCompanies = incomingCompanies;
-    if (existingCompanies.length > 0 && incomingCompanies.length === 0) {
-      finalCompanies = existingCompanies;
-    } else if (existingCompanies.length > 0 && incomingCompanies.length < existingCompanies.length * 0.5) {
-      const inCIds = new Set(incomingCompanies.map(function(c) { return String(c.id); }));
-      const missingC = existingCompanies.filter(function(c) { return !inCIds.has(String(c.id)); });
-      finalCompanies = [...incomingCompanies, ...missingC];
-    }
-
-    // حماية structure.classrooms
-    const existingClassrooms = (existing.structure && Array.isArray(existing.structure.classrooms)) ? existing.structure.classrooms : [];
-    const incomingClassrooms = (incoming.structure && Array.isArray(incoming.structure.classrooms)) ? incoming.structure.classrooms : [];
-    const existingStructStudents = existingClassrooms.reduce(function(sum, c) { return sum + (Array.isArray(c.students) ? c.students.length : 0); }, 0);
-    const incomingStructStudents = incomingClassrooms.reduce(function(sum, c) { return sum + (Array.isArray(c.students) ? c.students.length : 0); }, 0);
-    let finalStructure = incoming.structure;
-    if (existingStructStudents > 0 && incomingStructStudents === 0) {
-      finalStructure = existing.structure;
-    } else if (existingStructStudents > 0 && incomingStructStudents < existingStructStudents * 0.5) {
-      const inCRIds = new Set(incomingClassrooms.map(function(c) { return String(c.id); }));
-      const missingCR = existingClassrooms.filter(function(c) { return !inCRIds.has(String(c.id)); });
-      finalStructure = { ...(incoming.structure || {}), classrooms: [...incomingClassrooms, ...missingCR] };
-    }
-
-    // حماية smartLinks (البوابات والشاشات)
-    const existingSmartLinks = existing.smartLinks || {};
-    const incomingSmartLinks = incoming.smartLinks || {};
-    const existingGates = Array.isArray(existingSmartLinks.gates) ? existingSmartLinks.gates : [];
-    const existingScreens = Array.isArray(existingSmartLinks.screens) ? existingSmartLinks.screens : [];
-    const incomingGates = Array.isArray(incomingSmartLinks.gates) ? incomingSmartLinks.gates : [];
-    const incomingScreens = Array.isArray(incomingSmartLinks.screens) ? incomingSmartLinks.screens : [];
-    const finalGates = (existingGates.length > 0 && incomingGates.length === 0) ? existingGates : incomingGates;
-    const finalScreens = (existingScreens.length > 0 && incomingScreens.length === 0) ? existingScreens : incomingScreens;
-    const finalSmartLinks = { ...incomingSmartLinks, gates: finalGates, screens: finalScreens };
-
-    return { ...incoming, students: finalStudents, companies: finalCompanies, structure: finalStructure, smartLinks: finalSmartLinks };
-  });
-
-  // الحفاظ على المدارس الموجودة غير الواردة
-  const incomingIds = new Set(incomingSchools.map(function(s) { return String(s.id); }));
-  const keptSchools = existingSchools.filter(function(s) { return !incomingIds.has(String(s.id)); });
-  return [...mergedIncoming, ...keptSchools];
-}
 function buildHydratedClientState(parsed = {}, uiState = {}) {
-  const schools = hydrateSchools(parsed.schools?.length ? parsed.schools : initialSchools);
+  // استخدام مصفوفة فارغة بدلاً من initialSchools لمنع عرض بيانات افتراضية عند خلو الكاش
+  const schools = hydrateSchools(parsed.schools?.length ? parsed.schools : []);
   const defaults = createDefaultState();
   return {
     ...defaults,
@@ -2599,7 +2501,7 @@ function computeLessonAttendanceSessionSummary(session, school, schoolUsers = []
     className: submission.className || '—',
     teacherName: submission.teacherName || '—',
     studentId: student.id,
-    studentName: student.name || student.fullName || 'طالب',
+    studentName: student.name,
     studentNumber: student.studentNumber || '',
     submittedAt: submission.submittedAt || '',
     acknowledged: submission.acknowledged ? 'نعم' : 'لا',
@@ -4217,8 +4119,7 @@ export default function App() {
 
   const applyServerStatePayload = useCallback((serverState, uiState = loadUiState()) => {
     const next = buildHydratedClientState(serverState || {}, uiState);
-    // ===== إصلاح اختفاء المدارس: دمج المدارس الواردة مع الموجودة =====
-    setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); });
+    setSchools(next.schools);
     setUsers(next.users);
     setScanLog(next.scanLog);
     setActionLog(next.actionLog || []);
@@ -4232,7 +4133,7 @@ export default function App() {
   const currentUser = useMemo(() => applySchoolAccessToUser(users.find((user) => user.id === currentUserId) || null, schools), [users, currentUserId, schools]);
   const currentRoleObject = roles.find((role) => role.key === currentUser?.role) || roles[0];
   const RoleIcon = currentRoleObject.icon;
-  const canUseHeaderAlerts = ['superadmin', 'principal', 'supervisor', 'teacher'].includes(String(currentUser?.role || ''));
+  const canUseHeaderAlerts = ['superadmin', 'principal', 'supervisor'].includes(String(currentUser?.role || ''));
   const canManageParentPortalApp = ['superadmin', 'principal'].includes(String(currentUser?.role || ''));
   const canViewParentPortal = canManageParentPortalApp || String(currentUser?.role || '') === 'supervisor';
 
@@ -4282,12 +4183,10 @@ export default function App() {
       const openPasses = leavePasses.filter((lp) => {
         if (['completed', 'cancelled', 'draft'].includes(lp.status)) return false;
         if (isTeacher) {
-          // المعلم يسمع الصوت فقط للطلبات الجديدة التي لم يتصرف بها بعد
-          if (String(lp.teacherUserId || lp.teacherId || '') !== String(currentUser.id)) return false;
-          return ['created', 'sent-system', 'sent-manual'].includes(String(lp.status || ''));
+          // المعلم يرى فقط الاستئذانات الموجهة له
+          return String(lp.teacherUserId || lp.teacherId || '') === String(currentUser.id);
         }
-        // المدير يرى الكل ما عدا المغلقة
-        return true;
+        return true; // المدير يرى الكل
       });
       openPasses.forEach((lp) => {
         const createdAt = lp.createdAt ? new Date(lp.createdAt).getTime() : null;
@@ -4299,7 +4198,7 @@ export default function App() {
         // === تنبيه مسؤول الأمن: فوري عند أي استئذان جديد (لم يُنبَّه بعد) ===
         if (isGate) {
           // استئذان معتمد (approved) ولم يُنبَّه بعد = تنبيه فوري
-          const isApproved = ['approved-agent', 'approved-counselor', 'released-guardian', 'viewed', 'released-teacher'].includes(lp.status);
+          const isApproved = ['approved-agent', 'approved-counselor', 'released-guardian', 'viewed'].includes(lp.status);
           if (isApproved && alerted === 0) {
             playAlertBeep(2);
             soundAlertsRef.current[key] = 1;
@@ -4349,83 +4248,33 @@ export default function App() {
           }
         }
       });
-      // --- تنبيهات تحضير الحصص (للمعلم والمدير والوكيل) ---
-      {
+      // --- تنبيهات تحضير الحصص (للمعلم فقط) ---
+      if (isTeacher) {
         const lessonSessions = getLessonAttendanceSessions(selectedSchool);
-        if (isTeacher) {
-          // المعلم: تنبيه كل 5 دقائق إذا لم يُغلق التحضير المطلوب منه
-          const openSessions = lessonSessions.filter((session) => {
-            if (session.status === 'closed') return false;
-            const targets = session.targetTeacherIds || [];
-            if (targets.length && !targets.map(String).includes(String(currentUser.id))) return false;
-            const alreadySubmitted = (session.submissions || []).some((sub) => String(sub.teacherId) === String(currentUser.id));
-            return !alreadySubmitted;
-          });
-          openSessions.forEach((session) => {
-            const sentAt = (session.teacherInvites || []).find((inv) => String(inv.teacherId) === String(currentUser.id))?.sentAt;
-            if (!sentAt) return;
-            const elapsedMin = (now - new Date(sentAt).getTime()) / 60000;
-            const key = `ls-${session.id}`;
-            const alerted = soundAlertsRef.current[key] || 0;
-            // كل 5 دقائق يأتي تنبيه (حتى 4 مرات)
-            const level = Math.min(Math.floor(elapsedMin / 5), 4);
-            if (level > 0 && level > alerted) {
-              playAlertBeep(Math.min(level, 4));
-              soundAlertsRef.current[key] = level;
-              setNotifications((prev) => [
-                { id: Date.now(), title: '📋 لم تُغلق تحضير الحصة', body: `مضى ${Math.floor(elapsedMin)} دقيقة على طلب تحضير ${buildLessonAttendanceSessionLabel(session)} ولم تعتمده بعد.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [currentUser.id] },
-                ...prev,
-              ].slice(0, 30));
-            }
-          });
-        }
-        if (isManager) {
-          // المدير/الوكيل/السوبرأدمين: تنبيه إذا مضى 5 دقائق على جلسة تحضير مفتوحة ولم يُغلقها المعلم
-          const pendingSessions = lessonSessions.filter((session) => {
-            if (session.status === 'closed') return false;
-            // الجلسة مفتوحة وفيها معلمون لم يُقدِّموا التحضير بعد
-            const targets = Array.isArray(session.targetTeacherIds) && session.targetTeacherIds.length
-              ? session.targetTeacherIds
-              : (session.teacherInvites || []).map((inv) => inv.teacherId);
-            if (!targets.length) return false;
-            const submittedIds = (session.submissions || []).map((sub) => String(sub.teacherId));
-            const pendingTeachers = targets.filter((tid) => !submittedIds.includes(String(tid)));
-            return pendingTeachers.length > 0;
-          });
-          pendingSessions.forEach((session) => {
-            const createdAt = session.createdAt ? new Date(session.createdAt).getTime() : null;
-            if (!createdAt) return;
-            const elapsedMin = (now - createdAt) / 60000;
-            const key = `ls-mgr-${session.id}`;
-            const alerted = soundAlertsRef.current[key] || 0;
-            // تنبيه المدير كل 5 دقائق (حتى 4 مرات)
-            const level = Math.min(Math.floor(elapsedMin / 5), 4);
-            if (level > 0 && level > alerted) {
-              playAlertBeep(Math.min(level, 3));
-              soundAlertsRef.current[key] = level;
-              // حساب عدد المعلمين المتأخرين
-              const targets2 = Array.isArray(session.targetTeacherIds) && session.targetTeacherIds.length
-                ? session.targetTeacherIds
-                : (session.teacherInvites || []).map((inv) => inv.teacherId);
-              const submittedIds2 = (session.submissions || []).map((sub) => String(sub.teacherId));
-              const pendingCount = targets2.filter((tid) => !submittedIds2.includes(String(tid))).length;
-              setNotifications((prev) => [
-                { id: Date.now(), title: `📋 تحضير لم يُغلق (${Math.floor(elapsedMin)} د)`, body: `جلسة ${buildLessonAttendanceSessionLabel(session)}: ${pendingCount} معلم لم يُغلق التحضير بعد.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [] },
-                ...prev,
-              ].slice(0, 30));
-            }
-          });
-          // تنظيف مفاتيح جلسات المدير المغلقة
-          Object.keys(soundAlertsRef.current).forEach((key) => {
-            if (key.startsWith('ls-mgr-')) {
-              const sessionId = key.replace('ls-mgr-', '');
-              const session = lessonSessions.find((s) => String(s.id) === sessionId);
-              if (!session || session.status === 'closed') {
-                delete soundAlertsRef.current[key];
-              }
-            }
-          });
-        }
+        const openSessions = lessonSessions.filter((session) => {
+          if (session.status === 'closed') return false;
+          const targets = session.targetTeacherIds || [];
+          if (targets.length && !targets.map(String).includes(String(currentUser.id))) return false;
+          const alreadySubmitted = (session.submissions || []).some((sub) => String(sub.teacherId) === String(currentUser.id));
+          return !alreadySubmitted;
+        });
+        openSessions.forEach((session) => {
+          const sentAt = (session.teacherInvites || []).find((inv) => String(inv.teacherId) === String(currentUser.id))?.sentAt;
+          if (!sentAt) return;
+          const elapsedMin = (now - new Date(sentAt).getTime()) / 60000;
+          const key = `ls-${session.id}`;
+          const alerted = soundAlertsRef.current[key] || 0;
+          // كل 5 دقائق يأتي تنبيه
+          const level = Math.min(Math.floor(elapsedMin / 5), 4);
+          if (level > 0 && level > alerted) {
+            playAlertBeep(Math.min(level, 4));
+            soundAlertsRef.current[key] = level;
+            setNotifications((prev) => [
+              { id: Date.now(), title: '📋 لم تُغلق تحضير الحصة', body: `مضى ${Math.floor(elapsedMin)} دقيقة على طلب تحضير ${buildLessonAttendanceSessionLabel(session)} ولم تعتمده بعد.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [currentUser.id] },
+              ...prev,
+            ].slice(0, 30));
+          }
+        });
       }
     }, 30000); // فحص كل 30 ثانية
     return () => clearInterval(interval);
@@ -4520,7 +4369,7 @@ export default function App() {
         if (cancelled) return;
         const uiState = loadUiState();
         const next = buildHydratedClientState(response.state || {}, uiState);
-        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); });
+        setSchools(next.schools);
         setUsers(next.users);
         setScanLog(next.scanLog);
         setActionLog(next.actionLog || []);
@@ -4559,7 +4408,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!currentUser || !['superadmin', 'principal', 'supervisor', 'teacher'].includes(String(currentUser.role || '')) || !selectedSchool?.id) {
+    if (!currentUser || !['superadmin', 'principal', 'supervisor'].includes(String(currentUser.role || '')) || !selectedSchool?.id) {
       setHeaderAlertsState({ loading: false, loaded: false, error: '', count: 0, pending: 0, autoApproved: 0, failed: 0, items: [] });
       return () => { cancelled = true; };
     }
@@ -4573,82 +4422,13 @@ export default function App() {
         const apiAlerts = Array.isArray(response?.alerts) ? response.alerts : [];
         const pending = requests.filter((request) => String(request?.status || '') === 'pending').length;
         const autoApproved = apiAlerts.filter((alert) => /اعتماد تلقائي|تلقائيًا|تلقائي/.test(String(alert?.title || '') + ' ' + String(alert?.body || ''))).length;
-
-        // ✅ إصلاح: تعريف isCurrentTeacher مبكراً قبل أي استخدام
-        const isCurrentTeacher = String(currentUser?.role || '') === 'teacher';
-
-        // ✅ إصلاح: استخدام الاستئذانات المعلقة من رد الـ API مباشرة (لغير المعلمين)
-        // وطلب /api/leave-passes/pending للمعلمين فقط
-        let leavePassAlerts = [];
-        // استئذانات أولياء الأمور من رد الـ API الرئيسي (للمدير/الوكيل/السوبر)
-        const apiLeavePasses = Array.isArray(response?.leavePasses) ? response.leavePasses : [];
-        if (!isCurrentTeacher && apiLeavePasses.length > 0) {
-          leavePassAlerts = apiLeavePasses.slice(0, 5).map((lp, i) => ({
-            id: 'lp-api-' + (lp.id || i),
-            title: lp.isFromParent ? '🚪 استئذان من ولي الأمر' : '🚨 طلب استئذان' + (lp.status === 'created' ? ' جديد' : ''),
-            body: (lp.studentName || 'طالب') + ' — ' + (lp.schoolName ? lp.schoolName + ' — ' : '') + (lp.destination === 'agent' ? 'الوكيل' : lp.destination === 'counselor' ? 'المرشد' : 'ولي الأمر'),
-            time: lp.createdAt ? new Date(lp.createdAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : 'الآن',
-            tone: lp.isFromParent ? 'amber' : 'rose',
-            urgent: true,
-            type: 'leavePass',
-            leavePassId: lp.id,
-          }));
-        }
-        // للمعلمين: جلب استئذاناتهم المعلقة من endpoint مخصص
-        try {
-          if (isCurrentTeacher) {
-            const lpResp = await apiRequest('/api/leave-passes/pending?schoolId=' + (selectedSchool?.id || ''), { token: getSessionToken() });
-            if (lpResp?.ok && lpResp.count > 0) {
-              leavePassAlerts = (lpResp.passes || []).slice(0, 5).map((lp, i) => ({
-                id: 'lp-' + (lp.id || i),
-                title: '🚨 طلب استئذان' + (lp.status === 'created' ? ' جديد' : ''),
-                body: (lp.studentName || 'طالب') + ' — ' + (lp.destination === 'agent' ? 'الوكيل' : lp.destination === 'counselor' ? 'المرشد' : 'ولي الأمر'),
-                time: lp.createdAt ? new Date(lp.createdAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : 'الآن',
-                tone: 'amber',
-                urgent: true,
-                type: 'leavePass',
-                leavePassId: lp.id,
-              }));
-            }
-          }
-        } catch (e) { /* ignore */ }
-        const leavePassCount = leavePassAlerts.length;
-        // استئذانات المعلم المعلقة (من الـ state مباشرة)
-        const teacherLeavePassAlerts = isCurrentTeacher ? (() => {
-          const { getLeavePasses: getLP } = { getLeavePasses: (school) => Array.isArray(school?.leavePasses) ? school.leavePasses : [] };
-          const schoolLPs = getLP(selectedSchool) || [];
-          return schoolLPs
-            .filter((lp) => String(lp.teacherUserId || '') === String(currentUser?.id || '') && ['created', 'sent-system', 'sent-manual', 'viewed'].includes(String(lp.status || '')))
-            .map((lp, i) => ({
-              id: 'teacher-lp-' + (lp.id || i),
-              title: '🚨 طلب استئذان جديد',
-              body: (lp.studentName || 'طالب') + ' من ' + (lp.className || lp.companyName || 'فصله') + ' — ' + (lp.destination === 'agent' ? 'الوكيل' : lp.destination === 'counselor' ? 'المرشد' : 'ولي الأمر'),
-              time: lp.createdAt ? new Date(lp.createdAt).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : 'الآن',
-              tone: 'rose',
-              urgent: true,
-              type: 'leavePass',
-              leavePassId: lp.id,
-            }));
-        })() : [];
-        const teacherNotifs = isCurrentTeacher ? (notifications || []).filter((note) => note?.forTeacherIds?.map(String).includes(String(currentUser?.id || ''))) : [];
-        // ✅ إصلاح: نعرض كل التنبيهات لجميع الأدوار، لا فقط تنبيهات ولي الأمر
-        // الفلتر القديم كان يخفي الاستئذانات والحضور والنقاط وكل شيء ما عدا أولياء الأمور
-        const globalNotifs = isCurrentTeacher
-          ? [] // المعلم تنبيهاته من teacherNotifs و teacherLeavePassAlerts فقط
-          : (notifications || []).filter((note) => {
-              // استبعد التنبيهات المخصصة لمعلمين بعينهم (forTeacherIds محددة)
-              if (Array.isArray(note?.forTeacherIds) && note.forTeacherIds.length > 0) return false;
-              return true;
-            });
-        const localItems = [...teacherLeavePassAlerts, ...leavePassAlerts, ...teacherNotifs, ...globalNotifs].slice(0, 8).map((note, index) => ({
+        const teacherNotifs = String(currentUser?.role || '') === 'teacher' ? (notifications || []).filter((note) => note?.forTeacherIds?.map(String).includes(String(currentUser?.id || ''))) : [];
+        const localItems = [...teacherNotifs, ...(notifications || []).filter((note) => /فشل|تعذر|ولي الأمر|أولياء الأمور|الرقم الأساسي|بوابة ولي الأمر/.test(String(note?.title || '') + ' ' + String(note?.body || '')))].slice(0, 6).map((note, index) => ({
           id: `local-${note?.id || index}`,
           title: note?.title || 'تنبيه',
           body: note?.body || '',
           time: note?.time || '—',
-          tone: /فشل|تعذر|خطأ/.test(String(note?.title || '') + ' ' + String(note?.body || '')) ? 'rose'
-              : /تحذير|انتباه|مخالفة|غياب/.test(String(note?.title || '') + ' ' + String(note?.body || '')) ? 'amber'
-              : /مكافأة|نقاط|إنجاز/.test(String(note?.title || '') + ' ' + String(note?.body || '')) ? 'green'
-              : 'blue',
+          tone: /فشل|تعذر/.test(String(note?.title || '') + ' ' + String(note?.body || '')) ? 'rose' : 'blue',
         }));
         const normalizedAlerts = apiAlerts.slice(0, 6).map((alert, index) => ({
           id: `api-${alert?.id || index}`,
@@ -4663,17 +4443,11 @@ export default function App() {
           items.push({ id: 'pending-summary', title: 'طلبات أولياء الأمور', body: `يوجد ${pending} طلب بانتظار المتابعة أو الاعتماد.`, time: 'الآن', tone: 'blue' });
         }
         items.push(...normalizedAlerts, ...localItems);
-        // ✅ إصلاح: عدّاد الجرس كان صفراً للمدير/الوكيل لأن items كانت فارغة دائماً
-        // الآن نحسب الاستئذانات المعلقة + التنبيهات الفعلية لكل الأدوار
-        const nonTeacherCount = pending + leavePassAlerts.length + normalizedAlerts.length + globalNotifs.length;
-        const totalCount = isCurrentTeacher
-          ? teacherLeavePassAlerts.length + teacherNotifs.length
-          : Math.min(nonTeacherCount || items.length, 99);
         setHeaderAlertsState({
           loading: false,
           loaded: true,
           error: '',
-          count: Math.min(totalCount || items.length, 99),
+          count: Math.min(items.length, 99),
           pending,
           autoApproved,
           failed,
@@ -4687,9 +4461,7 @@ export default function App() {
     };
     loadHeaderAlerts();
     return () => { cancelled = true; };
-  }, [currentUser, selectedSchool?.id, selectedSchool?.leavePasses, notifications]);
-
-
+  }, [currentUser, selectedSchool?.id, notifications]);
 
   // polling تلقائي كل دقيقتين لجلب آخر إعدادات من السيرفر
   useEffect(() => {
@@ -4724,10 +4496,6 @@ export default function App() {
         setSyncStatus("saving");
         const response = await apiRequest("/api/state/save", { method: "POST", token, body: { state: sharedState } });
         saveServerCache(response.state || sharedState);
-        // تحديث schools من response لضمان ظهور البيانات المحمية في الواجهة
-        if (response.state?.schools?.length) {
-          setSchools(function(prev) { return mergeSchoolsFromResponse(prev, response.state.schools); });
-        }
         setSyncStatus("saved");
       } catch (error) {
         console.error(error);
@@ -4747,19 +4515,9 @@ export default function App() {
   const handleLogin = async (username, password) => {
     try {
       const response = await apiRequest("/api/auth/login", { method: "POST", body: { username, password } });
-      // إذا أعاد الخادم state كاملة، نُحدِّث البيانات فوراً بدون الحاجة لإعادة تحميل الصفحة
-      if (response.state) {
-        const next = buildHydratedClientState(response.state, loadUiState());
-        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); });
-        setUsers(next.users);
-        setScanLog(next.scanLog);
-        setActionLog(next.actionLog || []);
-        setSettings(next.settings);
-        saveServerCache(response.state);
-      }
-      const user = (response.state ? buildHydratedClientState(response.state, loadUiState()).users.find((item) => item.id === response.user?.id) : users.find((item) => item.id === response.user?.id)) || response.user;
+      const user = users.find((item) => item.id === response.user?.id) || response.user;
       const fallbackSchoolId = response.user?.role === "superadmin"
-        ? (selectedSchoolId || (response.state?.schools?.[0]?.id) || schools[0]?.id || null)
+        ? (selectedSchoolId || schools[0]?.id || null)
         : (response.user?.schoolId || schools[0]?.id || null);
       setSessionToken(response.token || "");
       setCurrentUserId(response.user?.id || null);
@@ -4813,19 +4571,10 @@ export default function App() {
     const headerCount = Number(headerAlertsState?.count || 0);
     // عداد التنبيهات المخصصة للمعلم
     const isTeacher = String(currentUser?.role || '') === 'teacher';
-    // عداد الجرس للمعلم: التنبيهات المخصصة + الاستئذانات الجديدة غير المعالجة
-    const teacherPendingLeaves = isTeacher ? getLeavePasses(selectedSchool).filter((lp) => {
-      // المعلم يرى في الجرس: الطلبات التي وصلت له ولم يتصرف بها بعد (created/sent/viewed)
-      if (!['created', 'sent-system', 'sent-manual', 'viewed'].includes(String(lp.status || ''))) return false;
-      return String(lp.teacherUserId || '') === String(currentUser?.id || '');
+    const teacherNotifCount = isTeacher ? (notifications || []).filter((note) => {
+      if (!note?.forTeacherIds) return false;
+      return note.forTeacherIds.map(String).includes(String(currentUser?.id || ''));
     }).length : 0;
-    const teacherNotifCount = isTeacher ? Math.max(
-      (notifications || []).filter((note) => {
-        if (!note?.forTeacherIds) return false;
-        return note.forTeacherIds.map(String).includes(String(currentUser?.id || ''));
-      }).length,
-      teacherPendingLeaves
-    ) : 0;
     return {
       messages: hasParentSignal ? {
         value: headerCount > 99 ? '99+' : String(headerCount || 0),
@@ -4847,7 +4596,7 @@ export default function App() {
         hidden: false,
       } : null,
     };
-  }, [currentUser?.role, currentUser?.id, notifications, canViewParentPortal, parentPortalDashboard?.pending, parentPortalConfig?.pendingRequests, parentPortalConfig?.enabled, headerAlertsState?.pending, headerAlertsState?.failed, headerAlertsState?.count, selectedSchool?.leavePasses]);
+  }, [currentUser?.role, currentUser?.id, notifications, canViewParentPortal, parentPortalDashboard?.pending, parentPortalConfig?.pendingRequests, parentPortalConfig?.enabled, headerAlertsState?.pending, headerAlertsState?.failed, headerAlertsState?.count]);
 
   const handleLogout = async () => {
     if (!currentUser) return;
@@ -5271,7 +5020,7 @@ export default function App() {
         body: { sourceMode: nextSourceMode, linkedClassroomId: nextLinkedClassroomId },
       });
       const next = buildHydratedClientState(response.state || {}, loadUiState());
-      setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); });
+      setSchools(next.schools);
       setUsers(next.users);
       setScanLog(next.scanLog);
       setActionLog(next.actionLog || []);
@@ -5505,7 +5254,7 @@ export default function App() {
       const response = await apiRequest(`/api/schools/${selectedSchool.id}/students/import`, { method: 'POST', token: getSessionToken(), body: { rows } });
       const uiState = loadUiState();
       const next = buildHydratedClientState(response.state || {}, uiState);
-      setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); });
+      setSchools(next.schools);
       setUsers(next.users);
       setScanLog(next.scanLog);
       setActionLog(next.actionLog || []);
@@ -5648,7 +5397,7 @@ export default function App() {
   };
 
   const handleApplyStudentAction = async ({ studentId, actionType, definitionId, specialDefinition, note, method }) => {
-    const unifiedStudent = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).find((item) => String(item.id) === String(studentId));
+    const unifiedStudent = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).find((item) => String(item.id) === String(studentId) || String(item.rawId) === String(studentId));
     if (!unifiedStudent) return { ok: false, message: "الطالب غير موجود." };
 
     if (unifiedStudent.source === 'structure') {
@@ -5697,7 +5446,7 @@ export default function App() {
     }
   };
 
-  const handleRecordProgramExecution = async ({ definitionId, companyId, studentId, targetType, targetLabel, targetCount, note, evidenceFiles = [] }) => {
+  const handleRecordProgramExecution = async ({ definitionId, companyId, studentId, targetType, targetLabel, targetCount, note, evidenceFiles = [], overrideActorId = null, overrideActorName = null, overrideActorRole = null }) => {
     try {
       const evidence = await Promise.all((evidenceFiles || []).map(async (file, index) => ({
         name: file?.name || `evidence-${index + 1}`,
@@ -5707,7 +5456,7 @@ export default function App() {
       const response = await apiRequest(`/api/schools/${selectedSchool.id}/programs/apply`, {
         method: 'POST',
         token: getSessionToken(),
-        body: { definitionId, companyId, studentId, targetType, targetLabel, targetCount, note, evidence },
+        body: { definitionId, companyId, studentId, targetType, targetLabel, targetCount, note, evidence, overrideActorId, overrideActorName, overrideActorRole },
       });
       applyServerStatePayload(response.state || {}, loadUiState());
       pushNotification("اعتماد برنامج", response?.message || `${selectedSchool.name}`);
@@ -6131,7 +5880,7 @@ export default function App() {
       const response = await apiRequest(`/api/schools/${selectedSchool.id}/device-links`, { method: 'POST', token: getSessionToken(), body: { kind: 'gate', ...payload } });
       const uiState = loadUiState();
       const next = buildHydratedClientState(response.state || {}, uiState);
-      setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); });
+      setSchools(next.schools);
       setUsers(next.users);
       setScanLog(next.scanLog);
       setActionLog(next.actionLog || []);
@@ -6152,7 +5901,7 @@ export default function App() {
     try {
       const response = await apiRequest(`/api/schools/${selectedSchool.id}/device-links/gate/${linkId}`, { method: 'POST', token: getSessionToken(), body: {} });
       const next = buildHydratedClientState(response.state || {}, loadUiState());
-      setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); }); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+      setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
     } catch (error) {
       window.alert(error?.message || 'تعذر حذف رابط البوابة.');
     }
@@ -6163,7 +5912,7 @@ export default function App() {
     try {
       const response = await apiRequest(`/api/schools/${selectedSchool.id}/device-links/gate/${linkId}`, { method: 'PATCH', token: getSessionToken(), body: payload });
       const next = buildHydratedClientState(response.state || {}, loadUiState());
-      setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); }); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+      setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
       pushNotification('تحديث بوابة', `تم تحديث وضع بوابة ${response.link?.name || ''}.`);
       return { ok: true, link: response.link };
     } catch (error) {
@@ -6187,7 +5936,7 @@ export default function App() {
       const response = await apiRequest(`/api/schools/${selectedSchool.id}/device-links`, { method: 'POST', token: getSessionToken(), body: { kind: 'screen', ...payload } });
       const uiState = loadUiState();
       const next = buildHydratedClientState(response.state || {}, uiState);
-      setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); }); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+      setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
       pushNotification('رابط شاشة', `تم إنشاء رابط ${response.link?.name || 'شاشة'} للمدرسة ${selectedSchool.name}.`);
       return { ok: true, link: response.link };
     } catch (error) {
@@ -6202,7 +5951,7 @@ export default function App() {
     try {
       const response = await apiRequest(`/api/schools/${selectedSchool.id}/device-links/screen/${linkId}`, { method: 'POST', token: getSessionToken(), body: {} });
       const next = buildHydratedClientState(response.state || {}, loadUiState());
-      setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); }); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+      setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
     } catch (error) {
       window.alert(error?.message || 'تعذر حذف رابط الشاشة.');
     }
@@ -6214,7 +5963,7 @@ export default function App() {
     try {
       const response = await apiRequest(`/api/schools/${selectedSchool.id}/device-links/screen/${linkId}`, { method: 'PATCH', token: getSessionToken(), body: payload });
       const next = buildHydratedClientState(response.state || {}, loadUiState());
-      setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); }); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+      setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
       pushNotification('تحديث شاشة', `تم تحديث رابط الشاشة ${response.link?.name || ''}.`);
       return { ok: true, link: response.link };
     } catch (error) {
@@ -6233,7 +5982,7 @@ export default function App() {
       });
       if (response.state) {
         const next = buildHydratedClientState(response.state, loadUiState());
-        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); }); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+        setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
       }
       pushNotification("إعدادات الرسائل", `تم تحديث إعدادات الرسائل والتنبيهات في ${selectedSchool.name}.`);
       return { ok: true };
@@ -6253,7 +6002,7 @@ export default function App() {
       });
       if (response.state) {
         const next = buildHydratedClientState(response.state, loadUiState());
-        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); }); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+        setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
       }
       pushNotification("قوالب الرسائل", `تم ${payload.id ? 'تحديث' : 'إضافة'} قالب رسالة في ${selectedSchool.name}.`);
       return { ok: true };
@@ -6272,7 +6021,7 @@ export default function App() {
       });
       if (response.state) {
         const next = buildHydratedClientState(response.state, loadUiState());
-        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); }); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+        setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
       }
       pushNotification("قوالب الرسائل", "تم حذف القالب المحدد.");
       return { ok: true };
@@ -6292,7 +6041,7 @@ export default function App() {
       });
       if (response.state) {
         const next = buildHydratedClientState(response.state, loadUiState());
-        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); }); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+        setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
       }
       pushNotification("التنبيهات التلقائية", `تم ${payload.id ? 'تحديث' : 'إضافة'} قاعدة تلقائية في ${selectedSchool.name}.`);
       return { ok: true };
@@ -6311,7 +6060,7 @@ export default function App() {
       });
       if (response.state) {
         const next = buildHydratedClientState(response.state, loadUiState());
-        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); }); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
+        setSchools(next.schools); setUsers(next.users); setScanLog(next.scanLog); setActionLog(next.actionLog || []); setSettings(next.settings); setNotifications(next.notifications); saveServerCache(response.state || {});
       }
       return { ok: true };
     } catch (error) {
@@ -6330,7 +6079,7 @@ export default function App() {
       });
       if (response.state) {
         const next = buildHydratedClientState(response.state, loadUiState());
-        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); });
+        setSchools(next.schools);
         setUsers(next.users);
         setScanLog(next.scanLog);
         setActionLog(next.actionLog || []);
@@ -6356,7 +6105,7 @@ export default function App() {
       });
       if (response.state) {
         const next = buildHydratedClientState(response.state, loadUiState());
-        setSchools(function(prev) { return mergeSchoolsFromResponse(prev, next.schools); });
+        setSchools(next.schools);
         setUsers(next.users);
         setScanLog(next.scanLog);
         setActionLog(next.actionLog || []);
@@ -6372,27 +6121,10 @@ export default function App() {
     }
   };
 
-
-  // === حفظ الاستئذان على الخادم (آمن - يحفظ الاستئذانات فقط بدون مسح بيانات أخرى) ===
-  const persistLeavePassesToServer = async () => {
-    try {
-      const token = getSessionToken();
-      if (!token || !selectedSchool?.id) return;
-      const passes = getLeavePasses(selectedSchool);
-      await apiRequest('/api/leave-passes/save', {
-        method: 'POST',
-        token,
-        body: { schoolId: selectedSchool.id, leavePasses: passes },
-      });
-    } catch (e) {
-      console.warn('تعذر حفظ الاستئذان على الخادم:', e?.message);
-    }
-  };
-
   const handleCreateLeavePass = async (payload = {}) => {
     if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لا توجد مدرسة محددة.' };
     const students = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true });
-    const student = students.find((item) => String(item.id) === String(payload.studentId || '') || String(item.rawId || '') === String(payload.studentId || ''));
+    const student = students.find((item) => String(item.id) === String(payload.studentId || ''));
     if (!student) return { ok: false, message: 'حدد الطالب أولاً.' };
     const teacher = (users || []).find((user) => Number(user.schoolId) === Number(selectedSchool.id) && String(user.role || '') === 'teacher' && String(user.id) === String(payload.teacherUserId || ''));
     if (!teacher) return { ok: false, message: 'حدد المعلم المستهدف.' };
@@ -6401,7 +6133,7 @@ export default function App() {
       id: leavePassId,
       schoolId: selectedSchool.id,
       studentId: student.id,
-      studentName: student.name || student.fullName || 'طالب',
+      studentName: student.name,
       studentNumber: student.studentNumber || '',
       className: student.classroomName || student.className || '',
       companyName: getStudentGroupingLabel(student, selectedSchool),
@@ -6423,9 +6155,7 @@ export default function App() {
       timeline: [createLeavePassEvent('created', currentUser.name || currentUser.username || 'الإدارة', 'تم إنشاء طلب الاستئذان')],
     };
     setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : { ...school, leavePasses: [leavePass, ...getLeavePasses(school)] }));
-    // إشعار عام
     pushNotification('الاستئذان', `تم إنشاء طلب استئذان للطالب ${leavePass.studentName}.`);
-    persistLeavePassesToServer();
     return { ok: true, leavePass, message: 'تم إنشاء الاستئذان ويمكن الآن إرسال الرابط للمعلم.' };
   };
 
@@ -6465,111 +6195,37 @@ export default function App() {
         ].slice(0, 30));
       });
     }
-    if (changed) persistLeavePassesToServer();
     return { ok: changed, message: changed ? 'تم تسجيل اطلاع المعلم.' : 'لم يتم العثور على الطلب.' };
   };
 
-  const handleUpdateLeavePassStatus = async (leavePassId, status = 'completed') => {
+  const handleUpdateLeavePassStatus = (leavePassId, status = 'completed') => {
     if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لا توجد مدرسة محددة.' };
-    const isTeacher = String(currentUser?.role || '') === 'teacher';
-    // المعلم عند الضغط على "خرج الطالب" يغير الحالة إلى released-teacher (ليس completed)
-    // الإغلاق النهائي يكون فقط من المدير أو مسؤول الأمن
-    const actualStatus = (isTeacher && status === 'completed') ? 'released-teacher' : status;
-    const actorName = currentUser.name || currentUser.username || 'مستخدم النظام';
-    const now = new Date().toISOString();
-    // ابحث عن الطلب الحالي
-    const existingPass = getLeavePasses(selectedSchool).find((item) => String(item.id) === String(leavePassId));
-    if (!existingPass) return { ok: false, message: 'لم يتم العثور على الطلب.' };
-    // بناء الطلب المحدث
-    const patch = {
-      ...existingPass,
-      status: actualStatus,
-      updatedAt: now,
-      updatedByName: actorName,
-      timeline: [createLeavePassEvent(actualStatus, actorName), ...getLeavePassTimeline(existingPass)],
-    };
-    if (['approved-agent', 'approved-counselor', 'released-guardian', 'released-teacher'].includes(String(actualStatus || ''))) {
-      patch.approvedAt = now;
-      patch.approvedByName = actorName;
-    }
-    if (String(actualStatus || '') === 'completed') {
-      patch.completedAt = now;
-      patch.completedByName = actorName;
-    }
-    // 1. تحديث الـ state المحلي فوراً (optimistic update)
+    let changed = false;
     setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : ({
       ...school,
-      leavePasses: getLeavePasses(school).map((item) => String(item.id) === String(leavePassId) ? patch : item),
-    })));
-    // 2. إرسال التحديث للخادم فوراً عبر endpoint خاص (atomic — لا يُعيد الكتابة الكاملة)
-    try {
-      const token = getSessionToken();
-      await apiRequest('/api/leave-passes/update-status', {
-        method: 'POST',
-        token,
-        body: {
-          leavePassId,
-          status: actualStatus,
-          schoolId: selectedSchool.id,
-          updatedByName: actorName,
-          timeline: patch.timeline,
-        },
-      });
-    } catch (e) {
-      console.warn('تعذر تحديث حالة الاستئذان على الخادم:', e?.message);
-      // fallback: حفظ كامل
-      persistLeavePassesToServer();
-    }
-    // 3. الإشعارات
-    const passStudentName = patch?.studentName || '';
-    const passClassName = patch?.className || patch?.companyName || 'فصله';
-    if (actualStatus === 'released-teacher') {
-      // إشعار المدير بأن الطالب خرج من الفصل وبانتظار التأكيد
-      const principalUsers = (users || []).filter((u) => Number(u.schoolId) === Number(selectedSchool.id) && ['principal', 'supervisor', 'superadmin'].includes(String(u.role || '')));
-      principalUsers.forEach((pu) => {
-        setNotifications((prev) => [
-          { id: Date.now() + Number(pu.id), title: '🚶 الطالب خرج من الفصل', body: `الطالب ${passStudentName} من ${passClassName} خرج من الفصل وبانتظار تأكيد الخروج من البوابة.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [pu.id] },
-          ...prev,
-        ].slice(0, 30));
-      });
-      // إشعار مسؤول الأمن فوراً
-      const gateUsers = (users || []).filter((u) => Number(u.schoolId) === Number(selectedSchool.id) && String(u.role || '') === 'gate');
-      gateUsers.forEach((gu) => {
-        setNotifications((prev) => [
-          { id: Date.now() + Number(gu.id) + 2, title: '🚨 طالب في الطريق إلى البوابة', body: `الطالب ${passStudentName} من ${passClassName} خرج من فصله وفي طريقه إلى البوابة. يرجى تأكيد الخروج.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [gu.id] },
-          ...prev,
-        ].slice(0, 30));
-      });
-      pushNotification('الاستئذان', `الطالب ${passStudentName} خرج من الفصل وبانتظار تأكيد الأمن.`);
-    } else {
-      pushNotification('الاستئذان', actualStatus === 'completed' ? 'تم إقفال الاستئذان بنجاح.' : 'تم تحديث حالة الاستئذان.');
-    }
-    return { ok: true, message: 'تم تحديث حالة الاستئذان.' };
-  };
-
-  // === تعيين المعلم للاستئذان وتحديث الستيت المحلي ===
-  const handleAssignTeacherToPass = async (leavePassId, teacherUserId, teacherName) => {
-    if (!selectedSchool?.id) return { ok: false, message: 'لا توجد مدرسة محددة.' };
-    // 1. تحديث الستيت المحلي فوراً
-    setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : ({
-      ...school,
-      leavePasses: getLeavePasses(school).map((item) => String(item.id) !== String(leavePassId) ? item : {
-        ...item,
-        teacherUserId: String(teacherUserId),
-        teacherName: teacherName || String(teacherUserId),
-        updatedAt: new Date().toISOString(),
+      leavePasses: getLeavePasses(school).map((item) => {
+        if (String(item.id) !== String(leavePassId)) return item;
+        changed = true;
+        const now = new Date().toISOString();
+        const patch = { ...item, status, updatedAt: now, updatedByName: currentUser.name || currentUser.username || 'مستخدم النظام', timeline: [createLeavePassEvent(status, currentUser.name || currentUser.username || 'مستخدم النظام'), ...getLeavePassTimeline(item)] };
+        if (['approved-agent', 'approved-counselor', 'released-guardian'].includes(String(status || ''))) {
+          patch.approvedAt = now;
+          patch.approvedByName = currentUser.name || currentUser.username || 'مستخدم النظام';
+        }
+        if (String(status || '') === 'completed') {
+          patch.completedAt = now;
+          patch.completedByName = currentUser.name || currentUser.username || 'مستخدم النظام';
+        }
+        return patch;
       }),
     })));
-    // 2. حفظ فوري للخادم
-    setTimeout(() => persistLeavePassesToServer(), 300);
-    return { ok: true };
+    if (changed) pushNotification('الاستئذان', status === 'completed' ? 'تم اعتماد تنفيذ الاستئذان.' : 'تم تحديث حالة الاستئذان.');
+    return { ok: changed, message: changed ? 'تم تحديث حالة الاستئذان.' : 'لم يتم العثور على الطلب.' };
   };
 
-  const handleSendLeavePass = async (leavePassOrId, mode = 'system', target = 'teacher') => {
+  const handleSendLeavePass = async (leavePassId, mode = 'system', target = 'teacher') => {
     if (!selectedSchool?.id || !currentUser) return { ok: false, message: 'لا توجد مدرسة محددة.' };
-    // قبول leavePass كـ object مباشرة (عند الإنشاء الفوري) أو كـ id (عند الإرسال اللاحق)
-    const leavePassId = typeof leavePassOrId === 'object' ? leavePassOrId?.id : leavePassOrId;
-    const leavePass = typeof leavePassOrId === 'object' ? leavePassOrId : getLeavePasses(selectedSchool).find((item) => String(item.id) === String(leavePassId));
+    const leavePass = getLeavePasses(selectedSchool).find((item) => String(item.id) === String(leavePassId));
     if (!leavePass) return { ok: false, message: 'تعذر العثور على طلب الاستئذان.' };
     const actorName = currentUser.name || currentUser.username || 'الإدارة';
     const targetLabel = target === 'guardian' ? 'ولي الأمر' : target === 'agent' ? 'الوكيل' : target === 'counselor' ? 'المرشد' : 'المعلم';
@@ -6603,23 +6259,9 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
       return { ok: true, whatsAppUrl: `https://wa.me/${phone}?text=${encodeURIComponent(message)}`, message: `تم تجهيز واتساب المدير لإرسال الإشعار إلى ${targetLabel}.` };
     }
     if (target === 'teacher') {
-      // إرسال التنبيه مباشرة للمعلم عبر setNotifications (لا يحتاج صلاحية principal)
       const teacherForSend = (users || []).find((u) => Number(u.schoolId) === Number(selectedSchool.id) && String(u.role) === 'teacher' && String(u.id) === String(leavePass.teacherUserId || ''));
-      if (teacherForSend) {
-        setNotifications((prev) => [
-          {
-            id: Date.now(),
-            title: '🚨 طلب استئذان جديد',
-            body: `الطالب ${leavePass.studentName} من ${leavePass.className || leavePass.companyName || 'فصله'} — ${leavePass.destination === 'agent' ? 'الوكيل' : leavePass.destination === 'counselor' ? 'المرشد' : 'ولي الأمر'}`,
-            time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()),
-            type: 'leavePass',
-            leavePassId: leavePass.id,
-            forTeacherIds: [teacherForSend.id],
-            urgent: true,
-          },
-          ...prev,
-        ].slice(0, 30));
-      }
+      const result = await handleSendSchoolMessage({ audience: 'selectedTeachers', audienceLabel: 'معلم محدد', channel: 'internal', subject: `استئذان الطالب ${leavePass.studentName}`, message, sendMode: 'now', recipientUserIds: teacherForSend ? [teacherForSend.id] : [] });
+      if (!result?.ok) return result;
     }
     setSchools((prev) => prev.map((school) => school.id !== selectedSchool.id ? school : ({
       ...school,
@@ -6638,16 +6280,7 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
       const teacherUser = (users || []).find((u) => Number(u.schoolId) === Number(selectedSchool.id) && String(u.role) === 'teacher' && (String(u.id) === String(leavePass.teacherUserId || leavePass.teacherId || '') || u.name === leavePass.teacherName));
       if (teacherUser) {
         setNotifications((prev) => [
-          {
-            id: Date.now(),
-            title: '🚨 طلب استئذان جديد',
-            body: `الطالب ${leavePass.studentName} من ${leavePass.className || leavePass.companyName || 'فصله'} — ${leavePass.destination === 'agent' ? 'الوكيل' : leavePass.destination === 'counselor' ? 'المرشد' : 'ولي الأمر'}`,
-            time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()),
-            type: 'leavePass',
-            leavePassId: leavePass.id,
-            forTeacherIds: [teacherUser.id],
-            urgent: true,
-          },
+          { id: Date.now(), title: 'استئذان طالب', body: `طلب استئذان للطالب ${leavePass.studentName} من ${leavePass.className || leavePass.companyName || 'فصله'}. افتح صفحة الاستئذان للمراجعة.`, time: new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date()), forTeacherIds: [teacherUser.id] },
           ...prev,
         ].slice(0, 30));
       }
@@ -6780,15 +6413,11 @@ ${target === 'guardian' ? `اسم ولي الأمر: ${leavePass.guardianName ||
     // حفظ التحضير على الخادم
     try {
       const token = getSessionToken();
-      const serverResp = await apiRequest(`/api/lesson-sessions/${sessionId}/submit`, {
+      await apiRequest(`/api/lesson-sessions/${sessionId}/submit`, {
         method: 'POST',
         token,
         body: { schoolId: selectedSchool.id, submission },
       });
-      // ✅ إصلاح: تطبيق state السيرفر لضمان التزامن الكامل مع شاشة العرض
-      if (serverResp?.state) {
-        applyServerStatePayload(serverResp.state, loadUiState());
-      }
     } catch (err) {
       console.error('فشل حفظ التحضير على الخادم:', err);
     }
@@ -7009,7 +6638,7 @@ ${buildLessonSessionLink(sessionId)}
 
   const handleCreateRewardRedemptionRequest = (payload = {}) => {
     if (!selectedSchool?.id) return { ok: false, message: 'لم يتم تحديد المدرسة.' };
-    const student = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).find((item) => String(item.id) === String(payload.studentId || ''));
+    const student = getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }).find((item) => String(item.id) === String(payload.studentId || '') || String(item.rawId) === String(payload.studentId || ''));
     const item = getApprovedRewardStoreItems(selectedSchool).find((entry) => String(entry.id) === String(payload.itemId || ''));
     if (item && Number(item.remainingQuantity || 0) <= 0) return { ok: false, message: 'نفدت كمية هذه الجائزة حاليًا.' };
     if (!student || !item) return { ok: false, message: 'اختر الطالب والجائزة أولًا.' };
@@ -7029,7 +6658,7 @@ ${buildLessonSessionLink(sessionId)}
       itemTitle: item.title,
       pointsCost: Number(item.pointsCost || 0),
       studentId: student.id,
-      studentName: student.name || student.fullName || 'طالب',
+      studentName: student.name || 'طالب',
       className: student.className || student.companyName || '',
       status: 'pending',
       note: String(payload.note || '').trim(),
@@ -7116,12 +6745,12 @@ ${buildLessonSessionLink(sessionId)}
       case "companies":
         return <CompaniesPage selectedSchool={selectedSchool} onAddCompany={handleAddCompany} onDeleteCompany={handleDeleteCompany} onAwardInitiative={handleAwardInitiative} />;
       case "students":
-        return <StudentsPage selectedSchool={selectedSchool} onAddStudent={handleAddStudent} onDeleteStudent={handleDeleteStudent} onAwardBehavior={handleAwardBehavior} onEnrollFace={handleEnrollFace} onEnrollFaceDataUrl={handleEnrollFaceDataUrl} onClearFace={handleClearFace} onDownloadStudentCard={handleDownloadStudentCard} onDownloadAllCards={handleDownloadAllCards} />;
+        return <StudentsPage selectedSchool={selectedSchool} onAddStudent={handleAddStudent} onDeleteStudent={handleDeleteStudent} onAwardBehavior={handleAwardBehavior} onApplyStudentAction={handleApplyStudentAction} settings={settings} actionLog={actionLog} onEnrollFace={handleEnrollFace} onEnrollFaceDataUrl={handleEnrollFaceDataUrl} onClearFace={handleClearFace} onDownloadStudentCard={handleDownloadStudentCard} onDownloadAllCards={handleDownloadAllCards} />;
       case "attendance":
         if (currentUser?.role === "gate") return <GateAttendancePage selectedSchool={selectedSchool} />;
         return <AttendancePage selectedSchool={selectedSchool} currentUser={currentUser} attendanceMethod={attendanceMethod} setAttendanceMethod={setAttendanceMethod} scanLog={scanLog} actionLog={actionLog} settings={settings} onScan={handleScan} onFaceScanFile={handleFaceScanFile} onFaceScanDataUrl={handleFaceScanDataUrl} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onUpdateGateLink={handleUpdateGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} onSaveAttendanceBinding={handleSaveAttendanceBinding} />;
       case "actions":
-        return <StudentActionsPage selectedSchool={selectedSchool} currentUser={currentUser} settings={settings} actionLog={actionLog} onResolveStudentByBarcode={resolveStudentByBarcode} onResolveStudentByManual={resolveStudentByManual} onResolveStudentByFaceFile={resolveStudentByFaceFile} onResolveStudentByFaceDataUrl={resolveStudentByFaceDataUrl} onApplyStudentAction={handleApplyStudentAction} onRecordProgramAction={handleRecordProgramExecution} />;
+        return <StudentActionsPage selectedSchool={selectedSchool} currentUser={currentUser} settings={settings} actionLog={actionLog} users={users.filter((u) => Number(u.schoolId) === Number(selectedSchool?.id))} onResolveStudentByBarcode={resolveStudentByBarcode} onResolveStudentByManual={resolveStudentByManual} onResolveStudentByFaceFile={resolveStudentByFaceFile} onResolveStudentByFaceDataUrl={resolveStudentByFaceDataUrl} onApplyStudentAction={handleApplyStudentAction} onRecordProgramAction={handleRecordProgramExecution} />;
       case "points":
         return <PointsPage selectedSchool={selectedSchool} settings={settings} />;
       case "lessonAttendanceSessions":
@@ -7133,15 +6762,15 @@ ${buildLessonSessionLink(sessionId)}
       case "messages":
         return <MessagingCenterPage selectedSchool={selectedSchool} currentUser={currentUser} onSendMessage={handleSendSchoolMessage} onTestIntegration={handleTestMessagingIntegration} onSaveMessagingSettings={handleSaveMessagingSettings} onSaveMessageTemplate={handleSaveMessageTemplate} onDeleteMessageTemplate={handleDeleteMessageTemplate} onSaveMessageRule={handleSaveMessageRule} onToggleMessageRule={handleToggleMessageRule} />;
       case "leavePasses":
-        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} onAssignTeacher={handleAssignTeacherToPass} viewMode="main" />;
+        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="main" />;
       case "leavePassAgentDesk":
-        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} onAssignTeacher={handleAssignTeacherToPass} viewMode="agent" />;
+        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="agent" />;
       case "leavePassCounselorDesk":
-        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} onAssignTeacher={handleAssignTeacherToPass} viewMode="counselor" />;
+        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="counselor" />;
       case "securityDesk":
         return <SecurityDeskPage selectedSchool={selectedSchool} currentUser={currentUser} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} />;
       case "leavePassGateDesk":
-        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} onAssignTeacher={handleAssignTeacherToPass} viewMode="gate" />;
+        return <LeavePassesPage selectedSchool={selectedSchool} currentUser={currentUser} users={users} initialPassId={leavePassIdFromUrl} onCreateLeavePass={handleCreateLeavePass} onSendLeavePass={handleSendLeavePass} onMarkViewed={handleMarkLeavePassViewed} onUpdateLeavePassStatus={handleUpdateLeavePassStatus} viewMode="gate" />;
       case "pointsRewards":
         return <PageErrorBoundary resetKey={`${selectedSchool?.id || 'none'}-pointsRewards`}><PointsRewardsConfigPage selectedSchool={selectedSchool} settings={settings} currentUser={currentUser} onSaveSettings={setSettings} /></PageErrorBoundary>;
       case "rewardStore":
@@ -7171,10 +6800,8 @@ ${buildLessonSessionLink(sessionId)}
         return <SettingsPage selectedSchool={selectedSchool} settings={settings} attendanceMethod={attendanceMethod} users={users} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onRestoreBackup={restoreBackup} onResetData={resetData} onExportBackup={exportBackup} onImportStudents={handleImportStudentsFromExcel} onDownloadTemplate={downloadStudentImportTemplate} setAttendanceMethod={setAttendanceMethod} onUpdateSchoolBranding={handleUpdateSchoolBranding} />;
       case "platformAuth":
         return <PlatformAuthSettingsPage selectedSchool={selectedSchool} settings={settings} attendanceMethod={attendanceMethod} users={users} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onRestoreBackup={restoreBackup} onResetData={resetData} onExportBackup={exportBackup} onImportStudents={handleImportStudentsFromExcel} onDownloadTemplate={downloadStudentImportTemplate} setAttendanceMethod={setAttendanceMethod} />;
-      case "adminAllSchoolsSettings":
-        return <AdminAllSchoolsSettings settings={settings} schools={schools} currentUser={currentUser} onSaveSettings={setSettings} onApplyServerState={applyServerStatePayload} />;
-      case "classes":
-        return <ClassesPage selectedSchool={selectedSchool} />;
+    case "classes":
+      return <ClassesPage selectedSchool={selectedSchool} />;
       default:
         return <SchoolDashboard schools={schools} selectedSchool={selectedSchool} setSelectedSchoolId={setSelectedSchoolId} scanLog={scanLog} actionLog={actionLog} gateSyncEvents={gateSyncEvents} settings={settings} notifications={notifications} canSelectSchool={currentUser.role === "superadmin"} executiveReport={executiveReport} currentUser={currentUser} onCreateGateLink={handleCreateGateLink} onDeleteGateLink={handleDeleteGateLink} onCreateScreenLink={handleCreateScreenLink} onDeleteScreenLink={handleDeleteScreenLink} onUpdateScreenLink={handleUpdateScreenLink} onNavigate={setActivePage} />;
     }
@@ -7376,8 +7003,8 @@ ${buildLessonSessionLink(sessionId)}
                         <div className="border-b border-slate-100 bg-slate-50 p-4">
                           <div className="flex items-center justify-between gap-3">
                             <div>
-                              <div className="text-sm text-slate-500">{String(currentUser?.role || '') === 'teacher' ? 'تنبيهات المعلم' : 'تنبيهات الإدارة'}</div>
-                              <div className="text-lg font-black text-slate-900">{String(currentUser?.role || '') === 'teacher' ? 'طلبات الاستئذان' : 'المتابعة السريعة'}</div>
+                              <div className="text-sm text-slate-500">تنبيهات الإدارة</div>
+                              <div className="text-lg font-black text-slate-900">المتابعة السريعة</div>
                             </div>
                             <button onClick={() => setHeaderAlertsOpen(false)} className="rounded-2xl bg-white px-3 py-2 text-xs font-black text-slate-600 ring-1 ring-slate-200">إغلاق</button>
                           </div>
@@ -7394,7 +7021,7 @@ ${buildLessonSessionLink(sessionId)}
                           {!headerAlertsState.loading && !headerAlertsState.error ? (
                             <div className="space-y-3">
                               {headerAlertsState.items.map((item) => (
-                                <button key={item.id} onClick={() => { setHeaderAlertsOpen(false); if (item.type === 'leavePass' || item.leavePassId) { setActivePage('leavePasses'); } else { setActivePage('leavePasses'); } }} className={cx('w-full rounded-2xl p-4 ring-1 text-right transition hover:brightness-95 cursor-pointer', item.tone === 'rose' ? 'bg-rose-50 text-rose-900 ring-rose-100' : item.tone === 'amber' ? 'bg-amber-50 text-amber-900 ring-amber-100' : 'bg-sky-50 text-sky-900 ring-sky-100')}>
+                                <div key={item.id} className={cx('rounded-2xl p-4 ring-1', item.tone === 'rose' ? 'bg-rose-50 text-rose-900 ring-rose-100' : item.tone === 'amber' ? 'bg-amber-50 text-amber-900 ring-amber-100' : 'bg-sky-50 text-sky-900 ring-sky-100')}>
                                   <div className="flex items-start justify-between gap-3">
                                     <div>
                                       <div className="font-black">{item.title}</div>
@@ -7402,7 +7029,7 @@ ${buildLessonSessionLink(sessionId)}
                                     </div>
                                     <Badge tone={item.tone === 'rose' ? 'rose' : item.tone === 'amber' ? 'amber' : 'blue'}>{item.time || 'الآن'}</Badge>
                                   </div>
-                                </button>
+                                </div>
                               ))}
                             </div>
                           ) : null}
@@ -7410,7 +7037,6 @@ ${buildLessonSessionLink(sessionId)}
                         <div className="border-t border-slate-100 bg-slate-50 p-3">
                           <div className="flex flex-wrap gap-2">
                             <button onClick={() => { setHeaderAlertsOpen(false); setActivePage('dashboard'); }} className="rounded-2xl bg-white px-4 py-2 text-sm font-bold text-slate-700 ring-1 ring-slate-200">فتح الرئيسية</button>
-                            <button onClick={() => { setHeaderAlertsOpen(false); setActivePage('leavePasses'); }} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">فتح الاستئذان</button>
                             <button onClick={() => window.open('/admin/parent-primary-requests', '_blank', 'noopener,noreferrer')} className="rounded-2xl bg-sky-700 px-4 py-2 text-sm font-bold text-white">طلبات أولياء الأمور</button>
                           </div>
                         </div>

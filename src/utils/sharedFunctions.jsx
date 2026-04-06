@@ -1186,7 +1186,9 @@ export function buildHydratedClientState(parsed = {}, uiState = {}) {
   return {
     ...defaults,
     schools,
-    users: hydrateUsers(parsed.users?.length ? parsed.users : createDefaultUsers(schools), schools),
+    // [FIX-v1.8.2] استخدام مصفوفة فارغة بدلاً من createDefaultUsers عند غياب البيانات
+    // السبب: createDefaultUsers تُنشئ مستخدمين تجريبيين تُرسل للخادم وتُلوث بيانات المستخدمين الحقيقيين
+    users: hydrateUsers(parsed.users?.length ? parsed.users : [], schools),
     currentUserId: uiState.currentUserId || null,
     selectedSchoolId: uiState.selectedSchoolId || schools[0]?.id || 1,
     activePage: uiState.activePage || "dashboard",
@@ -2877,7 +2879,7 @@ export const navItems = [
   { key: "nafisBank", label: "بنك أسئلة نافس", icon: BookOpen, permission: "settings", roles: ["superadmin"], group: "التحفيز والمتابعة" },
   // ── الأجهزة والربط ──
   { key: "deviceDisplays", label: "الشاشات والبوابات", icon: ExternalLink, permission: "deviceDisplays", group: "الأجهزة والربط" },
-  { key: "students", label: "البصمة والمعرفات", icon: GraduationCap, permission: "students", group: "الأجهزة والربط" },
+  { key: "students", label: "شؤون الطلاب", icon: GraduationCap, permission: "students", group: "الأجهزة والربط" },
   // ── الإعدادات ──
   { key: "settings", label: "إعدادات المدرسة", icon: Settings, permission: "settings", group: "الإعدادات" },
   { key: "schoolStructure", label: "إعدادات المدرسة (الهيكل)", icon: School, permission: "settings", group: "الإعدادات" },

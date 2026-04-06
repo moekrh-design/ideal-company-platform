@@ -1,0 +1,47 @@
+{
+  "name": "ideal-company-platform",
+  "private": true,
+  "version": "1.8.1",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "dev": "node node_modules/vite/bin/vite.js",
+    "build": "node node_modules/vite/bin/vite.js build",
+    "preview": "node node_modules/vite/bin/vite.js preview",
+    "server": "node server/index.js",
+    "start": "node server/index.js",
+    "test": "node tests/server/quick-test.mjs",
+    "test:watch": "node --watch tests/server/quick-test.mjs",
+    "docker:build": "docker build -t ideal-platform .",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.8.0",
+    "framer-motion": "^12.23.24",
+    "jsqr": "^1.4.0",
+    "lucide-react": "^0.542.0",
+    "nodemailer": "^6.10.1",
+    "pg": "^8.13.3",
+    "qrcode": "^1.5.4",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-is": "^19.2.4",
+    "recharts": "^3.1.2",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.3.0",
+    "@vitejs/plugin-legacy": "^5.4.1",
+    "@vitejs/plugin-react": "^4.6.0",
+    "autoprefixer": "^10.4.21",
+    "jest": "^30.3.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17",
+    "terser": "^5.46.1",
+    "vite": "^5.4.19"
+  }
+}

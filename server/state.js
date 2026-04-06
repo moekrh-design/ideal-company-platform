@@ -368,33 +368,9 @@ export function ensureDemoUsers(users, schools) {
     permissions: buildRolePermissions('superadmin'),
   });
 
-  if (firstSchool) {
-    const principalPermissions = getSchoolAccess(firstSchool).principalPermissions;
-    addIfMissing((user) => String(user.username || '').toLowerCase() === 'manager.demo', {
-      name: 'مدير تجريبي',
-      username: 'manager.demo',
-      email: 'manager.demo@example.com',
-      mobile: '966500000002',
-      password: 'Demo@123',
-      role: 'principal',
-      schoolId: firstSchool.id,
-      studentId: null,
-      status: 'نشط',
-      permissions: principalPermissions,
-    });
-    addIfMissing((user) => String(user.username || '').toLowerCase() === 'teacher.demo', {
-      name: 'معلم تجريبي',
-      username: 'teacher.demo',
-      email: 'teacher.demo@example.com',
-      mobile: '966500000003',
-      password: 'Demo@123',
-      role: 'teacher',
-      schoolId: firstSchool.id,
-      studentId: null,
-      status: 'نشط',
-      permissions: buildRolePermissions('teacher', { reports: true, actions: true }),
-    });
-  }
+  // [FIX-v1.8.2] تم إزالة إضافة المستخدمين التجريبيين (مدير تجريبي، معلم تجريبي)
+  // السبب: هذه المستخدمون التجريبيون يظهرون في صفحة المستخدمين بدلاً من المعلمين الحقيقيين
+  // الخادم يضيف فقط حساب admin العام إذا لم يكن موجوداً
 
   return nextUsers;
 }

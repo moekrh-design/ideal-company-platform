@@ -3341,7 +3341,36 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
   const next = structuredClone(state);
   const school = next.schools.find((item) => Number(item.id) === Number(schoolId));
   if (!school) return { ok: false, message: 'المدرسة غير موجودة.' };
-  const student = school.students.find((item) => Number(item.id) === Number(payload.studentId));
+  // البحث أولاً في school.students العادية
+  let student = school.students.find((item) => Number(item.id) === Number(payload.studentId));
+  let structureClassroom = null;
+  let structureStudent = null;
+  // إذا لم يوجد في school.students، ابحث في structure.classrooms
+  if (!student && school.structure?.classrooms) {
+    for (const classroom of school.structure.classrooms) {
+      if (!Array.isArray(classroom.students)) continue;
+      // البحث بالمعرف المركب (classroomId_studentId) أو بالرقم العادي
+      const compositeId = String(payload.studentId || '');
+      const found = classroom.students.find((s) => {
+        const sComposite = `${classroom.id}_${s.id}`;
+        return sComposite === compositeId || String(s.id) === compositeId || Number(s.id) === Number(payload.studentId);
+      });
+      if (found) {
+        structureClassroom = classroom;
+        structureStudent = found;
+        // إنشاء كائن متوافق مع school.students
+        student = {
+          id: found.id,
+          name: found.name || found.fullName || 'طالب',
+          points: Number(found.points || 0),
+          companyId: classroom.id,
+          classroomId: classroom.id,
+          source: 'structure',
+        };
+        break;
+      }
+    }
+  }
   if (!student) return { ok: false, message: 'الطالب غير موجود.' };
   const actionType = payload.actionType === 'violation' ? 'violation' : 'reward';
   const catalog = actionType === 'violation' ? next.settings.actions?.violations || [] : next.settings.actions?.rewards || [];
@@ -3378,6 +3407,10 @@ function applyStudentActionToState(state, schoolId, payload, actor) {
   // ===================================================
   const company = school.companies.find((item) => item.id === student.companyId);
   student.points = Number(student.points || 0) + deltaPoints;
+  // تحديث نقاط الطالب في structure.classrooms إذا كان من الهيكل المدرسي
+  if (structureClassroom && structureStudent) {
+    structureStudent.points = Number(structureStudent.points || 0) + deltaPoints;
+  }
   if (company) {
     company.points = Number(company.points || 0) + deltaPoints;
     company.behavior = clamp(Number(company.behavior || 0) + (actionType === 'reward' ? 1 : -1), 0, 100);

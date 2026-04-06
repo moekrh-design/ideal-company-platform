@@ -31,7 +31,7 @@ import { SectionCard } from '../components/ui/SectionCard';
 import LiveCameraPanel from '../components/LiveCameraPanel';
 import { Badge } from '../components/ui/FormElements';
 import { BarcodeCard } from '../components/ui/BarcodeCard';
-function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBehavior, onEnrollFace, onEnrollFaceDataUrl, onClearFace, onDownloadStudentCard, onDownloadAllCards }) {
+function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBehavior, onApplyStudentAction, settings, actionLog, onEnrollFace, onEnrollFaceDataUrl, onClearFace, onDownloadStudentCard, onDownloadAllCards }) {
   const [activeTab, setActiveTab] = useState('pick');
   const [search, setSearch] = useState("");
   const unifiedStudents = useMemo(() => getUnifiedSchoolStudents(selectedSchool, { includeArchived: false, preferStructure: true }), [selectedSchool]);
@@ -49,6 +49,63 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
   });
   const [faceBusy, setFaceBusy] = useState(false);
   const [facePreviewDataUrl, setFacePreviewDataUrl] = useState(null); // معاينة الصورة قبل الحفظ
+
+  // === modal تسجيل السلوك ===
+  const [behaviorModal, setBehaviorModal] = useState(null); // { studentId, studentName }
+  const [behaviorTab, setBehaviorTab] = useState('reward'); // 'reward' | 'violation'
+  const [behaviorSelectedId, setBehaviorSelectedId] = useState(null);
+  const [behaviorNote, setBehaviorNote] = useState('');
+  const [behaviorBusy, setBehaviorBusy] = useState(false);
+  const [behaviorResult, setBehaviorResult] = useState(null); // { ok, message }
+
+  // حساب إحصائيات الطالب من actionLog
+  const computeStudentStats = (student) => {
+    if (!student) return { points: 0, rewardsCount: 0, violationsCount: 0 };
+    const basePoints = Number(student.points || 0);
+    const studentActions = (actionLog || []).filter((a) => String(a.studentId) === String(student.id));
+    const rewardsCount = studentActions.filter((a) => a.actionType === 'reward').length;
+    const violationsCount = studentActions.filter((a) => a.actionType === 'violation').length;
+    return { points: basePoints, rewardsCount, violationsCount };
+  };
+
+  const openBehaviorModal = (studentId) => {
+    const student = unifiedStudents.find((s) => String(s.id) === String(studentId));
+    if (!student) return;
+    setBehaviorModal({ studentId, studentName: student.name });
+    setBehaviorTab('reward');
+    setBehaviorSelectedId(null);
+    setBehaviorNote('');
+    setBehaviorResult(null);
+  };
+
+  const closeBehaviorModal = () => {
+    setBehaviorModal(null);
+    setBehaviorResult(null);
+  };
+
+  const submitBehavior = async () => {
+    if (!behaviorModal || !behaviorSelectedId || behaviorBusy) return;
+    setBehaviorBusy(true);
+    setBehaviorResult(null);
+    try {
+      const result = await onApplyStudentAction({
+        studentId: behaviorModal.studentId,
+        actionType: behaviorTab,
+        definitionId: behaviorSelectedId,
+        note: behaviorNote,
+        method: 'شؤون الطلاب',
+      });
+      setBehaviorResult(result);
+      if (result?.ok) {
+        setBehaviorSelectedId(null);
+        setBehaviorNote('');
+      }
+    } catch (err) {
+      setBehaviorResult({ ok: false, message: err?.message || 'تعذر تنفيذ الإجراء.' });
+    } finally {
+      setBehaviorBusy(false);
+    }
+  };
 
   useEffect(() => {
     setForm((prev) => ({ ...prev, companyId: String(unifiedCompanies[0]?.rawId || unifiedCompanies[0]?.id || "") }));
@@ -329,7 +386,7 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setSelectedStudentId(row.id)} className="rounded-xl bg-sky-50 px-3 py-2 font-bold text-sky-700">بطاقة</button>
           {row.source === 'structure' ? <span className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">إدارة الطالب من الهيكل المدرسي</span> : <>
-          <button onClick={() => onAwardBehavior(row.id)} className="rounded-xl bg-amber-50 px-3 py-2 font-bold text-amber-700">+ سلوك</button>
+          <button onClick={() => openBehaviorModal(row.id)} className="rounded-xl bg-amber-50 px-3 py-2 font-bold text-amber-700">+ سلوك</button>
           <button onClick={() => onDeleteStudent(row.id)} className="rounded-xl bg-rose-50 px-3 py-2 font-bold text-rose-700">حذف</button>
           </>}
         </div>
@@ -376,13 +433,9 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
             <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">بصمة وجه جاهزة</div><div className="mt-1 text-2xl font-black text-slate-900">{students.filter((item) => getFaceProfileState(item) === 'ready').length}</div></div>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 rounded-2xl bg-slate-100 p-1 md:grid-cols-2">
-            {[['pick','اختيار الطالب'], ['bio','البصمة والباركود']].map(([key,label]) => (
-              <button key={key} onClick={() => setActiveTab(key)} className={cx('rounded-2xl px-4 py-3 text-sm font-black transition', activeTab === key ? 'bg-white text-sky-700 shadow-sm' : 'text-slate-600')}>{label}</button>
-            ))}
-          </div>
 
-          {activeTab === 'pick' ? (
+
+          {activeTab !== 'bio' ? (
             <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px,1fr]">
               <div className="space-y-4">
                 <div className="rounded-[1.75rem] bg-slate-50 p-5 ring-1 ring-slate-200">
@@ -402,38 +455,107 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
               </div>
 
               <div className="space-y-4">
-                {featuredStudent ? (
-                  <div className="rounded-[1.75rem] bg-white p-5 ring-1 ring-slate-200">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <div className="text-2xl font-black text-slate-900">{featuredStudent.name}</div>
-                        <div className="mt-2 text-sm text-slate-500">رقم الطالب: {featuredStudent.studentNumber || featuredStudent.id}</div>
-                        <div className="mt-1 text-sm text-slate-500">الفصل: {getStudentGroupingLabel(featuredStudent, selectedSchool)}</div>
-                        <div className="mt-1 text-sm text-slate-500">الهوية: {featuredStudent.nationalId || '—'}</div>
-                        <div className="mt-1 text-sm text-slate-500">الباركود: <span className="font-mono">{featuredStudent.barcode || '—'}</span></div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge tone="blue">{featuredStudent.points} نقطة</Badge>
-                        <Badge tone={getFaceProfileTone(featuredStudent)}>{getFaceProfileLabel(featuredStudent)}</Badge>
-                      </div>
-                    </div>
+                {featuredStudent ? (() => {
+                  const stats = computeStudentStats(featuredStudent);
+                  const initials = (featuredStudent.name || '').split(' ').slice(0, 2).map((w) => w[0] || '').join('');
+                  return (
+                    <div className="overflow-hidden rounded-[1.75rem] bg-white ring-1 ring-slate-200">
+                      {/* شريط علوي ملون */}
+                      <div className="h-2 w-full bg-gradient-to-r from-sky-500 via-emerald-400 to-amber-400" />
 
-                    <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-                      <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الحضور</div><div className="mt-1 text-xl font-black text-slate-900">{featuredStudent.attendanceRate || 0}%</div></div>
-                      <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">النقاط</div><div className="mt-1 text-xl font-black text-slate-900">{featuredStudent.points || 0}</div></div>
-                      <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الصف</div><div className="mt-1 text-sm font-black text-slate-900">{featuredStudent.grade || '—'}</div></div>
-                      <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><div className="text-xs text-slate-500">الفصل</div><div className="mt-1 text-sm font-black text-slate-900">{featuredCompany?.name || selectedGroup?.name || '—'}</div></div>
-                    </div>
+                      {/* رأس البطاقة */}
+                      <div className="flex items-start gap-4 p-5">
+                        <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl bg-sky-100 text-xl font-black text-sky-700">
+                          {initials || '؟'}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xl font-black text-slate-900 truncate">{featuredStudent.name}</div>
+                          <div className="mt-1 text-sm text-slate-500">{getStudentGroupingLabel(featuredStudent, selectedSchool)}</div>
+                          <div className="mt-0.5 flex flex-wrap gap-2">
+                            <span className="text-xs text-slate-400">رقم: {featuredStudent.studentNumber || featuredStudent.rawId || featuredStudent.id}</span>
+                            {featuredStudent.nationalId ? <span className="text-xs text-slate-400">هوية: {featuredStudent.nationalId}</span> : null}
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge tone={getFaceProfileTone(featuredStudent)}>{getFaceProfileLabel(featuredStudent)}</Badge>
+                          {featuredStudent.source === 'structure' ? <Badge tone="sky">هيكل مدرسي</Badge> : null}
+                        </div>
+                      </div>
 
-                    <div className="mt-5 flex flex-wrap gap-2">
-                      <button type="button" onClick={() => setActiveTab('bio')} className="rounded-2xl bg-sky-700 px-4 py-3 text-sm font-black text-white">فتح البصمة والباركود</button>
-                      <button type="button" onClick={() => onDownloadStudentCard(featuredStudent.id)} className="rounded-2xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700">تحميل بطاقة الطالب</button>
-                      <button type="button" onClick={printCurrentBarcode} className="rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm font-black text-slate-700">طباعة الباركود</button>
-                      <button type="button" onClick={() => onAwardBehavior(featuredStudent.id)} className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">+ سلوك</button>
-                      {featuredStudent.source === 'structure' ? null : <button type="button" onClick={() => onDeleteStudent(featuredStudent.id)} className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">حذف الطالب</button>}
+                      {/* إحصائيات KPI */}
+                      <div className="grid grid-cols-4 divide-x divide-x-reverse divide-slate-100 border-t border-slate-100">
+                        <div className="flex flex-col items-center gap-1 p-4">
+                          <div className="text-2xl font-black text-rose-600">{stats.violationsCount}</div>
+                          <div className="text-xs font-semibold text-slate-500">الخصومات</div>
+                        </div>
+                        <div className="flex flex-col items-center gap-1 p-4">
+                          <div className="text-2xl font-black text-emerald-600">{stats.rewardsCount}</div>
+                          <div className="text-xs font-semibold text-slate-500">المكافآت</div>
+                        </div>
+                        <div className="flex flex-col items-center gap-1 p-4">
+                          <div className="text-2xl font-black text-amber-600">{stats.points}</div>
+                          <div className="text-xs font-semibold text-slate-500">النقاط</div>
+                        </div>
+                        <div className="flex flex-col items-center gap-1 p-4">
+                          <div className="text-2xl font-black text-sky-600">{featuredStudent.attendanceRate || 0}%</div>
+                          <div className="text-xs font-semibold text-slate-500">الحضور</div>
+                        </div>
+                      </div>
+
+                      {/* معلومات إضافية */}
+                      <div className="grid grid-cols-2 gap-3 border-t border-slate-100 p-4 text-sm">
+                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                          <span className="text-xs text-slate-400">رقم الهوية: </span>
+                          <span className="font-bold text-slate-700">{featuredStudent.nationalId || '—'}</span>
+                        </div>
+                        <div className="rounded-xl bg-slate-50 px-3 py-2">
+                          <span className="text-xs text-slate-400">رقم الجوال: </span>
+                          <span className="font-bold text-slate-700">{featuredStudent.guardianMobile || '—'}</span>
+                        </div>
+                      </div>
+
+                      {/* أزرار سريعة */}
+                      <div className="border-t border-slate-100 p-4">
+                        <div className="mb-2 text-xs font-bold text-slate-400">الخدمات المتاحة</div>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => setActiveTab('bio')} className="inline-flex items-center gap-1.5 rounded-xl bg-sky-700 px-3 py-2.5 text-xs font-black text-white">
+                            <QrCode className="h-3.5 w-3.5" /> فتح البصمة والباركود
+                          </button>
+                          <button type="button" onClick={() => openBehaviorModal(featuredStudent.id)} className="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2.5 text-xs font-black text-amber-700 ring-1 ring-amber-200">
+                            <Trophy className="h-3.5 w-3.5" /> تسجيل سلوك
+                          </button>
+                          <button type="button" onClick={printCurrentBarcode} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700">
+                            <Printer className="h-3.5 w-3.5" /> طباعة الباركود
+                          </button>
+                          <button type="button" onClick={() => onDownloadStudentCard(featuredStudent.id)} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-black text-slate-700">
+                            <Download className="h-3.5 w-3.5" /> ملف الطالب
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* أدوات إضافية */}
+                      <div className="border-t border-slate-100 p-4">
+                        <div className="mb-2 text-xs font-bold text-slate-400">أدوات إضافية</div>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={exportStudentsExcel} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2.5 text-xs font-black text-white">
+                            <Download className="h-3.5 w-3.5" /> تصدير Excel
+                          </button>
+                          <button type="button" onClick={exportStudentsCsv} className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-2.5 text-xs font-black text-white">
+                            <Download className="h-3.5 w-3.5" /> تصدير CSV
+                          </button>
+                          <button type="button" onClick={printClassBarcodes} className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-black text-emerald-700">
+                            <Printer className="h-3.5 w-3.5" /> طباعة باركود الفصل
+                          </button>
+                          {featuredStudent.source !== 'structure' ? (
+                            <button type="button" onClick={() => onDeleteStudent(featuredStudent.id)} className="inline-flex items-center gap-1.5 rounded-xl bg-rose-50 px-3 py-2.5 text-xs font-black text-rose-700 ring-1 ring-rose-200">
+                              <Trash2 className="h-3.5 w-3.5" /> حذف الطالب
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ) : (
+                  );
+                })() : (
                   <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm font-bold text-slate-500">لا يوجد طالب ضمن الفلتر الحالي. اختر فصلًا آخر أو غيّر عبارة البحث.</div>
                 )}
 
@@ -554,7 +676,7 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
                     <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><span className="font-bold text-slate-800">الفصل:</span> {getStudentGroupingLabel(featuredStudent, selectedSchool)}</div>
                     <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200"><span className="font-bold text-slate-800">الباركود:</span> <span className="font-mono">{featuredStudent.barcode}</span></div>
                     <div className="flex flex-wrap gap-2">
-                      <button onClick={() => onAwardBehavior(featuredStudent.id)} className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">+ سلوك</button>
+                      <button onClick={() => openBehaviorModal(featuredStudent.id)} className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-bold text-amber-700">+ سلوك</button>
                       {featuredStudent.source === 'structure' ? null : <button onClick={() => onDeleteStudent(featuredStudent.id)} className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">حذف الطالب</button>}
                     </div>
                   </div> : <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">اختر طالبًا من التبويب الأول.</div>}
@@ -564,6 +686,96 @@ function StudentsPage({ selectedSchool, onAddStudent, onDeleteStudent, onAwardBe
           )}
         </div>
       </SectionCard>
+
+      {/* === Modal تسجيل السلوك === */}
+      {behaviorModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={(e) => { if (e.target === e.currentTarget) closeBehaviorModal(); }}>
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-1 text-center text-lg font-black text-slate-900">تسجيل سلوك</div>
+            <div className="mb-4 text-center text-sm text-slate-500">{behaviorModal.studentName}</div>
+
+            {/* تبويبات مكافأة / خصم */}
+            <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
+              <button
+                onClick={() => { setBehaviorTab('reward'); setBehaviorSelectedId(null); }}
+                className={cx('rounded-2xl px-4 py-2.5 text-sm font-black transition', behaviorTab === 'reward' ? 'bg-emerald-600 text-white shadow' : 'text-slate-600 hover:text-slate-900')}
+              >
+                🏆 مكافأة
+              </button>
+              <button
+                onClick={() => { setBehaviorTab('violation'); setBehaviorSelectedId(null); }}
+                className={cx('rounded-2xl px-4 py-2.5 text-sm font-black transition', behaviorTab === 'violation' ? 'bg-rose-600 text-white shadow' : 'text-slate-600 hover:text-slate-900')}
+              >
+                ⚠️ خصم
+              </button>
+            </div>
+
+            {/* قائمة الإجراءات */}
+            <div className="mb-4 max-h-52 overflow-y-auto space-y-2">
+              {(behaviorTab === 'reward'
+                ? (settings?.actions?.rewards || [])
+                : (settings?.actions?.violations || [])
+              ).map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setBehaviorSelectedId(String(item.id))}
+                  className={cx(
+                    'flex w-full items-center justify-between rounded-2xl px-4 py-3 text-sm font-bold ring-1 transition',
+                    String(behaviorSelectedId) === String(item.id)
+                      ? (behaviorTab === 'reward' ? 'bg-emerald-50 text-emerald-800 ring-emerald-400' : 'bg-rose-50 text-rose-800 ring-rose-400')
+                      : 'bg-slate-50 text-slate-700 ring-slate-200 hover:bg-slate-100',
+                  )}
+                >
+                  <span>{item.title || item.name || 'إجراء'}</span>
+                  <span className={cx('text-xs font-black', behaviorTab === 'reward' ? 'text-emerald-600' : 'text-rose-600')}>
+                    {behaviorTab === 'reward' ? '+' : '-'}{item.points} نقطة
+                  </span>
+                </button>
+              ))}
+              {(behaviorTab === 'reward' ? (settings?.actions?.rewards || []) : (settings?.actions?.violations || [])).length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                  لا توجد {behaviorTab === 'reward' ? 'مكافآت' : 'خصومات'} مُعرَّفة في الإعدادات.
+                </div>
+              )}
+            </div>
+
+            {/* ملاحظة */}
+            <input
+              value={behaviorNote}
+              onChange={(e) => setBehaviorNote(e.target.value)}
+              placeholder="ملاحظة (اختياري)"
+              className="mb-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-sky-300"
+            />
+
+            {/* رسالة النتيجة */}
+            {behaviorResult && (
+              <div className={cx('mb-4 rounded-2xl px-4 py-3 text-sm font-bold', behaviorResult.ok ? 'bg-emerald-50 text-emerald-800 ring-1 ring-emerald-200' : 'bg-rose-50 text-rose-800 ring-1 ring-rose-200')}>
+                {behaviorResult.ok ? '✅ ' : '❌ '}{behaviorResult.message}
+              </div>
+            )}
+
+            {/* أزرار */}
+            <div className="flex gap-3">
+              <button
+                onClick={submitBehavior}
+                disabled={!behaviorSelectedId || behaviorBusy}
+                className={cx(
+                  'flex-1 rounded-2xl py-3 text-sm font-black text-white transition disabled:opacity-50',
+                  behaviorTab === 'reward' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700',
+                )}
+              >
+                {behaviorBusy ? 'جارٍ الحفظ...' : `✓ تسجيل ${behaviorTab === 'reward' ? 'المكافأة' : 'الخصم'}`}
+              </button>
+              <button
+                onClick={closeBehaviorModal}
+                className="rounded-2xl bg-slate-100 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-200"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 

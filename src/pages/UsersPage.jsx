@@ -5,6 +5,7 @@
  * ==========================================
  */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useFormValidation, validators } from '../hooks/useFormValidation';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   BadgeCheck, BarChart3, Bell, BookOpen, CheckCircle, Building2, Camera,
@@ -25,7 +26,7 @@ import {
 // === الدوال المشتركة ===
 import { SPECIAL_ITEM_TEMPLATES, appendGateSyncLog, applyMessageVariables, applyPointsToUnifiedStudent, applySchoolAccessToUser, buildCsv, buildHydratedClientState, buildLeavePassLink, buildLessonAttendanceSessionLabel, buildLessonSessionLink, buildPrintSummaryStats, buildPublicLink, buildRewardStoreScreenSummary, buildRewardStoreSummary, buildRolePermissions, buildStructureAttendanceBarcode, buildStudentNumberFromImport, buildTemplateStudentsCsv, buildWsUrl, canAccessPermission, canPrincipalManageUser, captureDataUrlFromVideo, clamp, clampDelegatedPermissions, clampScreenLabel, clearGateSyncLog, clearLeavePassParam, clearLessonSessionParam, clearSchoolStructureViewState, compareFaceSignatures, computeLessonAttendanceSessionSummary, computeTeacherSpecialScore, computeTeacherSpecialStats, createBarcode, createDefaultMessagingCenter, createDefaultSchoolAccess, createDefaultSmartLinks, createDefaultState, createDefaultUsers, createLeavePassEvent, createRewardStoreNotification, createSeedUsersForSchool, cx, defaultActionCatalog, defaultPermissionsByRole, defaultSettings, detectNoorOriginalRows, downloadFile, drawVisualSourceToCanvas, enhanceContrastForBarcode, enqueueGateOfflineScan, escapePrintHtml, exportRowsToWorkbook, exportToExcel, fileToDataUrl, findBestFaceMatch, findLabeledValueFromGrid, findStudentByKeyword, formatDateTime, formatEnglishDigits, formatLocalGateTimestamp, generateQrDataUrl, generateSchoolStructureClassrooms, getApprovedRewardStoreItems, getArabicDayKey, getAttendanceStudentsSource, getAuthActionMeta, getClassroomKeyFromCompanyRow, getCurrentAcademicTermId, getCurrentSlotFromTimetable, getDefaultLandingPage, getDefaultTemplateForEvent, getDisplayMotionVariant, getFaceProfileLabel, getFaceProfileState, getFaceProfileTone, getGateOfflineQueueKey, getGateOfflineQueueSummary, getGateSyncLogKey, getGateSyncLogSummary, getGateSyncStatusMeta, getLeavePassAgeMinutes, getLeavePassDestinationLabel, getLeavePassElapsedLabel, getLeavePassEventLabel, getLeavePassIdFromLocation, getLeavePassQueueMeta, getLeavePassStatusLabel, getLeavePassStatusTone, getLeavePassTimeline, getLeavePasses, getLessonAttendanceSessionStatusLabel, getLessonAttendanceSessionStatusTone, getLessonAttendanceSessions, getLessonSessionIdFromLocation, getLessonSessionTeacherTargets, getPublicModeFromLocation, getRewardStore, getRewardStoreDisplayItems, getRewardStoreDonorLabel, getRewardStoreStatusLabel, getRoleLabel, getSchoolAccess, getSchoolAttendanceBinding, getScreenTemplateLabel, getScreenTheme, getSessionToken, getShortStudentName, getStudentCompanyName, getStudentGroupingLabel, getStudentsForLessonClassroom, getTeacherSpecialItems, getTeacherSubjects, getTemplateCategoriesForEvent, getTickerTheme, getTodayIso, getTransitionLabel, getUnifiedCompanyRows, getUnifiedSchoolStudents, getVisualSourceSize, hydrateActionCatalog, hydrateActionLog, hydrateGateSyncCenterEvents, hydrateMessagingCenter, hydrateScanLog, hydrateSchools, hydrateTeacherSpecialItems, hydrateUsers, initialScanLog, initialSchools, isRoleEnabledForSchool, loadImageSource, loadPersistedState, loadServerCache, loadUiState, navItems, normalizeArabicHeader, normalizeImportRow, normalizePhoneNumber, normalizeRewardStoreItem, normalizeSearchDigits, normalizeSearchToken, normalizeSmartLinks, parseTeacherSubjects, parseTimeToMinutes, pickImportValue, pieColors, prependRewardStoreNotification, principalDelegableRoles, principalManageablePermissionKeys, printHtmlContent, readGateOfflineQueue, readGateSyncLog, readSchoolStructureViewState, removeGateOfflineQueueItem, removeGateSyncLogItem, resultTone, roles, safeLocalStorageGetItem, safeLocalStorageSetItem, safeNumber, sanitizeBarcodeValue, saveSchoolStructureViewState, saveServerCache, saveUiState, schoolCodeSlug, schoolHasStructureClassrooms, setSessionToken, sortUnifiedCompanyRows, splitTickerItems, statusFromResult, summarizeSchoolLiveState, toArabicDate, writeGateOfflineQueue, writeGateSyncLog, TeacherSpecialItemsEditor} from '../utils/sharedFunctions.jsx';
 import { permissionDefinitions, schoolRoleDefinitions } from '../constants/appConfig.js';
-import { Input, Select } from '../components/ui/FormElements';
+import { Input, Select, FormError, FieldError } from '../components/ui/FormElements';
 import { DataTable } from '../components/ui/DataTable';
 import { SectionCard } from '../components/ui/SectionCard';
 import { StatCard } from '../components/ui/StatCard';
@@ -37,6 +38,7 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, actionLog, s
   const scopeSchoolId = canManageAll ? selectedSchoolId : currentUser?.schoolId;
   const scopedSchool = schools.find((school) => school.id === scopeSchoolId) || schools[0] || null;
   const roleOptions = canManageAll ? roles : roles.filter((role) => principalDelegableRoles.includes(role.key));
+  const { errors, validate, clearError, clearAll } = useFormValidation();
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -140,10 +142,15 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, actionLog, s
 
   const submit = (e) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.username.trim() || !form.password.trim()) {
-      window.alert("أكمل الاسم واسم المستخدم وكلمة المرور.");
-      return;
-    }
+    const ok = validate({
+      name:     [validators.required('الاسم')],
+      username: [validators.username('اسم الدخول'), validators.notExists('اسم الدخول', users, 'username')],
+      password: [validators.password('كلمة المرور')],
+      email:    [validators.email('البريد الإلكتروني')],
+      mobile:   [validators.mobile('رقم الجوال')],
+    }, form);
+    if (!ok) return;
+    clearAll();
     onAddUser({
       ...form,
       schoolId: form.role === "superadmin" ? null : Number(form.schoolId || scopeSchoolId || schools[0]?.id || 1),
@@ -269,10 +276,10 @@ function UsersPage({ users, schools, currentUser, selectedSchoolId, actionLog, s
             </div>
           ) : null}
           <form onSubmit={submit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Input label="اسم المستخدم الفعلي" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="مثال: أ. ناصر الشهراني" />
-            <Input label="البريد الإلكتروني" value={form.email} onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value.trim().toLowerCase() }))} placeholder="name@example.com" />
-            <Input label="اسم الدخول" value={form.username} onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value.trim().toLowerCase() }))} placeholder="مثال: ryd011.teacher2" />
-            <Input label="كلمة المرور" value={form.password} onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))} placeholder="123456" />
+            <Input required label="اسم المستخدم الفعلي" value={form.name} error={errors.name} onChange={(e) => { setForm((prev) => ({ ...prev, name: e.target.value })); clearError('name'); }} placeholder="مثال: أ. ناصر الشهراني" />
+            <Input label="البريد الإلكتروني" value={form.email} error={errors.email} onChange={(e) => { setForm((prev) => ({ ...prev, email: e.target.value.trim().toLowerCase() })); clearError('email'); }} placeholder="name@example.com" hint="اختياري" />
+            <Input required label="اسم الدخول" value={form.username} error={errors.username} onChange={(e) => { setForm((prev) => ({ ...prev, username: e.target.value.trim().toLowerCase() })); clearError('username'); }} placeholder="مثال: ryd011.teacher2" />
+            <Input required label="كلمة المرور" value={form.password} error={errors.password} onChange={(e) => { setForm((prev) => ({ ...prev, password: e.target.value })); clearError('password'); }} placeholder="123456" />
             <Select label="الدور" value={form.role} onChange={(e) => handleRoleChange(e.target.value)}>
               {roleOptions.map((role) => <option key={role.key} value={role.key}>{role.label}</option>)}
             </Select>

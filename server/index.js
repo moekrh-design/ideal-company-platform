@@ -305,7 +305,9 @@ async function verifyPassword(plainPassword, storedPassword) {
 }
 
 async function normalizeUsersForStorage(users = [], existingUsers = [], schools = []) {
-  const preparedUsers = ensureDemoUsers(users || [], schools || []);
+  // [FIX-v1.8.2] حذف المستخدمين التجريبيين بعد ensureDemoUsers لمنع ظهورهم في صفحة المستخدمين
+  const _demoUsernames = new Set(['manager.demo', 'teacher.demo', 'agent.demo', 'counselor.demo']);
+  const preparedUsers = ensureDemoUsers(users || [], schools || []).filter(u => !_demoUsernames.has(String(u.username || '').toLowerCase()));
   const existingMap = new Map((existingUsers || []).map((user) => [user.id, user]));
   const results = [];
   for (const user of preparedUsers) {
@@ -672,6 +674,22 @@ async function saveSharedState(state, actor = null) {
         const missingClassrooms = serverClassrooms.filter(c => !incomingCRIds.has(String(c.id)));
         if (!incomingSchool.structure) incomingSchool.structure = {};
         incomingSchool.structure.classrooms = [...incomingClassrooms, ...missingClassrooms];
+      }
+    }
+  }
+  // ===== [FIX-v1.8.3] حماية المستخدمين: منع حذف مستخدمين موجودين في الخادم =====
+  // المشكلة: المعلم يُرسل state بـ users مُصفّاة (مدرسته فقط) فيُحذف باقي المستخدمين
+  // الحل: دمج المستخدمين الواردين مع الموجودين في الخادم بحيث لا يُحذف أي مستخدم
+  if (Array.isArray(current.users) && current.users.length > 0) {
+    if (!Array.isArray(state.users) || state.users.length === 0) {
+      console.warn(`[PROTECT-USERS] Incoming state has no users! Keeping all ${current.users.length} server users.`);
+      state.users = current.users;
+    } else {
+      const incomingUserIds = new Set(state.users.map(u => String(u.id)));
+      const missingUsers = current.users.filter(u => !incomingUserIds.has(String(u.id)));
+      if (missingUsers.length > 0) {
+        console.warn(`[PROTECT-USERS] Prevented deletion of ${missingUsers.length} users: ${missingUsers.map(u => u.name || u.username).join(', ')}`);
+        state.users = [...state.users, ...missingUsers];
       }
     }
   }
@@ -4291,7 +4309,7 @@ function serveStatic(req, res) {
   // index.html لا يُخزَّن مؤقتاً لضمان تحميل أحدث نسخة دائماً
   const isAsset = pathname.startsWith('/assets/');
   const cacheHeader = isAsset
-    ? 'public, max-age=31536000, immutable'
+    ? 'no-cache, no-store, must-revalidate'
     : 'no-cache, no-store, must-revalidate';
 
   res.writeHead(200, {
@@ -5347,6 +5365,8 @@ const server = http.createServer(async (req, res) => {
         });
         if (automated?.state) saved = await saveSharedState(automated.state, actor);
       }
+      // ✅ إصلاح: بث التحديث لشاشة العرض فوراً بعد حفظ المكافأة/الخصم
+      broadcastAllLive(saved);
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, student: applied.student, state: sanitizeStateForClient(saved, actor) });
     }
 
@@ -5359,6 +5379,8 @@ const server = http.createServer(async (req, res) => {
       const applied = await applyProgramToState(await getSharedState(), schoolId, body, actor);
       if (!applied.ok) return sendJson(res, 400, applied);
       const saved = await saveSharedState(applied.state, actor);
+      // ✅ إصلاح: بث التحديث لشاشة العرض فوراً بعد حفظ البرنامج
+      broadcastAllLive(saved);
       return sendJson(res, 200, { ok: true, message: applied.message, logEntry: applied.logEntry, state: sanitizeStateForClient(saved, actor) });
     }
 
@@ -6666,10 +6688,11 @@ const server = http.createServer(async (req, res) => {
       const updatedSchools = [...currentState.schools];
       updatedSchools[schoolIdx] = updatedSchool;
       const newState = { ...currentState, schools: updatedSchools };
-      await saveSharedState(newState, actor);
+      const saved = await saveSharedState(newState, actor);
       // إرسال تحديث فوري لشاشات العرض
-      broadcastAllLive(newState);
-      return sendJson(res, 200, { ok: true, message: 'تم حفظ التحضير بنجاح.' });
+      broadcastAllLive(saved);
+      // ✅ إصلاح: إرجاع state المحدّث حتى يبقى الـ frontend متزامناً مع شاشة العرض
+      return sendJson(res, 200, { ok: true, message: 'تم حفظ التحضير بنجاح.', state: sanitizeStateForClient(saved) });
     }
     // ===== نهاية تحضير الحصص =====
 
