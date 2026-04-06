@@ -4769,7 +4769,7 @@ export default function App() {
       setSyncStatus("online");
       pushNotification("تسجيل دخول", `تم الدخول بحساب ${response.user?.name || user?.name || username}.`);
       // === FIX: إعادة تحميل الصفحة بعد الدخول لضمان تحميل كل البيانات ===
-      setTimeout(() => { window.location.reload(); }, 300);
+      setTimeout(() => { if (getSessionToken()) window.location.reload(); }, 800);
       return { ok: true };
     } catch (error) {
       console.error(error);
